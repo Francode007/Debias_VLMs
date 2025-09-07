@@ -72,6 +72,8 @@ class ScriptArguments:
     save_steps: Optional[int] = field(default=100)
     cls_embs_path: Optional[str] = field(default='')
     debug: Optional[bool] = field(default=False)
+    # Memory management
+    batch_size: Optional[int] = field(default=1, metadata={"help": "Processing batch size for memory management"})
 
 
 parser = HfArgumentParser(ScriptArguments)

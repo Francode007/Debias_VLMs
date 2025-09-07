@@ -265,3 +265,4 @@ tb_logs/
 # Hugging Face cache
 .cache/
 transformers_cache/
+sb_bench_data/
