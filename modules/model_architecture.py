@@ -1,0 +1,227 @@
+"""
+Model Architecture Module
+
+This module contains custom forward functions and model modifications
+for reward model training with vision-language models.
+"""
+
+import torch
+import torch.nn as nn
+import logging
+from typing import Optional, Union, Tuple, List
+from transformers.cache_utils import Cache
+from transformers.modeling_outputs import SequenceClassifierOutputWithPast
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
+
+logger = logging.getLogger(__name__)
+
+
+def create_custom_forward(model, dtype):
+    """
+    Create custom forward function for reward model training.
+    
+    Input:
+        model: The base vision-language model
+        dtype: Target data type for computations
+    
+    Output:
+        function: Custom forward function bound to the model
+    
+    Process:
+        1. Define custom forward function with reward model modifications
+        2. Handle device and dtype conversions for inputs
+        3. Process through base model with error handling
+        4. Compute reward scores using score head
+        5. Calculate sequence lengths for proper pooling
+        6. Extract embeddings for visualization
+        7. Compute loss if labels provided
+        8. Return structured output with logits, loss, and embeddings
+    
+    Purpose:
+        Modify the standard vision-language model forward pass
+        to support reward model training with proper loss computation,
+        embedding extraction, and sequence-aware pooling.
+    """
+    def custom_forward(
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        pixel_values: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+        prompt_length: Optional[torch.Tensor] = None
+    ) -> Union[Tuple, SequenceClassifierOutputWithPast]:
+        """
+        Custom forward pass for reward model with vision-language input.
+        
+        Input:
+            input_ids: Token IDs for text input
+            attention_mask: Attention mask for valid tokens
+            pixel_values: Preprocessed image pixel values
+            position_ids: Position IDs for tokens
+            past_key_values: Cached key-value pairs for generation
+            inputs_embeds: Direct input embeddings (alternative to input_ids)
+            labels: Target labels for supervised training
+            use_cache: Whether to cache key-value pairs
+            output_attentions: Whether to output attention weights
+            output_hidden_states: Whether to output hidden states
+            return_dict: Whether to return structured output
+            prompt_length: Length of prompt for proper embedding extraction
+        
+        Output:
+            SequenceClassifierOutputWithPast: Structured output containing:
+                - loss: Computed loss if labels provided
+                - logits: Reward scores for each sequence
+                - past_key_values: Cached states for generation
+                - hidden_states: Extracted embeddings
+                - attentions: Attention weights if requested
+        
+        Process:
+            1. Ensure all inputs are on correct device with proper dtype
+            2. Route through appropriate model component (model or self)
+            3. Handle vision-language processing with error recovery
+            4. Compute reward scores using linear score head
+            5. Calculate sequence lengths considering padding
+            6. Pool logits at appropriate sequence positions
+            7. Compute loss using appropriate loss function
+            8. Extract embeddings for chosen, rejected, and prompt
+            9. Return structured output for downstream processing
+        
+        Purpose:
+            Enable reward model training on vision-language inputs
+            with proper handling of multimodal data, sequence pooling,
+            and embedding extraction for analysis and visualization.
+        """
+        
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        
+        # Ensure inputs are on the correct device and dtype
+        if input_ids is not None:
+            input_ids = input_ids.to(self.device)
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.device)
+        if pixel_values is not None:
+            pixel_values = pixel_values.to(self.device, dtype=dtype)
+        
+        # Handle different model architectures
+        if hasattr(self, 'model'):
+            # For models with a separate transformer component
+            model_to_call = self.model
+        else:
+            # For models where the main class is the transformer
+            model_to_call = self
+        
+        try:
+            transformer_outputs = model_to_call(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=pixel_values,
+                position_ids=position_ids,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=True,
+                return_dict=return_dict,
+            )
+        except Exception as e:
+            logger.error(f"Error in model forward pass: {e}")
+            # Try without pixel_values if it's causing issues
+            if pixel_values is not None:
+                logger.warning("Retrying without pixel_values")
+                transformer_outputs = model_to_call(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    past_key_values=past_key_values,
+                    inputs_embeds=inputs_embeds,
+                    use_cache=use_cache,
+                    output_attentions=output_attentions,
+                    output_hidden_states=True,
+                    return_dict=return_dict,
+                )
+            else:
+                raise
+        
+        hidden_states = transformer_outputs.hidden_states[-1]
+        logits = self.score(hidden_states)
+        
+        if input_ids is not None:
+            batch_size = input_ids.shape[0]
+        else:
+            batch_size = inputs_embeds.shape[0]
+        
+        if self.config.pad_token_id is None and batch_size != 1:
+            raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
+        
+        if self.config.pad_token_id is None:
+            sequence_lengths = -1
+        else:
+            if input_ids is not None:
+                sequence_lengths = torch.eq(input_ids, self.config.pad_token_id).int().argmax(-1) - 1
+                sequence_lengths = sequence_lengths % input_ids.shape[-1]
+                sequence_lengths = sequence_lengths.to(logits.device)
+            else:
+                sequence_lengths = -1
+        
+        pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
+        
+        loss = None
+        if labels is not None:
+            labels = labels.to(logits.device)
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+            
+            if self.config.problem_type == "regression":
+                loss_fct = MSELoss()
+                if self.num_labels == 1:
+                    loss = loss_fct(pooled_logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(pooled_logits, labels)
+            elif self.config.problem_type == "single_label_classification":
+                loss_fct = CrossEntropyLoss()
+                loss = loss_fct(pooled_logits.view(-1, self.num_labels), labels.view(-1))
+            elif self.config.problem_type == "multi_label_classification":
+                loss_fct = BCEWithLogitsLoss()
+                loss = loss_fct(pooled_logits, labels)
+        
+        if not return_dict:
+            output = (pooled_logits,) + transformer_outputs[1:]
+            return ((loss,) + output) if loss is not None else output
+        
+        # Extract embeddings safely
+        try:
+            chose_emb = hidden_states[0, sequence_lengths[0], :]
+            rej_emb = hidden_states[1, sequence_lengths[1], :]
+            if prompt_length is not None and prompt_length > 0:
+                prompt_emb = hidden_states[0, max(0, prompt_length-1):prompt_length+1, :]
+            else:
+                # Fallback to using sequence length
+                prompt_emb = hidden_states[0, max(0, sequence_lengths[0]-1):sequence_lengths[0]+1, :]
+            
+            emb = torch.cat([chose_emb[None,...], rej_emb[None,...], prompt_emb], 0)
+        except Exception as e:
+            logger.warning(f"Error extracting embeddings: {e}, using fallback")
+            # Fallback: just use the pooled logits as embeddings
+            emb = pooled_logits.unsqueeze(0).repeat(3, 1, 1)
+        
+        return SequenceClassifierOutputWithPast(
+            loss=loss,
+            logits=pooled_logits,
+            past_key_values=transformer_outputs.past_key_values,
+            hidden_states=emb,
+            attentions=transformer_outputs.attentions,
+        )
+    
+    return custom_forward

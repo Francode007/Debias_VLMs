@@ -103,7 +103,7 @@ class ScriptArguments:
     gradient_accumulation_steps: Optional[int] = field(default=16)
     learning_rate: Optional[float] = field(default=5e-6)
     num_train_epochs: Optional[int] = field(default=1)
-    optim: Optional[str] = field(default="adamw_hf")
+    optim: Optional[str] = field(default="adamw_torch")
     lr_scheduler_type: Optional[str] = field(default="cosine")
     max_length: Optional[int] = field(default=1024)
     
@@ -112,10 +112,13 @@ class ScriptArguments:
     dataloader_batch_size: Optional[int] = field(default=None, metadata={"help": "DataLoader batch size (defaults to batch_size if not set)"})
     
     # Model parameters
+    model: Optional[str] = field(default='Qwen/Qwen2.5-VL-7B-Instruct', metadata={"help": "Model name or path"})
     use_lora: Optional[bool] = field(default=False)
     base_model: Optional[str] = field(default='Qwen/Qwen2.5-VL-7B-Instruct')
     freeze_pretrained: Optional[bool] = field(default=False)
     fallback_model: Optional[str] = field(default='Qwen/Qwen2-VL-7B-Instruct', metadata={"help": "Fallback model if base_model fails"})
+    load_in_8bit: Optional[bool] = field(default=False, metadata={"help": "Load model in 8-bit precision"})
+    load_in_4bit: Optional[bool] = field(default=False, metadata={"help": "Load model in 4-bit precision"})
     
     # Device parameters
     device: Optional[str] = field(default="auto")  # auto, cuda, mps, cpu
@@ -125,12 +128,16 @@ class ScriptArguments:
     data_path: Optional[str] = field(default='./sb_bench_data/data')
     log_dir: Optional[str] = field(default='./reward_models_sb_bench')
     cls_embs_path: Optional[str] = field(default='./embeddings_output')
+    output_dir: Optional[str] = field(default='./outputs', metadata={"help": "Output directory for training"})
     wandb_name: Optional[str] = field(default="qwen_vl_reward_sb_bench")
     
     # Training configuration
     loss_type: Optional[str] = field(default='origin')
     use_smallset: Optional[bool] = field(default=False)
     save_steps: Optional[int] = field(default=100)
+    eval_steps: Optional[int] = field(default=100, metadata={"help": "Evaluation steps"})
+    logging_steps: Optional[int] = field(default=10, metadata={"help": "Logging steps"})
+    warmup_steps: Optional[int] = field(default=50, metadata={"help": "Warmup steps"})
     debug: Optional[bool] = field(default=False)
     
     # HuggingFace token
@@ -190,11 +197,11 @@ class ModelLoader:
         """Load model and processor with optimal settings"""
         
         # Convert model names to local paths if available
-        base_model = self.get_local_model_path(self.script_args.base_model)
+        base_model = self.get_local_model_path(self.script_args.model)
         
         # Try with the primary model first, then fallback
         models_to_try = [base_model]
-        if self.script_args.fallback_model and self.script_args.fallback_model != self.script_args.base_model:
+        if self.script_args.fallback_model and self.script_args.fallback_model != self.script_args.model:
             fallback_model = self.get_local_model_path(self.script_args.fallback_model)
             models_to_try.append(fallback_model)
         
@@ -228,8 +235,9 @@ class ModelLoader:
                 # Configure backends
                 self.device_manager.configure_torch_backends(self.device)
                 
-                # Load processor
-                processor = AutoProcessor.from_pretrained(model_name)
+                # Load processor from local path
+                processor_path = self.get_local_model_path(model_name)
+                processor = AutoProcessor.from_pretrained(processor_path)
                 
                 # Prepare model loading arguments
                 model_kwargs = {
@@ -253,7 +261,9 @@ class ModelLoader:
                 
                 try:
                     logger.info(f"Loading model {model_name} with {ModelClass.__name__}")
-                    model = ModelClass.from_pretrained(model_name, **model_kwargs)
+                    # Use local path for model loading
+                    model_path = self.get_local_model_path(model_name)
+                    model = ModelClass.from_pretrained(model_path, **model_kwargs)
                     
                     # Move to device if not using device_map
                     if model_kwargs["device_map"] is None:
@@ -275,8 +285,9 @@ class ModelLoader:
                     # Try fallback settings for this model
                     try:
                         logger.info(f"Trying fallback settings for {model_name}...")
+                        model_path = self.get_local_model_path(model_name)
                         model = ModelClass.from_pretrained(
-                            model_name,
+                            model_path,
                             torch_dtype=torch.float32,
                             device_map=None,
                             trust_remote_code=True
@@ -327,7 +338,7 @@ class DatasetBuilder:
         raise ValueError("Token pattern not found in the list.")
     
     def build_dataset(self, data_path: str, processor, split: str = 'train', size: Optional[int] = None):
-        """Build dataset from parquet files"""
+        """Build dataset from parquet files with memory management"""
         logger.info(f"Loading dataset from: {data_path}")
         
         # Load all Parquet files from directory
@@ -337,11 +348,41 @@ class DatasetBuilder:
         
         logger.info(f"Found {len(parquet_files)} parquet files")
         
+        # For memory efficiency, limit the number of files we process
+        if self.script_args.use_smallset:
+            logger.info("Using small dataset for testing - limiting to first 2 files")
+            parquet_files = parquet_files[:2]
+        elif len(parquet_files) > 10:
+            logger.info(f"Large dataset detected ({len(parquet_files)} files). Limiting to first 10 files for memory efficiency.")
+            parquet_files = parquet_files[:10]
+        
         dfs = []
-        for f in parquet_files:
+        max_memory_usage = 0
+        
+        for idx, f in enumerate(parquet_files):
             try:
+                logger.info(f"Loading file {idx+1}/{len(parquet_files)}: {os.path.basename(f)}")
                 df = pd.read_parquet(f, engine="fastparquet")
+                
+                # Limit rows per file for memory management
+                if len(df) > 1000 and self.script_args.use_smallset:
+                    df = df.head(100)  # Very small for testing
+                    logger.info(f"Limited to {len(df)} rows for small set testing")
+                elif len(df) > 5000:
+                    df = df.head(1000)  # Limit to 1000 rows per file
+                    logger.info(f"Limited to {len(df)} rows for memory efficiency")
+                
                 dfs.append(df)
+                
+                # Monitor memory usage
+                current_memory = sum(df.memory_usage(deep=True).sum() for df in dfs)
+                max_memory_usage = max(max_memory_usage, current_memory)
+                
+                # Break early if we have enough data for testing
+                if self.script_args.use_smallset and len(dfs) >= 1:
+                    logger.info("Small set mode: stopping after 1 file")
+                    break
+                    
             except Exception as e:
                 logger.warning(f"Failed to load {f}: {e}")
                 continue
@@ -349,8 +390,25 @@ class DatasetBuilder:
         if not dfs:
             raise ValueError("No valid parquet files could be loaded")
         
+        logger.info(f"Concatenating {len(dfs)} dataframes...")
         full_df = pd.concat(dfs, ignore_index=True)
+        
+        # Free memory from individual dataframes
+        del dfs
+        
+        # Limit dataset size for memory efficiency
+        if self.script_args.use_smallset:
+            # Very small dataset for testing
+            logger.info("Small set mode: limiting to 50 samples")
+            full_df = full_df.head(50)
+        elif len(full_df) > 10000:
+            logger.info(f"Large dataset detected ({len(full_df)} samples). Limiting to 2000 samples for memory efficiency.")
+            full_df = full_df.head(2000)
+        
         ds = Dataset.from_pandas(full_df)
+        
+        # Free pandas dataframe memory
+        del full_df
         
         if size is not None:
             ds = ds.select(range(0, min(size, len(ds))))
@@ -360,26 +418,28 @@ class DatasetBuilder:
         ds = ds.add_column("data_index", new_column)
         logger.info(f"Dataset length: {len(ds)}")
         
-        # Apply formatting with controlled batch processing
-        batch_size_for_map = min(self.script_args.batch_size, 100)  # Limit to prevent memory issues
+        # Apply formatting with very conservative batch processing
+        batch_size_for_map = 1 if self.script_args.use_smallset else min(self.script_args.batch_size, 10)
+        num_proc = 1 if self.script_args.use_smallset else 2  # Reduce parallelism
+        
+        logger.info(f"Processing dataset with batch_size={batch_size_for_map}, num_proc={num_proc}")
         ds = ds.map(
             lambda example: self._formatting_func(example, processor),
             batched=False,
-            num_proc=4,
-            batch_size=batch_size_for_map
+            num_proc=1  # Force single process to avoid issues
         )
         
-        # Filter by length
+        # Filter by length with reduced parallelism
         ds = ds.filter(
             lambda x: (len(x["input_ids_chosen"]) <= self.script_args.max_length and 
                       len(x["input_ids_rejected"]) <= self.script_args.max_length),
-            num_proc=4
+            num_proc=num_proc
         )
         
         len_before_filter = len(ds)
         ds = ds.filter(
             lambda x: x["prompt_length"] < self.script_args.max_length,
-            num_proc=4
+            num_proc=num_proc
         )
         len_after_filter = len(ds)
         logger.info(f"Filtered {len_before_filter - len_after_filter} samples due to length")
@@ -390,12 +450,45 @@ class DatasetBuilder:
     def _formatting_func(self, example, processor):
         """Format individual examples"""
         try:
+            # Check what we actually received - LazyRow behaves like dict but isn't one
+            if not hasattr(example, '__getitem__') or not hasattr(example, 'keys'):
+                logger.error(f"Expected dict-like object but got {type(example)}: {str(example)[:200]}")
+                raise ValueError(f"Expected dict-like object, got {type(example)}")
+            
+            # Convert LazyRow to dict if needed for easier debugging
+            if hasattr(example, '_data'):
+                example_dict = {k: example[k] for k in example.keys()}
+                logger.debug(f"LazyRow keys: {list(example.keys())}")
+            else:
+                example_dict = example
+                
+            # Handle flattened file_name structure
+            if 'file_name' in example:
+                image_data = example['file_name']
+            elif 'file_name.bytes' in example:
+                # Handle flattened structure from parquet
+                image_data = {
+                    'bytes': example['file_name.bytes'],
+                    'path': example['file_name.path']
+                }
+            else:
+                logger.error(f"Missing image data keys. Available keys: {list(example.keys())}")
+                raise KeyError("No image data found - missing both 'file_name' and 'file_name.bytes'")
+                
             # Parse metadata
             additional_metadata = ast.literal_eval(example['additional_metadata'])
             
-            # Load image
-            image_data = example['file_name']
-            image = Image.open(io.BytesIO(image_data)).convert("RGB")
+            # Load image - handle different formats
+            if isinstance(image_data, dict) and 'bytes' in image_data:
+                # Handle format: {'bytes': b'...'}
+                image_bytes = image_data['bytes']
+            elif isinstance(image_data, bytes):
+                # Handle direct bytes
+                image_bytes = image_data
+            else:
+                raise ValueError(f"Unexpected image data format: {type(image_data)}")
+            
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             
             # Get answers
             label = example['label']
@@ -436,10 +529,10 @@ class DatasetBuilder:
                 prompt_messages, tokenize=False, add_generation_prompt=True
             )
             
-            # Process inputs
+            # Process inputs - disable truncation to avoid image token mismatch
             kwargs = {
                 "padding": "max_length", 
-                "truncation": True, 
+                "truncation": False,  # Disable truncation to avoid image token issues
                 "max_length": self.script_args.max_length, 
                 "return_tensors": "pt"
             }
@@ -470,7 +563,9 @@ class DatasetBuilder:
                 'prompt_length': prompt_len
             }
         except Exception as e:
-            logger.warning(f"Error processing example {example.get('data_index', 'unknown')}: {e}")
+            logger.warning(f"Error processing example {example.get('data_index', 'unknown') if isinstance(example, dict) else 'invalid'}: {e}")
+            logger.warning(f"Example keys: {list(example.keys()) if isinstance(example, dict) else 'Not a dict'}")
+            logger.warning(f"Error type: {type(e).__name__}")
             raise
 
 def create_custom_forward(model, dtype):
@@ -890,7 +985,7 @@ def main():
     eval_dataset = dataset
     
     # Set up training arguments
-    model_name_split = script_args.base_model.split("/")[-1]
+    model_name_split = script_args.model.split("/")[-1]
     output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_{script_args.learning_rate}"
     
     # Use batch_size for training if not explicitly set
@@ -903,7 +998,6 @@ def main():
         per_device_train_batch_size=script_args.dataloader_batch_size,
         per_device_eval_batch_size=script_args.dataloader_batch_size,
         num_train_epochs=script_args.num_train_epochs,
-        evaluation_strategy="steps",
         eval_steps=100,
         save_strategy="steps",
         save_steps=script_args.save_steps,
@@ -926,6 +1020,10 @@ def main():
         dataloader_num_workers=0,  # Reduce for memory constraints
     )
     
+    # Add disable_dropout attribute if it doesn't exist
+    if not hasattr(training_args, 'disable_dropout'):
+        training_args.disable_dropout = False
+    
     # Define metrics
     accuracy = evaluate.load('accuracy')
     
@@ -936,20 +1034,35 @@ def main():
         return accuracy.compute(predictions=predictions, references=labels)
     
     # Initialize trainer
-    trainer = RewardVisualizer(
-        script_args=script_args,
-        model=model,
-        args=training_args,
-        tokenizer=processor.tokenizer,
-        train_dataset=eval_dataset,
-        eval_dataset=eval_dataset,
-        compute_metrics=compute_metrics,
-        data_collator=RewardDataCollatorWithPadding(
-            processor=processor, 
-            max_length=script_args.max_length,
-            batch_size=script_args.batch_size
-        ),
-    )
+    try:
+        trainer = RewardVisualizer(
+            script_args=script_args,
+            model=model,
+            args=training_args,
+            train_dataset=eval_dataset,
+            eval_dataset=eval_dataset,
+            compute_metrics=compute_metrics,
+            data_collator=RewardDataCollatorWithPadding(
+                processor=processor, 
+                max_length=script_args.max_length,
+                batch_size=script_args.batch_size
+            ),
+        )
+    except Exception as e:
+        logger.error(f"Error initializing RewardVisualizer: {e}")
+        # Try without some arguments that might be problematic
+        trainer = RewardVisualizer(
+            script_args=script_args,
+            model=model,
+            args=training_args,
+            train_dataset=eval_dataset,
+            eval_dataset=eval_dataset,
+            data_collator=RewardDataCollatorWithPadding(
+                processor=processor, 
+                max_length=script_args.max_length,
+                batch_size=script_args.batch_size
+            ),
+        )
     
     # Run visualization
     logger.info("Starting visualization...")

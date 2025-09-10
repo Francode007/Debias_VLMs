@@ -9,7 +9,32 @@ import os
 from pathlib import Path
 
 # Local model configurations
-LOCAL_MODELS = {}
+LOCAL_MODELS = {
+    "qwen2-vl-2b": {
+        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2-vl-2b",
+        "hf_name": "Qwen/Qwen2-VL-2B-Instruct",
+        "hidden_size": 1280,
+        "recommended": False
+    },
+    "qwen2-vl-7b": {
+        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2-vl-7b",
+        "hf_name": "Qwen/Qwen2-VL-7B-Instruct",
+        "hidden_size": 3584,
+        "recommended": True
+    },
+    "qwen2.5-vl-3b": {
+        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2.5-vl-3b",
+        "hf_name": "Qwen/Qwen2.5-VL-3B-Instruct",
+        "hidden_size": 2048,
+        "recommended": False
+    },
+    "qwen2.5-vl-7b": {
+        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2.5-vl-7b",
+        "hf_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "hidden_size": 3584,
+        "recommended": False
+    }
+}
 
 def get_local_model_path(model_name: str) -> str:
     """Get local path for a model if available, otherwise return original name"""
