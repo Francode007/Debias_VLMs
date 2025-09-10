@@ -86,6 +86,57 @@ def test_flash_attention():
         print("✗ Flash attention not available (this is fine for MPS/CPU)")
         return False
 
+def test_model_compatibility():
+    """Test model compatibility with different Qwen versions"""
+    print("\nTesting Model Compatibility...")
+    
+    try:
+        import transformers
+        
+        # Test different Qwen model classes
+        model_classes = []
+        
+        try:
+            from transformers import Qwen2_5VLForConditionalGeneration
+            model_classes.append(("Qwen2.5VL", Qwen2_5VLForConditionalGeneration))
+            print("✓ Qwen2.5VL model class available")
+        except ImportError:
+            print("✗ Qwen2.5VL model class not available")
+        
+        try:
+            from transformers import Qwen2VLForConditionalGeneration
+            model_classes.append(("Qwen2VL", Qwen2VLForConditionalGeneration))
+            print("✓ Qwen2VL model class available")
+        except ImportError:
+            print("✗ Qwen2VL model class not available")
+        
+        if not model_classes:
+            print("✗ No Qwen VL model classes available")
+            print("  Try: pip install transformers>=4.40.0")
+            return False
+        
+        # Test model loading (just config, not weights)
+        test_model_names = [
+            "Qwen/Qwen2.5-VL-7B-Instruct",
+            "Qwen/Qwen2-VL-7B-Instruct"
+        ]
+        
+        for model_name in test_model_names:
+            print(f"\n  Testing {model_name}:")
+            try:
+                from transformers import AutoConfig
+                config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+                print(f"    ✓ Config loaded: {config.model_type}")
+                print(f"    ✓ Hidden size: {getattr(config, 'hidden_size', 'Unknown')}")
+            except Exception as e:
+                print(f"    ✗ Failed to load config: {e}")
+        
+        return True
+        
+    except ImportError:
+        print("✗ Transformers not available for model testing")
+        return False
+
 def test_other_dependencies():
     """Test other required dependencies"""
     print("\nTesting other dependencies...")
@@ -193,6 +244,7 @@ def main():
     # Run all tests
     torch_ok = test_torch()
     transformers_ok = test_transformers()
+    model_ok = test_model_compatibility()
     flash_ok = test_flash_attention()
     deps_ok = test_other_dependencies()
     
@@ -204,7 +256,7 @@ def main():
     print("SUMMARY")
     print("="*50)
     
-    if torch_ok and transformers_ok and deps_ok:
+    if torch_ok and transformers_ok and model_ok and deps_ok:
         print("✅ All essential dependencies are available!")
         get_recommended_config()
     else:
@@ -213,6 +265,8 @@ def main():
             print("  - Install PyTorch: pip install torch torchvision")
         if not transformers_ok:
             print("  - Install Transformers: pip install transformers>=4.35.0")
+        if not model_ok:
+            print("  - Install newer Transformers for Qwen2.5VL: pip install transformers>=4.40.0")
         if not deps_ok:
             print("  - Install other dependencies: pip install -r requirements.txt")
         

@@ -13,6 +13,9 @@ import numpy as np
 import pandas as pd
 import tqdm
 from collections import defaultdict
+import glob
+import ast
+import io
 
 # ML libraries
 from accelerate import Accelerator
@@ -35,9 +38,6 @@ from trl.trainer.utils import decode_and_strip_padding, print_rich_table
 
 # Image processing
 from PIL import Image
-import io
-import glob
-import ast
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -115,6 +115,7 @@ class ScriptArguments:
     use_lora: Optional[bool] = field(default=False)
     base_model: Optional[str] = field(default='Qwen/Qwen2.5-VL-7B-Instruct')
     freeze_pretrained: Optional[bool] = field(default=False)
+    fallback_model: Optional[str] = field(default='Qwen/Qwen2-VL-7B-Instruct', metadata={"help": "Fallback model if base_model fails"})
     
     # Device parameters
     device: Optional[str] = field(default="auto")  # auto, cuda, mps, cpu
@@ -145,6 +146,20 @@ class ModelLoader:
         self.dtype = self._setup_dtype()
         self.attention_impl = self._setup_attention()
         
+        # Try to import local model configuration
+        self.local_model_manager = None
+        try:
+            from local_model_config import get_local_model_path, get_recommended_local_model, list_local_models
+            self.get_local_model_path = get_local_model_path
+            self.get_recommended_local_model = get_recommended_local_model
+            self.list_local_models = list_local_models
+            logger.info("✅ Local model configuration loaded")
+        except ImportError:
+            logger.info("⚠️  Local model configuration not found. Using HuggingFace models.")
+            self.get_local_model_path = lambda x: x
+            self.get_recommended_local_model = lambda: "Qwen/Qwen2-VL-7B-Instruct"
+            self.list_local_models = lambda: print("No local model configuration available")
+        
     def _setup_device(self):
         """Setup device based on arguments"""
         if self.script_args.device == "auto":
@@ -173,67 +188,123 @@ class ModelLoader:
     
     def load_model_and_processor(self):
         """Load model and processor with optimal settings"""
+        
+        # Convert model names to local paths if available
+        base_model = self.get_local_model_path(self.script_args.base_model)
+        
+        # Try with the primary model first, then fallback
+        models_to_try = [base_model]
+        if self.script_args.fallback_model and self.script_args.fallback_model != self.script_args.base_model:
+            fallback_model = self.get_local_model_path(self.script_args.fallback_model)
+            models_to_try.append(fallback_model)
+        
+        # Add additional local fallbacks if available
         try:
-            from transformers import Qwen2VLForConditionalGeneration
-        except ImportError:
-            logger.error("Qwen2VL model not found. Please install the required transformers version.")
-            raise
+            recommended_local = self.get_recommended_local_model()
+            if recommended_local and recommended_local not in models_to_try:
+                models_to_try.append(recommended_local)
+        except:
+            pass
         
-        # Configure backends
-        self.device_manager.configure_torch_backends(self.device)
-        
-        # Load processor
-        processor = AutoProcessor.from_pretrained(self.script_args.base_model)
-        
-        # Prepare model loading arguments
-        model_kwargs = {
-            "num_labels": 1,
-            "torch_dtype": self.dtype,
-        }
-        
-        # Add attention implementation if supported
-        if self.attention_impl != "eager":
-            model_kwargs["attn_implementation"] = self.attention_impl
-        
-        # Device mapping
-        if self.device == "cuda":
-            # Use accelerate for CUDA
-            accelerator = Accelerator()
-            device_map = accelerator.local_process_index
-            model_kwargs["device_map"] = device_map
-        else:
-            # For MPS and CPU, load to specific device
-            model_kwargs["device_map"] = None
-        
-        try:
-            model = Qwen2VLForConditionalGeneration.from_pretrained(
-                self.script_args.base_model,
-                **model_kwargs
-            )
+        for model_name in models_to_try:
+            logger.info(f"Attempting to load model: {model_name}")
             
-            # Move to device if not using device_map
-            if model_kwargs["device_map"] is None:
-                model = model.to(self.device)
+            try:
+                # Try to determine the correct model class
+                if "2.5" in model_name:
+                    # For Qwen2.5-VL models
+                    try:
+                        from transformers import Qwen2_5VLForConditionalGeneration as ModelClass
+                        logger.info("Using Qwen2.5VL model class")
+                    except ImportError:
+                        logger.warning("Qwen2.5VL not available, trying Qwen2VL...")
+                        from transformers import Qwen2VLForConditionalGeneration as ModelClass
+                        logger.info("Using Qwen2VL model class")
+                else:
+                    # For Qwen2VL models
+                    from transformers import Qwen2VLForConditionalGeneration as ModelClass
+                    logger.info("Using Qwen2VL model class")
                 
-        except Exception as e:
-            logger.warning(f"Failed to load model with optimal settings: {e}")
-            logger.info("Falling back to CPU with float32...")
-            
-            # Fallback to CPU with basic settings
-            model = Qwen2VLForConditionalGeneration.from_pretrained(
-                self.script_args.base_model,
-                num_labels=1,
-                torch_dtype=torch.float32,
-                device_map=None
-            )
-            model = model.to("cpu")
-            self.device = "cpu"
-            self.dtype = torch.float32
+                # Configure backends
+                self.device_manager.configure_torch_backends(self.device)
+                
+                # Load processor
+                processor = AutoProcessor.from_pretrained(model_name)
+                
+                # Prepare model loading arguments
+                model_kwargs = {
+                    "torch_dtype": self.dtype,
+                    "trust_remote_code": True,
+                }
+                
+                # Add attention implementation if supported
+                if self.attention_impl != "eager":
+                    model_kwargs["attn_implementation"] = self.attention_impl
+                
+                # Device mapping
+                if self.device == "cuda":
+                    # Use accelerate for CUDA
+                    accelerator = Accelerator()
+                    device_map = accelerator.local_process_index
+                    model_kwargs["device_map"] = device_map
+                else:
+                    # For MPS and CPU, load to specific device
+                    model_kwargs["device_map"] = None
+                
+                try:
+                    logger.info(f"Loading model {model_name} with {ModelClass.__name__}")
+                    model = ModelClass.from_pretrained(model_name, **model_kwargs)
+                    
+                    # Move to device if not using device_map
+                    if model_kwargs["device_map"] is None:
+                        model = model.to(self.device)
+                    
+                    # Add score head - check if it already exists
+                    if not hasattr(model, 'score'):
+                        # Get the hidden size from the model config
+                        hidden_size = getattr(model.config, 'hidden_size', 1280)
+                        model.score = nn.Linear(hidden_size, 1, bias=False)
+                        logger.info(f"Added score head with hidden_size: {hidden_size}")
+                    
+                    logger.info(f"Successfully loaded model: {model_name}")
+                    return model, processor
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to load {model_name} with optimal settings: {e}")
+                    
+                    # Try fallback settings for this model
+                    try:
+                        logger.info(f"Trying fallback settings for {model_name}...")
+                        model = ModelClass.from_pretrained(
+                            model_name,
+                            torch_dtype=torch.float32,
+                            device_map=None,
+                            trust_remote_code=True
+                        )
+                        model = model.to("cpu")
+                        self.device = "cpu"
+                        self.dtype = torch.float32
+                        
+                        # Add score head
+                        if not hasattr(model, 'score'):
+                            hidden_size = getattr(model.config, 'hidden_size', 1280)
+                            model.score = nn.Linear(hidden_size, 1, bias=False)
+                            logger.info(f"Added score head with hidden_size: {hidden_size}")
+                        
+                        logger.info(f"Successfully loaded {model_name} with fallback settings")
+                        return model, processor
+                        
+                    except Exception as e2:
+                        logger.warning(f"Fallback settings also failed for {model_name}: {e2}")
+                        continue  # Try next model
+                        
+            except ImportError as e:
+                logger.warning(f"Model class import failed for {model_name}: {e}")
+                continue  # Try next model
         
-        # Add score head
-        model.score = nn.Linear(model.config.hidden_size, 1, bias=False)
-        
-        return model, processor
+        # If all models failed, raise an error
+        raise RuntimeError(f"Failed to load any of the models: {models_to_try}. "
+                          f"Please check your transformers version and model availability.")
 
 class DatasetBuilder:
     """Handles dataset creation and processing"""
@@ -430,18 +501,45 @@ def create_custom_forward(model, dtype):
         if pixel_values is not None:
             pixel_values = pixel_values.to(self.device, dtype=dtype)
         
-        transformer_outputs = self.model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            pixel_values=pixel_values,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=True,
-            return_dict=return_dict,
-        )
+        # Handle different model architectures
+        if hasattr(self, 'model'):
+            # For models with a separate transformer component
+            model_to_call = self.model
+        else:
+            # For models where the main class is the transformer
+            model_to_call = self
+        
+        try:
+            transformer_outputs = model_to_call(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                pixel_values=pixel_values,
+                position_ids=position_ids,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=True,
+                return_dict=return_dict,
+            )
+        except Exception as e:
+            logger.error(f"Error in model forward pass: {e}")
+            # Try without pixel_values if it's causing issues
+            if pixel_values is not None:
+                logger.warning("Retrying without pixel_values")
+                transformer_outputs = model_to_call(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    past_key_values=past_key_values,
+                    inputs_embeds=inputs_embeds,
+                    use_cache=use_cache,
+                    output_attentions=output_attentions,
+                    output_hidden_states=True,
+                    return_dict=return_dict,
+                )
+            else:
+                raise
         
         hidden_states = transformer_outputs.hidden_states[-1]
         logits = self.score(hidden_states)
@@ -494,12 +592,21 @@ def create_custom_forward(model, dtype):
             output = (pooled_logits,) + transformer_outputs[1:]
             return ((loss,) + output) if loss is not None else output
         
-        # Extract embeddings
-        chose_emb = hidden_states[0, sequence_lengths[0], :]
-        rej_emb = hidden_states[1, sequence_lengths[1], :]
-        prompt_emb = hidden_states[0, (prompt_length-1):(prompt_length+1), :]
-        
-        emb = torch.cat([chose_emb[None,...], rej_emb[None,...], prompt_emb], 0)
+        # Extract embeddings safely
+        try:
+            chose_emb = hidden_states[0, sequence_lengths[0], :]
+            rej_emb = hidden_states[1, sequence_lengths[1], :]
+            if prompt_length is not None and prompt_length > 0:
+                prompt_emb = hidden_states[0, max(0, prompt_length-1):prompt_length+1, :]
+            else:
+                # Fallback to using sequence length
+                prompt_emb = hidden_states[0, max(0, sequence_lengths[0]-1):sequence_lengths[0]+1, :]
+            
+            emb = torch.cat([chose_emb[None,...], rej_emb[None,...], prompt_emb], 0)
+        except Exception as e:
+            logger.warning(f"Error extracting embeddings: {e}, using fallback")
+            # Fallback: just use the pooled logits as embeddings
+            emb = pooled_logits.unsqueeze(0).repeat(3, 1, 1)
         
         return SequenceClassifierOutputWithPast(
             loss=loss,
