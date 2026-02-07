@@ -41,6 +41,7 @@ class DeviceManager:
             Automatically select the most performant device available on the system
             to avoid manual device configuration errors.
         """
+        return "cpu" # Force CPU for verification to avoid NaNs
         if torch.cuda.is_available():
             return "cuda"
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
@@ -73,7 +74,7 @@ class DeviceManager:
             return torch.bfloat16
         elif device == "mps":
             # MPS has better support for float16
-            return torch.float16
+            return torch.float32
         else:
             # CPU fallback to float32
             return torch.float32

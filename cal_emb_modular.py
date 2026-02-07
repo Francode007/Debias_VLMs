@@ -97,7 +97,8 @@ def create_training_arguments(script_args: ScriptArguments, model_loader: ModelL
         gradient_checkpointing=True,
         remove_unused_columns=False,
         label_names=[],
-        fp16=model_loader.dtype == torch.float16,
+        # MPS doesn't support fp16 mixed precision in TrainingArguments
+        fp16=(model_loader.dtype == torch.float16 and "mps" not in str(model_loader.device)),
         bf16=model_loader.dtype == torch.bfloat16,
         logging_strategy="steps",
         logging_steps=10,
@@ -110,11 +111,16 @@ def create_training_arguments(script_args: ScriptArguments, model_loader: ModelL
         gradient_checkpointing_kwargs={"use_reentrant": False},
         ddp_find_unused_parameters=False,
         dataloader_num_workers=0,  # Reduce for memory constraints
+        use_cpu=script_args.device == 'cpu',
     )
     
     # Add disable_dropout attribute if it doesn't exist
     if not hasattr(training_args, 'disable_dropout'):
         training_args.disable_dropout = False
+        
+    # Patch for TRL/Transformers compatibility
+    if not hasattr(training_args, 'model_init_kwargs'):
+        training_args.model_init_kwargs = None
     
     return training_args
 
@@ -232,6 +238,39 @@ def main():
         
         # Set up training arguments
         training_args = create_training_arguments(script_args, model_loader)
+        
+        # Patch for TRL/Transformers compatibility
+        # RewardTrainer expects these attributes which are normally in RewardConfig
+        
+        # 1. Attributes with explicit defaults in RewardConfig
+        compatibility_attributes = {
+            'model_init_kwargs': None,
+            'chat_template_path': None,
+            'max_length': script_args.max_length,  # Use script_args value
+            'dataset_num_proc': None,
+            'pad_to_multiple_of': None,
+            'center_rewards_coefficient': None,
+            'activation_offloading': False,
+            'lr_scheduler_kwargs': None,
+            # 'eos_token' and 'pad_token' are handled dynamically below
+        }
+        
+        for attr, default_val in compatibility_attributes.items():
+            if not hasattr(training_args, attr):
+                setattr(training_args, attr, default_val)
+                
+        # 2. Dynamic attributes
+        if not hasattr(training_args, 'eos_token'):
+            try:
+                training_args.eos_token = processor.tokenizer.eos_token or processor.tokenizer.eos_token_id
+            except:
+                training_args.eos_token = None
+                
+        if not hasattr(training_args, 'pad_token'):
+            try:
+                training_args.pad_token = processor.tokenizer.pad_token or processor.tokenizer.pad_token_id
+            except:
+                training_args.pad_token = None
         
         # Define metrics
         compute_metrics = create_metrics()

@@ -99,19 +99,19 @@ class RewardDataCollatorWithPadding:
         
         for feature in features:
             # Chosen
-            merged_features_input_ids.append(feature["input_ids_chosen"])
-            merged_features_attention_mask.append(feature["attention_mask_chosen"])
-            merged_features_pixel_values.append(feature["pixel_values_chosen"])
+            merged_features_input_ids.append(torch.as_tensor(feature["input_ids_chosen"]))
+            merged_features_attention_mask.append(torch.as_tensor(feature["attention_mask_chosen"]))
+            merged_features_pixel_values.append(torch.as_tensor(feature["pixel_values_chosen"]))
             # Rejected
-            merged_features_input_ids.append(feature["input_ids_rejected"])
-            merged_features_attention_mask.append(feature["attention_mask_rejected"])
-            merged_features_pixel_values.append(feature["pixel_values_rejected"])
+            merged_features_input_ids.append(torch.as_tensor(feature["input_ids_rejected"]))
+            merged_features_attention_mask.append(torch.as_tensor(feature["attention_mask_rejected"]))
+            merged_features_pixel_values.append(torch.as_tensor(feature["pixel_values_rejected"]))
         
-        # Stack tensors
+        # Stack tensors (concatenate for pixel values)
         batch = {
             "input_ids": torch.stack(merged_features_input_ids),
             "attention_mask": torch.stack(merged_features_attention_mask),
-            "pixel_values": torch.stack(merged_features_pixel_values),
+            "pixel_values": torch.cat(merged_features_pixel_values, dim=0),
             "prompt": features[0]["prompt"],
             "chosen": features[0]["chosen"],
             "rejected": features[0]["rejected"],
@@ -120,5 +120,24 @@ class RewardDataCollatorWithPadding:
             "prompt_length": features[0]["prompt_length"],
             "data_index": features[0]["data_index"],
         }
+        
+        # Handle Qwen2-VL specific arguments
+        for k in ["image_grid_thw", "video_grid_thw"]:
+            merged_list = []
+            has_key = False
+            for feature in features:
+                if f"{k}_chosen" in feature and f"{k}_rejected" in feature:
+                    has_key = True
+                    merged_list.append(torch.as_tensor(feature[f"{k}_chosen"]))
+                    merged_list.append(torch.as_tensor(feature[f"{k}_rejected"]))
+            
+            if has_key:
+                batch[k] = torch.cat(merged_list, dim=0)
+        
+        # Debug shapes
+        logger.info("--- Batch Shapes ---")
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                logger.info(f"{k}: {v.shape}")
         
         return batch

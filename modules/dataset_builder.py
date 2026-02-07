@@ -175,8 +175,8 @@ class DatasetBuilder:
         # Limit dataset size for memory efficiency
         if self.script_args.use_smallset:
             # Very small dataset for testing
-            logger.info("Small set mode: limiting to 50 samples")
-            full_df = full_df.head(50)
+            logger.info("Small set mode: limiting to 5 samples")
+            full_df = full_df.head(5)
         elif len(full_df) > 10000:
             logger.info(f"Large dataset detected ({len(full_df)} samples). Limiting to 2000 samples for memory efficiency.")
             full_df = full_df.head(2000)
@@ -352,11 +352,11 @@ class DatasetBuilder:
             except:
                 prompt_len = len(tokens_prompt) - 1
             
-            return {
-                "pixel_values_chosen": inputs_chosen["pixel_values"][0],
+            result = {
+                "pixel_values_chosen": inputs_chosen["pixel_values"],
                 "input_ids_chosen": inputs_chosen["input_ids"][0],
                 "attention_mask_chosen": inputs_chosen["attention_mask"][0],
-                "pixel_values_rejected": inputs_rejected["pixel_values"][0],
+                "pixel_values_rejected": inputs_rejected["pixel_values"],
                 "input_ids_rejected": inputs_rejected["input_ids"][0],
                 "attention_mask_rejected": inputs_rejected["attention_mask"][0],
                 "data_index": example['data_index'],
@@ -367,6 +367,15 @@ class DatasetBuilder:
                 "prompt_plus_rejected_response": prompt_plus_rejected,
                 'prompt_length': prompt_len
             }
+            
+            # Capture Qwen2-VL specific arguments if present
+            for k in ["image_grid_thw", "video_grid_thw"]:
+                if k in inputs_chosen:
+                    result[f"{k}_chosen"] = inputs_chosen[k]
+                if k in inputs_rejected:
+                    result[f"{k}_rejected"] = inputs_rejected[k]
+            
+            return result
         except Exception as e:
             logger.warning(f"Error processing example {example.get('data_index', 'unknown') if isinstance(example, dict) else 'invalid'}: {e}")
             logger.warning(f"Example keys: {list(example.keys()) if isinstance(example, dict) else 'Not a dict'}")

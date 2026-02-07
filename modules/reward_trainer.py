@@ -95,11 +95,18 @@ class RewardVisualizer(RewardTrainer):
             NotImplementedError: If unsupported loss type is specified
         """
         try:
+            # Prepare extra kwargs for Qwen2-VL
+            extra_kwargs = {}
+            for k in ["image_grid_thw", "video_grid_thw"]:
+                if k in inputs:
+                    extra_kwargs[k] = inputs[k]
+                    
             res = model(
                 input_ids=inputs["input_ids"], 
                 attention_mask=inputs["attention_mask"], 
                 pixel_values=inputs["pixel_values"], 
-                prompt_length=inputs["prompt_length"]
+                prompt_length=inputs["prompt_length"],
+                **extra_kwargs
             )
         except Exception as e:
             logger.error(f"Error in model forward pass: {e}")
@@ -244,6 +251,10 @@ class RewardVisualizer(RewardTrainer):
                     batch_indices = [inputs["data_index"]]
                 
                 for batch_idx, data_index in enumerate(batch_indices):
+                    # Clear MPS cache to prevent OOM
+                    if torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
+                        
                     fn = os.path.join(cls_embs_path, f"emb_{data_index}.npy")
                     
                     if os.path.exists(fn):
@@ -257,8 +268,14 @@ class RewardVisualizer(RewardTrainer):
                             "attention_mask": inputs["attention_mask"][batch_idx*2:(batch_idx+1)*2],
                             "pixel_values": inputs["pixel_values"][batch_idx*2:(batch_idx+1)*2],
                             "prompt_length": inputs["prompt_length"] if isinstance(inputs["prompt_length"], int) else inputs["prompt_length"][batch_idx],
+                            "prompt_length": inputs["prompt_length"] if isinstance(inputs["prompt_length"], int) else inputs["prompt_length"][batch_idx],
                             "data_index": data_index
                         }
+                        
+                        # Handle specific arguments for Qwen2-VL
+                        for k in ["image_grid_thw", "video_grid_thw"]:
+                            if k in inputs:
+                                single_input[k] = inputs[k][batch_idx*2:(batch_idx+1)*2]
                     else:
                         single_input = inputs
                     

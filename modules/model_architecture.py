@@ -55,48 +55,11 @@ def create_custom_forward(model, dtype):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        prompt_length: Optional[torch.Tensor] = None
+        prompt_length: Optional[torch.Tensor] = None,
+        **kwargs
     ) -> Union[Tuple, SequenceClassifierOutputWithPast]:
         """
         Custom forward pass for reward model with vision-language input.
-        
-        Input:
-            input_ids: Token IDs for text input
-            attention_mask: Attention mask for valid tokens
-            pixel_values: Preprocessed image pixel values
-            position_ids: Position IDs for tokens
-            past_key_values: Cached key-value pairs for generation
-            inputs_embeds: Direct input embeddings (alternative to input_ids)
-            labels: Target labels for supervised training
-            use_cache: Whether to cache key-value pairs
-            output_attentions: Whether to output attention weights
-            output_hidden_states: Whether to output hidden states
-            return_dict: Whether to return structured output
-            prompt_length: Length of prompt for proper embedding extraction
-        
-        Output:
-            SequenceClassifierOutputWithPast: Structured output containing:
-                - loss: Computed loss if labels provided
-                - logits: Reward scores for each sequence
-                - past_key_values: Cached states for generation
-                - hidden_states: Extracted embeddings
-                - attentions: Attention weights if requested
-        
-        Process:
-            1. Ensure all inputs are on correct device with proper dtype
-            2. Route through appropriate model component (model or self)
-            3. Handle vision-language processing with error recovery
-            4. Compute reward scores using linear score head
-            5. Calculate sequence lengths considering padding
-            6. Pool logits at appropriate sequence positions
-            7. Compute loss using appropriate loss function
-            8. Extract embeddings for chosen, rejected, and prompt
-            9. Return structured output for downstream processing
-        
-        Purpose:
-            Enable reward model training on vision-language inputs
-            with proper handling of multimodal data, sequence pooling,
-            and embedding extraction for analysis and visualization.
         """
         
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -108,6 +71,11 @@ def create_custom_forward(model, dtype):
             attention_mask = attention_mask.to(self.device)
         if pixel_values is not None:
             pixel_values = pixel_values.to(self.device, dtype=dtype)
+        
+        # Handle kwargs tensors (e.g. image_grid_thw)
+        for k, v in kwargs.items():
+            if isinstance(v, torch.Tensor):
+                kwargs[k] = v.to(self.device)
         
         # Handle different model architectures
         if hasattr(self, 'model'):
@@ -129,6 +97,7 @@ def create_custom_forward(model, dtype):
                 output_attentions=output_attentions,
                 output_hidden_states=True,
                 return_dict=return_dict,
+                **kwargs
             )
         except Exception as e:
             logger.error(f"Error in model forward pass: {e}")
@@ -148,6 +117,7 @@ def create_custom_forward(model, dtype):
                 )
             else:
                 raise
+        
         
         hidden_states = transformer_outputs.hidden_states[-1]
         logits = self.score(hidden_states)
