@@ -242,56 +242,50 @@ class RewardVisualizer(RewardTrainer):
         processed_samples = 0
         for idx, inputs in tqdm.tqdm(enumerate(eval_dataloader), desc="Processing samples"):
             try:
-                # Handle batch processing - process each item in the batch
-                if isinstance(inputs["data_index"], torch.Tensor):
-                    batch_indices = inputs["data_index"].tolist()
+                data_indices = inputs["data_index"]
+                if isinstance(data_indices, torch.Tensor):
+                    batch_indices = data_indices.tolist()
                     if not isinstance(batch_indices, list):
                         batch_indices = [batch_indices]
                 else:
-                    batch_indices = [inputs["data_index"]]
-                
+                    batch_indices = list(data_indices)
+                n_pairs = len(batch_indices)
+
                 for batch_idx, data_index in enumerate(batch_indices):
-                    # Clear MPS cache to prevent OOM
                     if torch.backends.mps.is_available():
                         torch.mps.empty_cache()
-                        
+
                     fn = os.path.join(cls_embs_path, f"emb_{data_index}.npy")
-                    
                     if os.path.exists(fn):
                         continue
-                    
-                    # Extract single sample from batch if needed
-                    if len(batch_indices) > 1:
-                        # Handle batched input
+
+                    pl = inputs["prompt_length"]
+                    prompt_length = pl[batch_idx] if isinstance(pl, (list, tuple)) else pl
+                    if isinstance(prompt_length, torch.Tensor):
+                        prompt_length = prompt_length.item()
+
+                    if n_pairs > 1:
                         single_input = {
-                            "input_ids": inputs["input_ids"][batch_idx*2:(batch_idx+1)*2],  # chosen + rejected
-                            "attention_mask": inputs["attention_mask"][batch_idx*2:(batch_idx+1)*2],
-                            "pixel_values": inputs["pixel_values"][batch_idx*2:(batch_idx+1)*2],
-                            "prompt_length": inputs["prompt_length"] if isinstance(inputs["prompt_length"], int) else inputs["prompt_length"][batch_idx],
-                            "prompt_length": inputs["prompt_length"] if isinstance(inputs["prompt_length"], int) else inputs["prompt_length"][batch_idx],
-                            "data_index": data_index
+                            "input_ids": inputs["input_ids"][batch_idx * 2 : (batch_idx + 1) * 2],
+                            "attention_mask": inputs["attention_mask"][batch_idx * 2 : (batch_idx + 1) * 2],
+                            "pixel_values": inputs["pixel_values"][batch_idx * 2 : (batch_idx + 1) * 2],
+                            "prompt_length": prompt_length,
+                            "data_index": data_index,
                         }
-                        
-                        # Handle specific arguments for Qwen2-VL
                         for k in ["image_grid_thw", "video_grid_thw"]:
                             if k in inputs:
-                                single_input[k] = inputs[k][batch_idx*2:(batch_idx+1)*2]
+                                single_input[k] = inputs[k][batch_idx * 2 : (batch_idx + 1) * 2]
                     else:
-                        single_input = inputs
-                    
+                        single_input = dict(inputs)
+                        single_input["prompt_length"] = prompt_length
+
                     _, logits, _, emb = self.prediction_step(
                         self.model, single_input, prediction_loss_only=False
                     )
-                    
-                    # Extract data - handle both single and batch cases
-                    if isinstance(inputs["chosen"], list):
-                        chosen_text = inputs["chosen"][batch_idx] if len(batch_indices) > 1 else inputs["chosen"][0]
-                        rejected_text = inputs["rejected"][batch_idx] if len(batch_indices) > 1 else inputs["rejected"][0]
-                        prompt = inputs["prompt"][batch_idx] if len(batch_indices) > 1 else inputs["prompt"][0]
-                    else:
-                        chosen_text = inputs["chosen"]
-                        rejected_text = inputs["rejected"]
-                        prompt = inputs["prompt"]
+
+                    chosen_text = inputs["chosen"][batch_idx] if n_pairs > 1 else inputs["chosen"][0]
+                    rejected_text = inputs["rejected"][batch_idx] if n_pairs > 1 else inputs["rejected"][0]
+                    prompt = inputs["prompt"][batch_idx] if n_pairs > 1 else inputs["prompt"][0]
                     
                     source = "sb_bench"
                     
@@ -343,8 +337,8 @@ class RewardVisualizer(RewardTrainer):
                     break
                     
             except Exception as e:
-                logger.error(f"Error processing batch {idx}: {e}")
-                continue
+                logger.exception(f"Error processing batch {idx}: {e}")
+                raise
         
         # Save final results
         df = pd.DataFrame(table)

@@ -95,13 +95,12 @@ def create_custom_forward(model, dtype):
                 inputs_embeds=inputs_embeds,
                 use_cache=use_cache,
                 output_attentions=output_attentions,
-                output_hidden_states=True,
+                output_hidden_states=False,
                 return_dict=return_dict,
                 **kwargs
             )
         except Exception as e:
             logger.error(f"Error in model forward pass: {e}")
-            # Try without pixel_values if it's causing issues
             if pixel_values is not None:
                 logger.warning("Retrying without pixel_values")
                 transformer_outputs = model_to_call(
@@ -112,35 +111,35 @@ def create_custom_forward(model, dtype):
                     inputs_embeds=inputs_embeds,
                     use_cache=use_cache,
                     output_attentions=output_attentions,
-                    output_hidden_states=True,
+                    output_hidden_states=False,
                     return_dict=return_dict,
                 )
             else:
                 raise
-        
-        
-        hidden_states = transformer_outputs.hidden_states[-1]
-        logits = self.score(hidden_states)
-        
+
+        # Use last_hidden_state only (no full hidden_states stack) to save memory
+        hidden_states = transformer_outputs[0] if isinstance(transformer_outputs, tuple) else transformer_outputs.last_hidden_state
+
         if input_ids is not None:
             batch_size = input_ids.shape[0]
         else:
             batch_size = inputs_embeds.shape[0]
-        
+
         if self.config.pad_token_id is None and batch_size != 1:
             raise ValueError("Cannot handle batch sizes > 1 if no padding token is defined.")
-        
+
         if self.config.pad_token_id is None:
             sequence_lengths = -1
         else:
             if input_ids is not None:
                 sequence_lengths = torch.eq(input_ids, self.config.pad_token_id).int().argmax(-1) - 1
                 sequence_lengths = sequence_lengths % input_ids.shape[-1]
-                sequence_lengths = sequence_lengths.to(logits.device)
+                sequence_lengths = sequence_lengths.to(hidden_states.device)
             else:
                 sequence_lengths = -1
-        
-        pooled_logits = logits[torch.arange(batch_size, device=logits.device), sequence_lengths]
+
+        # Phase 1: no score head; use dummy logits so trainer interface still works
+        pooled_logits = torch.zeros(batch_size, 1, device=hidden_states.device, dtype=hidden_states.dtype)
         
         loss = None
         if labels is not None:

@@ -241,13 +241,7 @@ class ModelLoader:
                     if model_kwargs["device_map"] is None:
                         model = model.to(self.device)
                     
-                    # Add score head - check if it already exists
-                    if not hasattr(model, 'score'):
-                        # Get the hidden size from the model config
-                        hidden_size = getattr(model.config, 'hidden_size', 1280)
-                        model.score = nn.Linear(hidden_size, 1, bias=False)
-                        logger.info(f"Added score head with hidden_size: {hidden_size}")
-                    
+                    # Phase 1: no score head; PCA components become reward heads after generate_drm_heads
                     logger.info(f"Successfully loaded model: {model_name}")
                     return model, processor
                     
@@ -267,13 +261,6 @@ class ModelLoader:
                         model = model.to("cpu")
                         self.device = "cpu"
                         self.dtype = torch.float32
-                        
-                        # Add score head
-                        if not hasattr(model, 'score'):
-                            hidden_size = getattr(model.config, 'hidden_size', 1280)
-                            model.score = nn.Linear(hidden_size, 1, bias=False)
-                            logger.info(f"Added score head with hidden_size: {hidden_size}")
-                        
                         logger.info(f"Successfully loaded {model_name} with fallback settings")
                         return model, processor
                         

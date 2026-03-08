@@ -90,6 +90,7 @@ def create_training_arguments(script_args: ScriptArguments, model_loader: ModelL
         per_device_train_batch_size=script_args.dataloader_batch_size,
         per_device_eval_batch_size=script_args.dataloader_batch_size,
         num_train_epochs=script_args.num_train_epochs,
+        evaluation_strategy="steps",
         eval_steps=100,
         save_strategy="steps",
         save_steps=script_args.save_steps,

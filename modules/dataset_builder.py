@@ -189,33 +189,41 @@ class DatasetBuilder:
         if size is not None:
             ds = ds.select(range(0, min(size, len(ds))))
         
-        # Add index column
+        # Add original index column
         new_column = list(range(len(ds)))
-        ds = ds.add_column("data_index", new_column)
-        logger.info(f"Dataset length: {len(ds)}")
+        ds = ds.add_column("orig_index", new_column)
+        logger.info(f"Original dataset length: {len(ds)}")
         
-        # Apply formatting with very conservative batch processing
-        batch_size_for_map = 1 if self.script_args.use_smallset else min(self.script_args.batch_size, 10)
-        num_proc = 1 if self.script_args.use_smallset else 2  # Reduce parallelism
+        # Expand to 2 preference pairs per example (chosen vs rejected_1, chosen vs rejected_2)
+        expanded_rows = []
+        for i in range(len(ds)):
+            row = ds[i]
+            row_dict = {k: row[k] for k in row.keys()}
+            for pair_idx in range(2):
+                new_row = dict(row_dict)
+                new_row["pair_idx"] = pair_idx
+                new_row["data_index"] = i * 2 + pair_idx  # unique global pair index
+                expanded_rows.append(new_row)
+        ds = Dataset.from_list(expanded_rows)
+        logger.info(f"Expanded to {len(ds)} preference pairs (2 per example)")
         
-        logger.info(f"Processing dataset with batch_size={batch_size_for_map}, num_proc={num_proc}")
+        # Apply formatting
         ds = ds.map(
             lambda example: self._formatting_func(example, processor),
             batched=False,
-            num_proc=1  # Force single process to avoid issues
+            num_proc=1
         )
         
-        # Filter by length with reduced parallelism
+        # Filter by length
         ds = ds.filter(
-            lambda x: (len(x["input_ids_chosen"]) <= self.script_args.max_length and 
+            lambda x: (len(x["input_ids_chosen"]) <= self.script_args.max_length and
                       len(x["input_ids_rejected"]) <= self.script_args.max_length),
-            num_proc=num_proc
+            num_proc=1
         )
-        
         len_before_filter = len(ds)
         ds = ds.filter(
             lambda x: x["prompt_length"] < self.script_args.max_length,
-            num_proc=num_proc
+            num_proc=1
         )
         len_after_filter = len(ds)
         logger.info(f"Filtered {len_before_filter - len_after_filter} samples due to length")
@@ -295,37 +303,28 @@ class DatasetBuilder:
             
             image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             
-            # Get answers
-            label = example['label']
+            # SB-Bench: label = correct/non-stereotypical answer index; other two are stereotypical
+            label = int(example['label'])
             chosen = example[f'ans{label}']
-            rejected_idx = 0 if label != 0 else 1
-            rejected = example[f'ans{rejected_idx}']
+            wrong_indices = [i for i in range(3) if i != label]
+            pair_idx = int(example.get('pair_idx', 0))
+            rejected = example[f'ans{wrong_indices[pair_idx]}']
             
-            # Create prompt
+            # Prompt: context + question (no answer in user turn)
             prompt_text = example['context'] + " " + example['question']
             
-            # Create messages
-            chosen_messages = [{
-                "role": "user", 
-                "content": [
-                    {"type": "image", "image": image}, 
-                    {"type": "text", "text": prompt_text + " Answer: " + chosen}
-                ]
-            }]
-            rejected_messages = [{
-                "role": "user", 
-                "content": [
-                    {"type": "image", "image": image}, 
-                    {"type": "text", "text": prompt_text + " Answer: " + rejected}
-                ]
-            }]
-            prompt_messages = [{
-                "role": "user", 
-                "content": [
-                    {"type": "image", "image": image}, 
-                    {"type": "text", "text": prompt_text}
-                ]
-            }]
+            # User/assistant format so token gating finds assistant response boundary
+            chosen_messages = [
+                {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]},
+                {"role": "assistant", "content": [{"type": "text", "text": chosen}]}
+            ]
+            rejected_messages = [
+                {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]},
+                {"role": "assistant", "content": [{"type": "text", "text": rejected}]}
+            ]
+            prompt_messages = [
+                {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]}
+            ]
             
             # Apply chat templates
             prompt_plus_chosen = processor.apply_chat_template(chosen_messages, tokenize=False)
@@ -334,12 +333,12 @@ class DatasetBuilder:
                 prompt_messages, tokenize=False, add_generation_prompt=True
             )
             
-            # Process inputs - disable truncation to avoid image token mismatch
+            # Process inputs: truncation=False to avoid breaking image token alignment; long sequences filtered below
             kwargs = {
-                "padding": "max_length", 
-                "truncation": False,  # Disable truncation to avoid image token issues
-                "max_length": self.script_args.max_length, 
-                "return_tensors": "pt"
+                "padding": "max_length",
+                "truncation": False,
+                "max_length": self.script_args.max_length,
+                "return_tensors": "pt",
             }
             
             inputs_chosen = processor(text=[prompt_plus_chosen], images=[image], **kwargs)

@@ -107,21 +107,22 @@ class RewardDataCollatorWithPadding:
             merged_features_attention_mask.append(torch.as_tensor(feature["attention_mask_rejected"]))
             merged_features_pixel_values.append(torch.as_tensor(feature["pixel_values_rejected"]))
         
-        # Stack tensors (concatenate for pixel values)
+        # Qwen2-VL pixel_values: concat on dim=0 (batch of images)
+        pixel_values = torch.cat(merged_features_pixel_values, dim=0)
+
         batch = {
             "input_ids": torch.stack(merged_features_input_ids),
             "attention_mask": torch.stack(merged_features_attention_mask),
-            "pixel_values": torch.cat(merged_features_pixel_values, dim=0),
-            "prompt": features[0]["prompt"],
-            "chosen": features[0]["chosen"],
-            "rejected": features[0]["rejected"],
-            "prompt_plus_chosen_response": features[0]["prompt_plus_chosen_response"],
-            "prompt_plus_rejected_response": features[0]["prompt_plus_rejected_response"],
-            "prompt_length": features[0]["prompt_length"],
-            "data_index": features[0]["data_index"],
+            "pixel_values": pixel_values,
+            "prompt": [f["prompt"] for f in features],
+            "chosen": [f["chosen"] for f in features],
+            "rejected": [f["rejected"] for f in features],
+            "prompt_plus_chosen_response": [f["prompt_plus_chosen_response"] for f in features],
+            "prompt_plus_rejected_response": [f["prompt_plus_rejected_response"] for f in features],
+            "prompt_length": [f["prompt_length"] for f in features],
+            "data_index": [f["data_index"] for f in features],
         }
         
-        # Handle Qwen2-VL specific arguments
         for k in ["image_grid_thw", "video_grid_thw"]:
             merged_list = []
             has_key = False
@@ -130,14 +131,7 @@ class RewardDataCollatorWithPadding:
                     has_key = True
                     merged_list.append(torch.as_tensor(feature[f"{k}_chosen"]))
                     merged_list.append(torch.as_tensor(feature[f"{k}_rejected"]))
-            
             if has_key:
                 batch[k] = torch.cat(merged_list, dim=0)
-        
-        # Debug shapes
-        logger.info("--- Batch Shapes ---")
-        for k, v in batch.items():
-            if isinstance(v, torch.Tensor):
-                logger.info(f"{k}: {v.shape}")
         
         return batch

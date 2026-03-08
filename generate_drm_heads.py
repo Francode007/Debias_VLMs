@@ -1,110 +1,103 @@
+"""
+Generate orthogonal DRM heads from preference embeddings using PCA.
+
+Loads (chosen, rejected) embeddings from cal_emb output, computes difference
+vectors, runs PCA, and saves each component as a PyTorch .pth state dict
+(both positive and negated directions) for use with score_head.MultipleHead.
+"""
 
 import os
 import glob
-import numpy as np
 import argparse
-from sklearn.decomposition import PCA
+import numpy as np
 import torch
+from sklearn.decomposition import PCA
+
 
 def generate_orthogonal_heads(args):
-    """
-    Generates orthogonal DRM heads using PCA on difference embeddings.
-    """
     input_dir = args.input_dir
     output_dir = args.output_dir
     n_components = args.n_components
-    
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        
-    print(f"Searching for embedding files in {input_dir}...")
-    emb_files = glob.glob(os.path.join(input_dir, "emb_*.npy"))
-    
+    case_name = getattr(args, "case_name", "sb_bench")
+    full_composed = getattr(args, "full_composed", False)
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    emb_files = sorted(glob.glob(os.path.join(input_dir, "emb_*.npy")))
     if not emb_files:
-        print(f"No embedding files found in {input_dir}. Please run cal_emb_modular.py first.")
+        print(f"No embedding files found in {input_dir}. Run cal_emb_modular.py first.")
         return
 
-    print(f"Found {len(emb_files)} embedding files. Loading...")
-    
-    diff_vectors = []
-    
+    print(f"Loading {len(emb_files)} embedding files...")
+    arrays = []
     for f in emb_files:
         try:
-            # Load embedding: shape (3, hidden_dim) -> [chosen, rejected, prompt]
-            emb = np.load(f)
-            
-            # Extract chosen and rejected
-            # Note: Verify the shape and order based on reward_trainer.py
-            # In reward_trainer.py: cls_emb = emb.float().cpu().numpy() [1, 3, hidden] or [3, hidden]
-            # Let's inspect shape dynamically
-            if len(emb.shape) == 3:
-                emb = emb[0] # Remove batch dim if present [1, 3, H] -> [3, H] or [1, 4, H] -> [4, H]
-            
-            # We expect at least 2 vectors (chosen, rejected)
-            # Extra vectors (prompt) are ignored for head generation
-            chosen_emb = emb[0]
-            rejected_emb = emb[1]
-            
-            # Compute difference: chosen - rejected
-            diff = chosen_emb - rejected_emb
-            diff_vectors.append(diff)
-            
+            arr = np.load(f)
+            arrays.append(arr)
         except Exception as e:
             print(f"Error loading {f}: {e}")
             continue
-            
-    if not diff_vectors:
-        print("No valid difference vectors extracted.")
+
+    # Merge: each file is (1, 3, hidden_dim) or (3, hidden_dim) -> chosen, rejected, prompt
+    merged = np.concatenate(arrays, axis=0)
+    if merged.ndim == 3:
+        vectors = merged  # (N, 3, hidden_dim)
+    else:
+        vectors = merged[np.newaxis, ...]  # (1, 3, hidden_dim)
+
+    # Use chosen (0) and rejected (1) only
+    diff = vectors[:, 0, :] - vectors[:, 1, :]  # (N, hidden_dim)
+    print(f"Difference matrix shape: {diff.shape}")
+
+    hidden_dim = diff.shape[1]
+    k = min(n_components, diff.shape[0]) if not full_composed else hidden_dim
+    if k == 0:
+        print("Not enough samples for PCA.")
         return
-        
-    # Stack vectors: (N, hidden_dim)
-    X = np.stack(diff_vectors)
-    print(f"Constructed data matrix X with shape {X.shape}")
-    
-    # Adjust n_components if we have fewer samples than requested
-    n_samples = X.shape[0]
-    if n_samples < n_components:
-        print(f"Warning: n_samples ({n_samples}) < n_components ({n_components}). Adjusting n_components to {n_samples}.")
-        n_components = n_samples
-        
-    if n_components == 0:
-        print("Error: Not enough samples to run PCA (need at least 1).")
-        return
-    
-    # Run PCA
-    print(f"Running PCA with n_components={n_components}...")
-    pca = PCA(n_components=n_components)
-    pca.fit(X)
-    
-    # Extract components (heads)
-    # pca.components_ has shape (n_components, hidden_dim)
-    heads = pca.components_
-    explained_variance = pca.explained_variance_ratio_
-    
-    print("PCA completed.")
-    print(f"Explained variance ratios: {explained_variance}")
-    
-    # Save heads
-    save_path = os.path.join(output_dir, "orthogonal_heads.npy")
-    np.save(save_path, heads)
-    print(f"Saved orthogonal heads to {save_path}")
-    
-    # Verify orthogonality
-    print("Verifying orthogonality...")
-    dot_products = np.dot(heads, heads.T)
-    # Off-diagonal elements should be close to 0
-    off_diagonal = dot_products - np.diag(np.diag(dot_products))
-    max_error = np.max(np.abs(off_diagonal))
-    print(f"Max dot product error (should be close to 0): {max_error:.6f}")
-    
-    # Save explained variance
+
+    print(f"Running PCA with n_components={k}...")
+    pca = PCA(n_components=k)
+    pca.fit(diff)
+    components = pca.components_  # (k, hidden_dim)
+    explained_variance_ratio = pca.explained_variance_ratio_
+    explained_variance = pca.explained_variance_
+
+    print(f"Explained variance ratio (first 10): {explained_variance_ratio[:10]}")
+
+    np.save(os.path.join(output_dir, "explained_variance_ratio.npy"), explained_variance_ratio)
     np.save(os.path.join(output_dir, "explained_variance.npy"), explained_variance)
+    np.save(os.path.join(output_dir, "orthogonal_heads.npy"), components)
+
+    # Save each component as PyTorch state dict (weight shape [1, hidden_dim]) for nn.Linear
+    component_dir = os.path.join(output_dir, f"{case_name}-PCA-component")
+    os.makedirs(component_dir, exist_ok=True)
+
+    for i in range(k):
+        comp = components[i]
+        comp_t = torch.tensor(comp, dtype=torch.float32)
+        comp_2d = comp_t.unsqueeze(0)  # (1, hidden_dim)
+        state = {"weight": comp_2d}
+        path_pos = os.path.join(component_dir, f"{case_name}-PCA-component{i}.pth")
+        torch.save(state, path_pos)
+
+        state_neg = {"weight": (-comp_2d).contiguous()}
+        path_neg = os.path.join(component_dir, f"{case_name}-PCA-component{i + k}.pth")
+        torch.save(state_neg, path_neg)
+
+    print(f"Saved {2 * k} head files (positive + negated) to {component_dir}")
+
+    # Orthogonality check
+    dot = np.dot(components, components.T)
+    off = dot - np.diag(np.diag(dot))
+    print(f"Max off-diagonal dot product: {np.max(np.abs(off)):.6f}")
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate Orthogonal DRM Heads using PCA")
-    parser.add_argument("--input_dir", type=str, default="./embeddings_output", help="Directory containing .npy embedding files")
-    parser.add_argument("--output_dir", type=str, default="./generated_heads", help="Directory to save generated heads")
-    parser.add_argument("--n_components", type=int, default=5, help="Number of orthogonal heads to generate")
-    
+    parser = argparse.ArgumentParser(description="Generate orthogonal DRM heads (PCA) from embeddings")
+    parser.add_argument("--input_dir", type=str, default="./embeddings_output", help="Directory with emb_*.npy files")
+    parser.add_argument("--output_dir", type=str, default="./generated_heads", help="Directory to save heads and metadata")
+    parser.add_argument("--n_components", type=int, default=50, help="Number of PCA components")
+    parser.add_argument("--case_name", type=str, default="sb_bench", help="Prefix for .pth filenames")
+    parser.add_argument("--full_composed", action="store_true", help="Use all dimensions (k=hidden_dim)")
     args = parser.parse_args()
     generate_orthogonal_heads(args)
