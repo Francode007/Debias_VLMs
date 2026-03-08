@@ -4,6 +4,27 @@ Generate orthogonal DRM heads from preference embeddings using PCA.
 Loads (chosen, rejected) embeddings from cal_emb output, computes difference
 vectors, runs PCA, and saves each component as a PyTorch .pth state dict
 (both positive and negated directions) for use with score_head.MultipleHead.
+
+Output (under output_dir/):
+  - explained_variance_ratio.npy : (k,) — fraction of total variance per component.
+  - explained_variance.npy       : (k,) — eigenvalue (variance) per component.
+  - orthogonal_heads.npy         : (k, hidden_dim) — all component vectors.
+  - {case_name}-PCA-component/   : directory of .pth files:
+      - component0 .. component(k-1) : positive direction (w_i).
+      - componentk .. component(2k-1) : negated direction (-w_i).
+
+PCA components (what each one is):
+  - Input to PCA is the matrix of difference vectors: d_n = phi(chosen_n) - phi(rejected_n).
+  - Component i is the i-th principal direction (eigenvector) of the covariance of these
+    differences. So component 0 is the direction of largest variance in (chosen - rejected),
+    component 1 is the next orthogonal direction, etc.
+  - Each component can be interpreted as an axis of preference: responses with higher
+    projection onto w_i are more "in the chosen direction" for that axis. The negated
+    head (-w_i) gives the opposite preference.
+  - For SB-Bench, early components often capture broad stereotype vs non-stereotype;
+    later components can capture finer or category-specific bias dimensions.
+  - Reward for a response embedding phi(y) under head i is: r_i(y) = w_i^T phi(y)
+    (or using -w_i for the negated head). Used in evaluate_drm_heads and in RL.
 """
 
 import os

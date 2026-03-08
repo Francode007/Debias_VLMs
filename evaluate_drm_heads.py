@@ -1,9 +1,28 @@
 """
-Evaluate DRM heads on SB-Bench.
+Evaluate DRM heads on SB-Bench (Phase 1 hypothesis check).
 
-Loads saved embeddings and MultipleHead weights, computes per-head
-rewards for chosen vs rejected, and reports overall and per-category
-accuracy (9 bias categories). Saves results to JSON.
+This script answers: "Do the PCA-derived reward heads actually separate
+chosen (non-stereotypical) from rejected (stereotypical) responses?"
+
+What it does:
+  1. Loads all emb_*.npy from the embedding step (each has chosen_emb, rejected_emb).
+  2. Loads the DRM heads from generate_drm_heads output (directory of .pth files).
+  3. For each head, computes reward_chosen = w^T chosen_emb and reward_rejected = w^T rejected_emb.
+  4. Counts "correct" when reward_chosen > reward_rejected (head prefers non-stereotypical).
+  5. Reports overall accuracy (fraction of pairs where chosen wins) and per-head accuracy.
+  6. Maps each sample back to SB-Bench category (orig_index = data_index // 2) and reports
+     per-category accuracy so you can see which bias dimensions each head captures.
+
+Output (--output_json):
+  - overall_per_head: [acc_head_0, acc_head_1, ...] — accuracy when using only that head.
+  - overall_mean: mean accuracy over all heads/samples.
+  - per_category: for each of the 9 categories, accuracy_per_head and accuracy_mean.
+
+How to interpret (Phase 1 hypothesis):
+  - If overall_mean >> 0.5, the PCA directions collectively separate chosen vs rejected.
+  - If some heads have much higher accuracy than others, those axes are more predictive.
+  - Per-category breakdown shows which heads help for Age, Gender, etc.; useful for
+    selecting or combining heads in Stage 2 (RL).
 """
 
 import os
