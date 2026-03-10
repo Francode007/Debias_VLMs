@@ -72,15 +72,15 @@ class ScriptArguments:
     
     # Model parameters
     model: Optional[str] = field(
-        default='Qwen/Qwen2.5-VL-7B-Instruct',
-        metadata={"help": "Primary model name or path. Can be HuggingFace model ID or local path."}
+        default='Qwen/Qwen2.5-VL-3B-Instruct',
+        metadata={"help": "Primary model name or path. Can be HuggingFace model ID or local path. Default: Qwen2.5-VL 3B."}
     )
     use_lora: Optional[bool] = field(
         default=False,
         metadata={"help": "Whether to use LoRA (Low-Rank Adaptation) for parameter-efficient training."}
     )
     base_model: Optional[str] = field(
-        default='Qwen/Qwen2.5-VL-7B-Instruct',
+        default='Qwen/Qwen2.5-VL-3B-Instruct',
         metadata={"help": "Base model for LoRA training. Usually same as model parameter."}
     )
     freeze_pretrained: Optional[bool] = field(
@@ -88,8 +88,8 @@ class ScriptArguments:
         metadata={"help": "Whether to freeze pretrained model parameters during training."}
     )
     fallback_model: Optional[str] = field(
-        default='Qwen/Qwen2-VL-7B-Instruct',
-        metadata={"help": "Fallback model if primary model fails to load. Provides robustness."}
+        default='Qwen/Qwen2-VL-2B-Instruct',
+        metadata={"help": "Fallback model if primary model fails to load. Qwen2.5-VL has 3B/7B; Qwen2-VL has 2B/7B."}
     )
     load_in_8bit: Optional[bool] = field(
         default=False,
@@ -107,7 +107,7 @@ class ScriptArguments:
     )
     force_fp32: Optional[bool] = field(
         default=False,
-        metadata={"help": "Force float32 precision for compatibility. Useful for debugging precision issues."}
+        metadata={"help": "Force float32 precision. Used automatically on MPS/CPU for stability (avoids NaN); set manually on CUDA if needed."}
     )
     
     # Paths and logging

@@ -36,43 +36,72 @@ class ModelManager:
         self.cache_dir.mkdir(exist_ok=True)
         
         # Model configurations
+        # Qwen2.5-VL (2024-2025): 3B, 7B (default series). 0.5B/1.5B are text-only on HF.
+        # Qwen3.5 series (2026): 800M, 2B, 4B.
         self.model_configs = {
+            "qwen2-vl-2b": {
+                "hf_name": "Qwen/Qwen2-VL-2B-Instruct",
+                "model_class": "Qwen2VLForConditionalGeneration",
+                "processor_class": "Qwen2VLProcessor",
+                "hidden_size": 1536,
+                "description": "Qwen2-VL 2B - smaller, faster",
+                "recommended": False,
+                "size_gb": 4.5
+            },
             "qwen2-vl-7b": {
                 "hf_name": "Qwen/Qwen2-VL-7B-Instruct",
                 "model_class": "Qwen2VLForConditionalGeneration",
                 "processor_class": "Qwen2VLProcessor",
                 "hidden_size": 3584,
-                "description": "Qwen2-VL 7B model - stable and well-supported",
-                "recommended": True,
-                "size_gb": 14.2
-            },
-            "qwen2-vl-2b": {
-                "hf_name": "Qwen/Qwen2-VL-2B-Instruct",
-                "model_class": "Qwen2VLForConditionalGeneration", 
-                "processor_class": "Qwen2VLProcessor",
-                "hidden_size": 1536,
-                "description": "Qwen2-VL 2B model - smaller, faster",
-                "recommended": True,
-                "size_gb": 4.5
-            },
-            "qwen2.5-vl-7b": {
-                "hf_name": "Qwen/Qwen2.5-VL-7B-Instruct",
-                "model_class": "Qwen2_5VLForConditionalGeneration",
-                "processor_class": "Qwen2VLProcessor",
-                "hidden_size": 3584,
-                "description": "Qwen2.5-VL 7B model - newest but may have compatibility issues",
+                "description": "Qwen2-VL 7B - stable and well-supported",
                 "recommended": False,
                 "size_gb": 14.2
             },
             "qwen2.5-vl-3b": {
                 "hf_name": "Qwen/Qwen2.5-VL-3B-Instruct",
                 "model_class": "Qwen2_5VLForConditionalGeneration",
-                "processor_class": "Qwen2VLProcessor", 
+                "processor_class": "Qwen2VLProcessor",
                 "hidden_size": 2048,
-                "description": "Qwen2.5-VL 3B model - balanced size",
-                "recommended": False,
+                "description": "Qwen2.5-VL 3B - default; balanced size",
+                "recommended": True,
                 "size_gb": 6.1
-            }
+            },
+            "qwen2.5-vl-7b": {
+                "hf_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+                "model_class": "Qwen2_5VLForConditionalGeneration",
+                "processor_class": "Qwen2VLProcessor",
+                "hidden_size": 3584,
+                "description": "Qwen2.5-VL 7B - do not use for testing unless explicitly mentioned",
+                "recommended": False,
+                "size_gb": 14.2
+            },
+            "qwen3.5-vl-800m": {
+                "hf_name": "Qwen/Qwen3.5-VL-0.8B-Instruct",
+                "model_class": "Qwen3_5VLForConditionalGeneration",
+                "processor_class": "Qwen2VLProcessor",
+                "hidden_size": 2048,
+                "description": "Qwen3.5-VL 800M (2026)",
+                "recommended": False,
+                "size_gb": 2.0
+            },
+            "qwen3.5-vl-2b": {
+                "hf_name": "Qwen/Qwen3.5-VL-2B-Instruct",
+                "model_class": "Qwen3_5VLForConditionalGeneration",
+                "processor_class": "Qwen2VLProcessor",
+                "hidden_size": 2048,
+                "description": "Qwen3.5-VL 2B (2026)",
+                "recommended": False,
+                "size_gb": 4.5
+            },
+            "qwen3.5-vl-4b": {
+                "hf_name": "Qwen/Qwen3.5-VL-4B-Instruct",
+                "model_class": "Qwen3_5VLForConditionalGeneration",
+                "processor_class": "Qwen2VLProcessor",
+                "hidden_size": 2560,
+                "description": "Qwen3.5-VL 4B (2026)",
+                "recommended": False,
+                "size_gb": 8.0
+            },
         }
     
     def list_available_models(self):

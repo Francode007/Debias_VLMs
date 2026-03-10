@@ -103,7 +103,7 @@ class DeviceManager:
                 import flash_attn
                 return "flash_attention_2"
             except ImportError:
-                logger.warning("Flash attention not available, falling back to eager attention")
+                logger.debug("Flash attention not available, falling back to eager attention")
                 return "eager"
         else:
             # MPS and CPU don't support flash attention

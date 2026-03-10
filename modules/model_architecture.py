@@ -119,6 +119,13 @@ def create_custom_forward(model, dtype):
 
         # Use last_hidden_state only (no full hidden_states stack) to save memory
         hidden_states = transformer_outputs[0] if isinstance(transformer_outputs, tuple) else transformer_outputs.last_hidden_state
+        # #region agent log
+        import json as _json, time as _time
+        _dbg_log = "/Users/franchisnsaikia/Debias_Research/Debias_VLMs/.cursor/debug-61a558.log"
+        _hs = hidden_states.detach()
+        with open(_dbg_log, "a") as _f:
+            _f.write(_json.dumps({"sessionId":"61a558","hypothesisId":"H3","location":"model_architecture.py:hidden_states","message":"hidden_states_stats","data":{"shape":list(_hs.shape),"dtype":str(_hs.dtype),"device":str(_hs.device),"has_nan":bool(torch.isnan(_hs).any()),"has_inf":bool(torch.isinf(_hs).any()),"abs_max":float(_hs.abs().max()) if not torch.isnan(_hs).all() else "all_nan"},"timestamp":int(_time.time()*1000)}) + "\n")
+        # #endregion
 
         if input_ids is not None:
             batch_size = input_ids.shape[0]
@@ -176,13 +183,19 @@ def create_custom_forward(model, dtype):
             if prompt_length is not None and prompt_length > 0:
                 prompt_emb = hidden_states[0, max(0, prompt_length-1):prompt_length+1, :]
             else:
-                # Fallback to using sequence length
                 prompt_emb = hidden_states[0, max(0, sequence_lengths[0]-1):sequence_lengths[0]+1, :]
             
             emb = torch.cat([chose_emb[None,...], rej_emb[None,...], prompt_emb], 0)
+            # #region agent log
+            with open(_dbg_log, "a") as _f:
+                _f.write(_json.dumps({"sessionId":"61a558","hypothesisId":"H4","location":"model_architecture.py:emb_extract","message":"emb_extract_ok","data":{"seq_lengths":sequence_lengths.tolist() if isinstance(sequence_lengths, torch.Tensor) else sequence_lengths,"prompt_length": int(prompt_length) if prompt_length is not None else None,"emb_shape":list(emb.shape),"chose_nan":bool(torch.isnan(chose_emb).any()),"rej_nan":bool(torch.isnan(rej_emb).any()),"prompt_nan":bool(torch.isnan(prompt_emb).any())},"timestamp":int(_time.time()*1000)}) + "\n")
+            # #endregion
         except Exception as e:
             logger.warning(f"Error extracting embeddings: {e}, using fallback")
-            # Fallback: just use the pooled logits as embeddings
+            # #region agent log
+            with open(_dbg_log, "a") as _f:
+                _f.write(_json.dumps({"sessionId":"61a558","hypothesisId":"H4","location":"model_architecture.py:emb_fallback","message":"emb_extract_FAILED","data":{"error":str(e),"seq_lengths":str(sequence_lengths),"prompt_length":str(prompt_length)},"timestamp":int(_time.time()*1000)}) + "\n")
+            # #endregion
             emb = pooled_logits.unsqueeze(0).repeat(3, 1, 1)
         
         return SequenceClassifierOutputWithPast(

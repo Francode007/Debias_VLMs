@@ -9,7 +9,10 @@ import os
 from pathlib import Path
 
 # Local model configurations
+# Qwen2.5-VL (2024-2025): 3B, 7B (0.5B/1.5B are text-only; no VL variants on HF).
+# Qwen3.5 series (2026): 800M, 2B, 4B — add local_path when cached.
 LOCAL_MODELS = {
+    # Qwen2-VL
     "qwen2-vl-2b": {
         "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2-vl-2b",
         "hf_name": "Qwen/Qwen2-VL-2B-Instruct",
@@ -20,20 +23,40 @@ LOCAL_MODELS = {
         "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2-vl-7b",
         "hf_name": "Qwen/Qwen2-VL-7B-Instruct",
         "hidden_size": 3584,
-        "recommended": True
+        "recommended": False
     },
+    # Qwen2.5-VL (default series): 3B, 7B
     "qwen2.5-vl-3b": {
         "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2.5-vl-3b",
         "hf_name": "Qwen/Qwen2.5-VL-3B-Instruct",
         "hidden_size": 2048,
-        "recommended": False
+        "recommended": True
     },
     "qwen2.5-vl-7b": {
         "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2.5-vl-7b",
         "hf_name": "Qwen/Qwen2.5-VL-7B-Instruct",
         "hidden_size": 3584,
         "recommended": False
-    }
+    },
+    # Qwen3.5 series (2026): 800M, 2B, 4B
+    "qwen3.5-vl-800m": {
+        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen3.5-vl-800m",
+        "hf_name": "Qwen/Qwen3.5-VL-0.8B-Instruct",
+        "hidden_size": 2048,
+        "recommended": False
+    },
+    "qwen3.5-vl-2b": {
+        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen3.5-vl-2b",
+        "hf_name": "Qwen/Qwen3.5-VL-2B-Instruct",
+        "hidden_size": 2048,
+        "recommended": False
+    },
+    "qwen3.5-vl-4b": {
+        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen3.5-vl-4b",
+        "hf_name": "Qwen/Qwen3.5-VL-4B-Instruct",
+        "hidden_size": 2560,
+        "recommended": False
+    },
 }
 
 def get_local_model_path(model_name: str) -> str:
@@ -63,22 +86,20 @@ def get_local_model_path(model_name: str) -> str:
     return model_name
 
 def get_recommended_local_model() -> str:
-    """Get the best available local model"""
-    # Prefer qwen2-vl-7b
-    if "qwen2-vl-7b" in LOCAL_MODELS:
-        return LOCAL_MODELS["qwen2-vl-7b"]["local_path"]
-    
-    # Then qwen2-vl-2b  
+    """Get the best available local model (default: Qwen2.5-VL 3B)."""
+    # Prefer default: Qwen2.5-VL 3B
+    if "qwen2.5-vl-3b" in LOCAL_MODELS:
+        return LOCAL_MODELS["qwen2.5-vl-3b"]["local_path"]
+    if "qwen2.5-vl-7b" in LOCAL_MODELS:
+        return LOCAL_MODELS["qwen2.5-vl-7b"]["local_path"]
     if "qwen2-vl-2b" in LOCAL_MODELS:
         return LOCAL_MODELS["qwen2-vl-2b"]["local_path"]
-    
-    # Any available model
+    if "qwen2-vl-7b" in LOCAL_MODELS:
+        return LOCAL_MODELS["qwen2-vl-7b"]["local_path"]
     for config in LOCAL_MODELS.values():
         if config.get("recommended", False):
             return config["local_path"]
-    
-    # Fallback to HuggingFace
-    return "Qwen/Qwen2-VL-7B-Instruct"
+    return "Qwen/Qwen2.5-VL-3B-Instruct"
 
 # Quick access functions
 def list_local_models():

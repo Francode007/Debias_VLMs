@@ -70,6 +70,17 @@ def generate_orthogonal_heads(args):
     diff = vectors[:, 0, :] - vectors[:, 1, :]  # (N, hidden_dim)
     print(f"Difference matrix shape: {diff.shape}")
 
+    # Drop rows with NaN or inf (e.g. from model numerical issues); PCA requires finite input
+    valid = np.isfinite(diff).all(axis=1)
+    if not valid.all():
+        n_bad = int((~valid).sum())
+        print(f"Dropping {n_bad} sample(s) with NaN/inf in embeddings (e.g. model numerical issues).")
+        diff = diff[valid]
+        if diff.shape[0] == 0:
+            print("No valid samples left after dropping NaN/inf. Check embedding extraction (e.g. device/dtype).")
+            return
+        print(f"Difference matrix shape after cleanup: {diff.shape}")
+
     hidden_dim = diff.shape[1]
     k = min(n_components, diff.shape[0]) if not full_composed else hidden_dim
     if k == 0:

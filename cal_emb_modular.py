@@ -7,9 +7,18 @@ pipeline, orchestrating all the modular components.
 
 import os
 import sys
+import warnings
+
+# Reduce noisy warnings (safe to ignore for this pipeline)
+warnings.filterwarnings("ignore", message=".*OpenSSL.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*Python 3.9 will be dropped.*", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated.*", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*loaded as a fast processor by default.*", category=UserWarning)
+
 import logging
 import evaluate
 import numpy as np
+import torch
 from transformers import HfArgumentParser, TrainingArguments
 
 # Import modular components
@@ -84,13 +93,14 @@ def create_training_arguments(script_args: ScriptArguments, model_loader: ModelL
     if script_args.dataloader_batch_size is None:
         script_args.dataloader_batch_size = script_args.batch_size
     
-    training_args = TrainingArguments(
+    # eval_strategy is the current name; older transformers used evaluation_strategy
+    training_kw = dict(
         output_dir=os.path.join(output_name, 'logs'),
         learning_rate=script_args.learning_rate,
         per_device_train_batch_size=script_args.dataloader_batch_size,
         per_device_eval_batch_size=script_args.dataloader_batch_size,
         num_train_epochs=script_args.num_train_epochs,
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         eval_steps=100,
         save_strategy="steps",
         save_steps=script_args.save_steps,
@@ -114,6 +124,8 @@ def create_training_arguments(script_args: ScriptArguments, model_loader: ModelL
         dataloader_num_workers=0,  # Reduce for memory constraints
         use_cpu=script_args.device == 'cpu',
     )
+    
+    training_args = TrainingArguments(**training_kw)
     
     # Add disable_dropout attribute if it doesn't exist
     if not hasattr(training_args, 'disable_dropout'):

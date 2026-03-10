@@ -62,7 +62,7 @@ class ModelLoader:
         except ImportError:
             logger.info("⚠️  Local model configuration not found. Using HuggingFace models.")
             self.get_local_model_path = lambda x: x
-            self.get_recommended_local_model = lambda: "Qwen/Qwen2-VL-7B-Instruct"
+            self.get_recommended_local_model = lambda: "Qwen/Qwen2.5-VL-3B-Instruct"
             self.list_local_models = lambda: print("No local model configuration available")
         
     def _setup_device(self):
@@ -104,19 +104,31 @@ class ModelLoader:
         
         Process:
             1. If force_fp32 is True, use float32 regardless of device
-            2. Otherwise, use DeviceManager to get optimal dtype for device
-            3. Log the selected dtype for debugging
+            2. If device is MPS or CPU, use float32 for numerical stability (avoids NaN/inf)
+            3. Otherwise, use DeviceManager to get optimal dtype for device
+            4. Log the selected dtype for debugging
         
         Purpose:
             Determine the numerical precision to use for model operations,
             balancing performance and numerical stability.
         """
+        # #region agent log
+        import json as _json, time as _time
+        _dbg_log = "/Users/franchisnsaikia/Debias_Research/Debias_VLMs/.cursor/debug-61a558.log"
+        with open(_dbg_log, "a") as _f:
+            _f.write(_json.dumps({"sessionId":"61a558","hypothesisId":"H2","location":"model_loader.py:_setup_dtype","message":"force_fp32_check","data":{"force_fp32":self.script_args.force_fp32,"device":self.device},"timestamp":int(_time.time()*1000)}) + "\n")
+        # #endregion
         if self.script_args.force_fp32:
+            dtype = torch.float32
+        elif self.device in ("mps", "cpu"):
             dtype = torch.float32
         else:
             dtype = self.device_manager.get_optimal_dtype(self.device)
         
-        logger.info(f"Using dtype: {dtype}")
+        if self.device in ("mps", "cpu") and not self.script_args.force_fp32:
+            logger.info(f"Using dtype: {dtype} (fp32 for stability on {self.device.upper()}; avoids NaN/inf)")
+        else:
+            logger.info(f"Using dtype: {dtype}")
         return dtype
     
     def _setup_attention(self):
@@ -188,18 +200,33 @@ class ModelLoader:
             logger.info(f"Attempting to load model: {model_name}")
             
             try:
-                # Try to determine the correct model class
-                if "2.5" in model_name:
-                    # For Qwen2.5-VL models
+                # Use the correct model class; do not mix families (architecture mismatch)
+                if "3.5" in model_name:
+                    # Qwen3.5 series (2026): 800M, 2B, 4B
+                    try:
+                        from transformers import Qwen3_5VLForConditionalGeneration as ModelClass
+                        logger.info("Using Qwen3.5VL model class")
+                    except ImportError:
+                        try:
+                            from transformers import Qwen3VLForConditionalGeneration as ModelClass
+                            logger.info("Using Qwen3VL model class (fallback for 3.5)")
+                        except ImportError:
+                            logger.warning(
+                                "Qwen3.5-VL / Qwen3-VL not available (upgrade transformers). "
+                                "Skipping this model and trying next."
+                            )
+                            continue
+                elif "2.5" in model_name:
                     try:
                         from transformers import Qwen2_5VLForConditionalGeneration as ModelClass
                         logger.info("Using Qwen2.5VL model class")
                     except ImportError:
-                        logger.warning("Qwen2.5VL not available, trying Qwen2VL...")
-                        from transformers import Qwen2VLForConditionalGeneration as ModelClass
-                        logger.info("Using Qwen2VL model class")
+                        logger.warning(
+                            "Qwen2_5VLForConditionalGeneration not available (upgrade transformers). "
+                            "Skipping this model and trying next."
+                        )
+                        continue
                 else:
-                    # For Qwen2VL models
                     from transformers import Qwen2VLForConditionalGeneration as ModelClass
                     logger.info("Using Qwen2VL model class")
                 
@@ -210,9 +237,9 @@ class ModelLoader:
                 processor_path = self.get_local_model_path(model_name)
                 processor = AutoProcessor.from_pretrained(processor_path)
                 
-                # Prepare model loading arguments
+                # Prepare model loading arguments (use dtype; torch_dtype is deprecated in newer transformers)
                 model_kwargs = {
-                    "torch_dtype": self.dtype,
+                    "dtype": self.dtype,
                     "trust_remote_code": True,
                 }
                 
@@ -243,6 +270,12 @@ class ModelLoader:
                     
                     # Phase 1: no score head; PCA components become reward heads after generate_drm_heads
                     logger.info(f"Successfully loaded model: {model_name}")
+                    # #region agent log
+                    _actual_dev = str(next(model.parameters()).device)
+                    _actual_dtype = str(next(model.parameters()).dtype)
+                    with open(_dbg_log, "a") as _f:
+                        _f.write(_json.dumps({"sessionId":"61a558","hypothesisId":"H5","location":"model_loader.py:after_load","message":"model_actual_device","data":{"model_name":model_name,"actual_device":_actual_dev,"actual_dtype":_actual_dtype,"self_device":self.device,"self_dtype":str(self.dtype)},"timestamp":int(_time.time()*1000)}) + "\n")
+                    # #endregion
                     return model, processor
                     
                 except Exception as e:
@@ -254,7 +287,7 @@ class ModelLoader:
                         model_path = self.get_local_model_path(model_name)
                         model = ModelClass.from_pretrained(
                             model_path,
-                            torch_dtype=torch.float32,
+                            dtype=torch.float32,
                             device_map=None,
                             trust_remote_code=True
                         )

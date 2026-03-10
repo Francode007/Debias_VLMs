@@ -40,11 +40,14 @@ Data is written to `./sb_bench_data/data/` (e.g. `sb_bench_data.parquet`). Accep
 
 ### 3. Models
 
-The pipeline uses **Qwen2.5-VL** or **Qwen2-VL**. Paths can be set in `local_model_config.py`; otherwise models are loaded from HuggingFace.
+The pipeline uses **Qwen2.5-VL** (default), **Qwen2-VL**, or **Qwen3.5-VL**. Paths can be set in `local_model_config.py`; otherwise models are loaded from HuggingFace.
 
-- Default: `Qwen/Qwen2.5-VL-7B-Instruct`
-- Fallback: `Qwen/Qwen2-VL-7B-Instruct`
-- Lighter option: `Qwen/Qwen2-VL-2B-Instruct`
+- **Default:** `Qwen/Qwen2.5-VL-3B-Instruct` (Qwen2.5 series 3B; use 1.5B when available)
+- **Fallback:** `Qwen/Qwen2-VL-2B-Instruct`
+- **Supported model series and sizes:**
+  - **Qwen2.5-VL (2024–2025):** 3B, 7B (0.5B/1.5B are text-only on HF; do not use 7B for testing unless explicitly mentioned)
+  - **Qwen2-VL:** 2B, 7B
+  - **Qwen3.5 series (2026):** 800M, 2B, 4B
 
 ### 4. Step 1: Extract Embeddings
 
@@ -53,7 +56,7 @@ Runs the VLM in inference-only mode and saves (chosen, rejected, prompt) hidden-
 ```bash
 python cal_emb_modular.py \
   --device cuda \
-  --model Qwen/Qwen2.5-VL-7B-Instruct \
+  --model Qwen/Qwen2.5-VL-3B-Instruct \
   --data_path ./sb_bench_data/data \
   --cls_embs_path ./embeddings_output \
   --batch_size 1
@@ -112,7 +115,7 @@ chmod +x run_phase1_full.sh
 Overrides (env vars):
 
 ```bash
-DEVICE=cuda MODEL=Qwen/Qwen2-VL-2B-Instruct ./run_phase1_full.sh   # smaller model
+DEVICE=cuda MODEL=Qwen/Qwen2.5-VL-7B-Instruct ./run_phase1_full.sh   # larger model
 USE_SMALLSET=1 ./run_phase1_full.sh   # tiny data for quick test
 N_COMPONENTS=10 ./run_phase1_full.sh   # fewer PCA components
 ```
@@ -202,6 +205,33 @@ So: run the full flow, open `drm_head_results.json`, and interpret `overall_mean
 ## Troubleshooting
 
 - **OOM:** Reduce `--batch_size` to 1, or use `--model Qwen/Qwen2-VL-2B-Instruct`.
-- **NaNs (e.g. on MPS):** Try `--device cpu` or `--force_fp32`.
+- **NaNs in embeddings / PCA "Input X contains NaN":** On **MPS** and **CPU**, the pipeline automatically uses **float32** (`--force_fp32` is set by `run_phase1_full.sh` when `DEVICE=mps` or `DEVICE=cpu`). On CUDA you can pass `--force_fp32` manually if you see NaNs. See below for how fp32 affects runs.
 - **Missing SB-Bench:** Log in with `huggingface-cli login` and accept the dataset terms on the SB-Bench dataset page.
 - **CUDA/MPS:** Device is auto-selected; override with `--device cuda` or `--device mps`.
+- **Invalid buffer size / size mismatch:** On Mac or limited GPU memory, use `MODEL=Qwen/Qwen2-VL-2B-Instruct` and `DEVICE=mps` or `DEVICE=cpu`. For Qwen2.5-VL-7B you need a recent `transformers` with `Qwen2_5VLForConditionalGeneration`; otherwise the loader skips to Qwen2-VL-7B.
+
+---
+
+## Common warnings (are they safe?)
+
+| Warning | Safe? | What to do |
+|--------|--------|------------|
+| **urllib3 NotOpenSSLWarning** (LibreSSL vs OpenSSL) | Yes | Ignore. Your Python’s SSL is LibreSSL; HTTPS still works. |
+| **TRL FutureWarning** (Python 3.9 dropped later) | Yes | Ignore for now; plan to use Python 3.10+ when convenient. |
+| **Flash attention not available, falling back to eager** | Yes | Normal on Mac/CPU. Eager is correct, just slower. |
+| **Image processor loaded as fast processor** | Yes | Informational; no change needed. |
+| **`torch_dtype` is deprecated, use `dtype`** | Yes | Upstream deprecation; safe to ignore. |
+| **qwen2_5_vl instantiated as qwen2_vl** | No | Old transformers loaded Qwen2.5 with wrong class. Upgrade `transformers` or use `Qwen2-VL-7B` / `Qwen2-VL-2B`. |
+| **Invalid buffer size: 14.41 GiB** | No | 7B model too large for device. Use `DEVICE=mps` or `cpu` on Mac and/or `MODEL=Qwen/Qwen2-VL-2B-Instruct`. |
+| **size mismatch for bias (3584 vs 1280)** | No | Architecture mismatch (Qwen2.5 loaded as Qwen2). Fixed by not mixing classes; use correct model or smaller model on Mac. |
+
+### How does `--force_fp32` (or fp32 on MPS/CPU) affect runs?
+
+When the device is **MPS** or **CPU**, the pipeline forces **float32** for model and embedding calculations. When the device is **CUDA**, you can pass `--force_fp32` yourself.
+
+| Effect | What it means |
+|--------|----------------|
+| **Stability** | Reduces or avoids NaN/inf in embeddings. bfloat16/fp16 on MPS or CPU can be incomplete or produce NaNs; fp32 is more reliable. |
+| **Memory** | Uses roughly **2×** the activation memory of fp16 and **2×** the model weight memory of bfloat16. On memory‑limited machines, use a smaller model (e.g. 2B/3B) or `--batch_size 1`. |
+| **Speed** | Slower than bfloat16/fp16 on GPUs that support them. On MPS/CPU, fp32 is usually the stable option anyway, so the main trade-off is memory. |
+| **Quality** | Embeddings and DRM heads are numerically more stable; downstream PCA and evaluation are unaffected aside from avoiding NaNs. |
