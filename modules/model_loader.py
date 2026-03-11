@@ -112,12 +112,6 @@ class ModelLoader:
             Determine the numerical precision to use for model operations,
             balancing performance and numerical stability.
         """
-        # #region agent log
-        import json as _json, time as _time
-        _dbg_log = "/Users/franchisnsaikia/Debias_Research/Debias_VLMs/.cursor/debug-61a558.log"
-        with open(_dbg_log, "a") as _f:
-            _f.write(_json.dumps({"sessionId":"61a558","hypothesisId":"H2","location":"model_loader.py:_setup_dtype","message":"force_fp32_check","data":{"force_fp32":self.script_args.force_fp32,"device":self.device},"timestamp":int(_time.time()*1000)}) + "\n")
-        # #endregion
         if self.script_args.force_fp32:
             dtype = torch.float32
         elif self.device in ("mps", "cpu"):
@@ -270,12 +264,6 @@ class ModelLoader:
                     
                     # Phase 1: no score head; PCA components become reward heads after generate_drm_heads
                     logger.info(f"Successfully loaded model: {model_name}")
-                    # #region agent log
-                    _actual_dev = str(next(model.parameters()).device)
-                    _actual_dtype = str(next(model.parameters()).dtype)
-                    with open(_dbg_log, "a") as _f:
-                        _f.write(_json.dumps({"sessionId":"61a558","hypothesisId":"H5","location":"model_loader.py:after_load","message":"model_actual_device","data":{"model_name":model_name,"actual_device":_actual_dev,"actual_dtype":_actual_dtype,"self_device":self.device,"self_dtype":str(self.dtype)},"timestamp":int(_time.time()*1000)}) + "\n")
-                    # #endregion
                     return model, processor
                     
                 except Exception as e:

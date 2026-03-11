@@ -240,13 +240,6 @@ class RewardVisualizer(RewardTrainer):
         logger.info(f"Processing with batch size: {self.script_args.batch_size}")
         
         processed_samples = 0
-        # #region agent log
-        import json as _json, time as _time
-        _dbg_log = "/Users/franchisnsaikia/Debias_Research/Debias_VLMs/.cursor/debug-61a558.log"
-        def _dbg(msg, data, hyp="H1"):
-            with open(_dbg_log, "a") as _f:
-                _f.write(_json.dumps({"sessionId":"61a558","hypothesisId":hyp,"location":"reward_trainer.py:visualize_samples","message":msg,"data":data,"timestamp":int(_time.time()*1000)}) + "\n")
-        # #endregion
         for idx, inputs in tqdm.tqdm(enumerate(eval_dataloader), desc="Processing samples"):
             try:
                 data_indices = inputs["data_index"]
@@ -264,9 +257,6 @@ class RewardVisualizer(RewardTrainer):
 
                     fn = os.path.join(cls_embs_path, f"emb_{data_index}.npy")
                     if os.path.exists(fn):
-                        # #region agent log
-                        _dbg("cache_hit_skip", {"data_index": data_index, "fn": fn, "exists": True}, "H1")
-                        # #endregion
                         continue
 
                     pl = inputs["prompt_length"]
@@ -321,9 +311,6 @@ class RewardVisualizer(RewardTrainer):
                     # Save embeddings
                     cls_emb = emb.float().cpu().numpy()
                     cls_emb = cls_emb[None, ...]
-                    # #region agent log
-                    _dbg("emb_before_save", {"data_index": data_index, "shape": list(cls_emb.shape), "has_nan": bool(np.isnan(cls_emb).any()), "has_inf": bool(np.isinf(cls_emb).any()), "min": float(np.nanmin(cls_emb)), "max": float(np.nanmax(cls_emb))}, "H3")
-                    # #endregion
                     np.save(fn, cls_emb)
                     
                     # Update table with embeddings and logits
