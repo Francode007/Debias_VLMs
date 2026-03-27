@@ -268,3 +268,4 @@ transformers_cache/
 sb_bench_data/
 models_cache/
 *.npy
+*.json
