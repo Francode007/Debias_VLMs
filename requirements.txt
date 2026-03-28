@@ -54,5 +54,5 @@ scikit-learn>=1.0.0
 # The script references 'xxxxxxxxxxxx' which should be replaced with your actual Hugging Face token
 
 # GPU-Accelerated PCA (Optional but Recommended for A100/H100)
-# To use GPU-accelerated PCA, install RAPIDS cuML:
-# pip install --extra-index-url=https://pypi.nvidia.com cuml-cu12==24.12.*
+--extra-index-url https://pypi.nvidia.com
+cuml-cu12>=24.12.0
