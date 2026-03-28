@@ -121,7 +121,7 @@ def create_training_arguments(script_args: ScriptArguments, model_loader: ModelL
         report_to='none',
         gradient_checkpointing_kwargs={"use_reentrant": False},
         ddp_find_unused_parameters=False,
-        dataloader_num_workers=0,  # Reduce for memory constraints
+        dataloader_num_workers=script_args.dataloader_num_workers,  # Configured via arguments (default 4)
         use_cpu=script_args.device == 'cpu',
     )
     

@@ -20,6 +20,7 @@ fastparquet>=0.8.0
 # Progress and Evaluation
 tqdm>=4.64.0
 evaluate>=0.4.0
+scikit-learn>=1.0.0
 
 # Flash Attention (for CUDA - optional for MPS/CPU)
 # Note: flash-attn only works on CUDA. For MPS/CPU, the code will fallback to eager attention
@@ -51,3 +52,7 @@ evaluate>=0.4.0
 
 # Note: You may need to set HF_TOKEN environment variable or update the token in the script
 # The script references 'xxxxxxxxxxxx' which should be replaced with your actual Hugging Face token
+
+# GPU-Accelerated PCA (Optional but Recommended for A100/H100)
+# To use GPU-accelerated PCA, install RAPIDS cuML:
+# pip install --extra-index-url=https://pypi.nvidia.com cuml-cu12==24.12.*

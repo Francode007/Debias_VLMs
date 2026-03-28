@@ -100,6 +100,7 @@ def main():
     parser.add_argument("--data_path", type=str, default="./sb_bench_data/data", help="SB-Bench parquet dir for categories")
     parser.add_argument("--output_json", type=str, default="./drm_head_results.json", help="Output JSON path")
     parser.add_argument("--num_heads", type=int, default=None, help="Use first N heads (default: all)")
+    parser.add_argument("--batch_size", type=int, default=1024, help="Batch size for evaluation (default: 1024)")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
@@ -119,10 +120,20 @@ def main():
     head.eval()
 
     embs_t = torch.tensor(embs, dtype=torch.float32, device=device)
+    
+    rewards_chosen_list = []
+    rewards_rejected_list = []
+    batch_size = args.batch_size
+    
     with torch.no_grad():
-        rewards_chosen, rewards_rejected = head(embs_t)
-    rewards_chosen = rewards_chosen.cpu().numpy()
-    rewards_rejected = rewards_rejected.cpu().numpy()
+        for i in tqdm(range(0, len(embs_t), batch_size), desc="Evaluating heads"):
+            batch_embs = embs_t[i:i+batch_size]
+            rc, rr = head(batch_embs)
+            rewards_chosen_list.append(rc.cpu().numpy())
+            rewards_rejected_list.append(rr.cpu().numpy())
+            
+    rewards_chosen = np.concatenate(rewards_chosen_list, axis=0)
+    rewards_rejected = np.concatenate(rewards_rejected_list, axis=0)
     num_heads = rewards_chosen.shape[1]
 
     results = {}

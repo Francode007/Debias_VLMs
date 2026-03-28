@@ -69,6 +69,10 @@ class ScriptArguments:
         default=None,
         metadata={"help": "DataLoader batch size. Defaults to batch_size if not set. Used for training/evaluation."}
     )
+    dataloader_num_workers: Optional[int] = field(
+        default=4,
+        metadata={"help": "Number of worker processes for data loading. Increase to avoid GPU starvation."}
+    )
     
     # Model parameters
     model: Optional[str] = field(

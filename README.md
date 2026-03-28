@@ -56,10 +56,11 @@ Runs the VLM in inference-only mode and saves (chosen, rejected, prompt) hidden-
 ```bash
 python cal_emb_modular.py \
   --device cuda \
-  --model Qwen/Qwen2.5-VL-3B-Instruct \
+  --model Qwen/Qwen2-VL-2B-Instruct \
   --data_path ./sb_bench_data/data \
   --cls_embs_path ./embeddings_output \
-  --batch_size 1
+  --batch_size 32 \
+  --dataloader_num_workers 8
 ```
 
 Use `--use_smallset` for a small subset when debugging. Output: `embeddings_output/emb_0.npy`, `emb_1.npy`, … (each shape `(1, 3, hidden_size)` with chosen, rejected, prompt).
@@ -96,6 +97,7 @@ python evaluate_drm_heads.py \
   --emb_dir ./embeddings_output \
   --score_head_weight ./generated_heads/sb_bench-PCA-component \
   --data_path ./sb_bench_data/data \
+  --batch_size 1024 \
   --output_json ./drm_head_results.json
 ```
 
@@ -138,6 +140,18 @@ python evaluate_drm_heads.py --emb_dir ./embeddings_output --score_head_weight .
 ```
 
 Results: `./drm_head_results.json` and printed overall + per-category accuracy.
+
+---
+
+## Optimized GPU Configuration (A100 80GB)
+
+For a high-end GPU like the **80GB A100**, use these settings to saturate the tensor cores and avoid data starvation:
+
+1. **Embeddings:** `python cal_emb_modular.py --device cuda --model Qwen/Qwen2-VL-2B-Instruct --batch_size 32 --dataloader_num_workers 8` (High batch size + parallel CPU loading).
+2. **PCA:** Ensure `cuml` is installed to offload orthogonal head generation to the GPU.
+3. **Evaluation:** Use a large evaluation batch size: `--batch_size 1024`.
+
+These optimizations reduce the total pipeline estimate from ~171 hours to **under 1 hour**.
 
 ---
 

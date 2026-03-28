@@ -104,7 +104,8 @@ def main():
         "--model", model_id,
         "--data_path", data_path,
         "--cls_embs_path", emb_dir,
-        "--batch_size", "1",
+        "--batch_size", "32",
+        "--dataloader_num_workers", "8",
         "--use_smallset"
     ]
     
@@ -164,6 +165,7 @@ def main():
         "--emb_dir", emb_dir,
         "--score_head_weight", "./generated_heads/sb_bench-PCA-component",
         "--data_path", data_path,
+        "--batch_size", "1024",
         "--output_json", "./drm_head_results.json"
     ]
     if platform.system() != "Darwin":

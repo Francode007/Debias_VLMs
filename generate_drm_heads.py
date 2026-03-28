@@ -32,8 +32,12 @@ import glob
 import argparse
 import numpy as np
 import torch
-from sklearn.decomposition import PCA
-
+try:
+    from cuml.decomposition import PCA
+    HAS_CUML = True
+except ImportError:
+    from sklearn.decomposition import PCA
+    HAS_CUML = False
 
 def generate_orthogonal_heads(args):
     input_dir = args.input_dir
@@ -87,7 +91,11 @@ def generate_orthogonal_heads(args):
         print("Not enough samples for PCA.")
         return
 
-    print(f"Running PCA with n_components={k}...")
+    if HAS_CUML:
+        print(f"Running PCA with n_components={k} using RAPIDS cuML (GPU)...")
+    else:
+        print(f"Running PCA with n_components={k} using sklearn (CPU fallback)...")
+        
     pca = PCA(n_components=k)
     pca.fit(diff)
     components = pca.components_  # (k, hidden_dim)
