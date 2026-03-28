@@ -237,6 +237,9 @@ def main():
         logger.info("Loading model and processor...")
         model, processor = model_loader.load_model_and_processor()
         
+        # Reward models must output a single scalar; tell TRL num_labels=1
+        model.config.num_labels = 1
+
         # Create custom forward function
         custom_forward_func = create_custom_forward(model, model_loader.dtype)
         model.forward = custom_forward_func.__get__(model, type(model))
