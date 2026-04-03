@@ -324,9 +324,21 @@ def main():
         
         # Run visualization
         logger.info("Starting visualization...")
-        df = trainer.visualize_samples(int(1e8), script_args.cls_embs_path, script_args.data_path)
         
-        logger.info("Visualization completed successfully!")
+        import time
+        import json
+        
+        t0 = time.time()
+        df = trainer.visualize_samples(int(1e8), script_args.cls_embs_path, script_args.data_path)
+        inference_time = time.time() - t0
+        
+        try:
+            with open("/tmp/inference_metrics.json", "w") as f:
+                json.dump({"inference_time_seconds": inference_time}, f)
+        except Exception as e:
+            logger.warning(f"Could not save inference metrics: {e}")
+            
+        logger.info(f"Visualization completed! Inference time: {inference_time:.2f}s")
         return df
         
     except KeyboardInterrupt:

@@ -231,9 +231,9 @@ class ModelLoader:
                 processor_path = self.get_local_model_path(model_name)
                 processor = AutoProcessor.from_pretrained(processor_path)
                 
-                # Prepare model loading arguments (use dtype; torch_dtype is deprecated in newer transformers)
+                # Prepare model loading arguments (use torch_dtype)
                 model_kwargs = {
-                    "dtype": self.dtype,
+                    "torch_dtype": self.dtype,
                     "trust_remote_code": True,
                 }
                 
@@ -242,15 +242,8 @@ class ModelLoader:
                     model_kwargs["attn_implementation"] = self.attention_impl
                 
                 # Device mapping
-                if self.device == "cuda":
-                    # Use accelerate for CUDA
-                    from accelerate import Accelerator
-                    accelerator = Accelerator()
-                    device_map = accelerator.local_process_index
-                    model_kwargs["device_map"] = device_map
-                else:
-                    # For MPS and CPU, load to specific device
-                    model_kwargs["device_map"] = None
+                # Initialize fully on CPU first, then transfer to device via `.to(self.device)` later
+                model_kwargs["device_map"] = None
                 
                 try:
                     logger.info(f"Loading model {model_name} with {ModelClass.__name__}")
@@ -275,12 +268,11 @@ class ModelLoader:
                         model_path = self.get_local_model_path(model_name)
                         model = ModelClass.from_pretrained(
                             model_path,
-                            dtype=torch.float32,
+                            torch_dtype=torch.float32,
                             device_map=None,
                             trust_remote_code=True
                         )
-                        model = model.to("cpu")
-                        self.device = "cpu"
+                        model = model.to(self.device)
                         self.dtype = torch.float32
                         logger.info(f"Successfully loaded {model_name} with fallback settings")
                         return model, processor

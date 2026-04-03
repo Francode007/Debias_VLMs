@@ -61,7 +61,13 @@ class GPUProfiler:
                 pass
             time.sleep(1.0)
 
+import argparse
+
 def main():
+    parser = argparse.ArgumentParser(description="Profile GPU Pipeline for SB-Bench")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for embedding generation")
+    args = parser.parse_args()
+
     print("=== Pipeline Profiler ===")
     
     # 1. Determine Full Dataset Size
@@ -104,7 +110,7 @@ def main():
         "--model", model_id,
         "--data_path", data_path,
         "--cls_embs_path", emb_dir,
-        "--batch_size", "32",
+        "--batch_size", str(args.batch_size),
         "--dataloader_num_workers", "8",
         "--use_smallset"
     ]
@@ -112,7 +118,7 @@ def main():
     # On non-Mac, we should use CUDA. Make it flexible:
     import platform
     if platform.system() != "Darwin":
-        cmd1[4] = "cuda" # replace mps with cuda
+        cmd1[3] = "cuda" # replace mps with cuda
         
     profiler.start()
     t0 = time.time()
@@ -120,14 +126,31 @@ def main():
     t1 = time.time()
     util1, mem1 = profiler.stop()
     
-    step1_time = t1 - t0
+    step1_time_total = t1 - t0
+    
+    # Read the pure inference time if available
+    inference_time = step1_time_total
+    metrics_path = "/tmp/inference_metrics.json"
+    if os.path.exists(metrics_path):
+        try:
+            with open(metrics_path, "r") as mf:
+                metrics_data = json.load(mf)
+                inference_time = metrics_data.get("inference_time_seconds", step1_time_total)
+        except Exception:
+            pass
+            
     # use_smallset runs on 5 examples -> 10 pairs
     actual_pairs_processed = 10 
-    time_per_pair = step1_time / actual_pairs_processed
-    estimated_step1_full = time_per_pair * total_pairs
+    
+    # Extrapolate based purely on inference time (which scales with pairs), plus model loading overhead once
+    time_per_pair = inference_time / actual_pairs_processed
+    model_load_overhead = step1_time_total - inference_time
+    
+    estimated_step1_full = (time_per_pair * total_pairs) + model_load_overhead
     
     results['Step 1 (Embeddings)'] = {
-        'time_subset': step1_time,
+        'time_subset': step1_time_total,
+        'inference_time_subset': inference_time,
         'mem_max_mb': mem1,
         'util_avg': util1,
         'est_full_time': estimated_step1_full
@@ -166,11 +189,10 @@ def main():
         "--score_head_weight", "./generated_heads/sb_bench-PCA-component",
         "--data_path", data_path,
         "--batch_size", "1024",
-        "--output_json", "./drm_head_results.json"
+        "--output_json", "./drm_head_results.json",
+        "--device", "cpu"
     ]
-    if platform.system() != "Darwin":
-        cmd3.extend(["--device", "cuda"])
-        
+
     profiler.start()
     t0 = time.time()
     subprocess.run(cmd3, check=True)

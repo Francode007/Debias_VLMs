@@ -77,6 +77,18 @@ def create_custom_forward(model, dtype):
             if isinstance(v, torch.Tensor):
                 kwargs[k] = v.to(self.device)
         
+        if pixel_values is not None and "mm_token_type_ids" not in kwargs and input_ids is not None:
+            # Qwen2-VL specific: create mm_token_type_ids for M-RoPE
+            mm_token_type_ids = torch.zeros_like(input_ids)
+            image_token_id = getattr(self.config, "image_token_id", 151655)
+            video_token_id = getattr(self.config, "video_token_id", 151652)
+            
+            # Map vision tokens to type 1
+            mm_token_type_ids[input_ids == image_token_id] = 1
+            mm_token_type_ids[input_ids == video_token_id] = 1
+            
+            kwargs["mm_token_type_ids"] = mm_token_type_ids
+        
         # Handle different model architectures
         if hasattr(self, 'model'):
             # For models with a separate transformer component
@@ -103,6 +115,10 @@ def create_custom_forward(model, dtype):
             logger.error(f"Error in model forward pass: {e}")
             if pixel_values is not None:
                 logger.warning("Retrying without pixel_values")
+                
+                # Strip out multimodal kwargs safely
+                safe_kwargs = {k: v for k, v in kwargs.items() if k not in ["image_grid_thw", "video_grid_thw", "mm_token_type_ids"]}
+                
                 transformer_outputs = model_to_call(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -113,6 +129,7 @@ def create_custom_forward(model, dtype):
                     output_attentions=output_attentions,
                     output_hidden_states=False,
                     return_dict=return_dict,
+                    **safe_kwargs
                 )
             else:
                 raise

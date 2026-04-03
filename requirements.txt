@@ -1,7 +1,10 @@
-# Core ML and Deep Learning Libraries
-torch>=2.0.0
-torchvision>=0.15.0
-numpy>=1.21.0
+--extra-index-url https://download.pytorch.org/whl/cu121
+--extra-index-url https://pypi.nvidia.com
+
+# Core ML and Deep Learning Libraries (Pinned for CUDA 12.1 compatibility per cluster constraints)
+torch>=2.1.2+cu121
+torchvision>=0.16.2+cu121
+numpy>=1.21.0,<2.0.0
 
 # Transformers and Model Libraries
 transformers>=4.35.0
@@ -22,37 +25,12 @@ tqdm>=4.64.0
 evaluate>=0.4.0
 scikit-learn>=1.0.0
 
-# Flash Attention (for CUDA - optional for MPS/CPU)
-# Note: flash-attn only works on CUDA. For MPS/CPU, the code will fallback to eager attention
-# Uncomment the next line only if you have CUDA and want flash attention:
-# flash-attn>=2.0.0
+# Flash Attention
+# Installed to optimize throughput for the Qwen2-VL model on the A100 cluster
+flash-attn>=2.3.0
 
-# MPS and CPU Compatibility Notes:
-# - The flexible version will automatically detect your device (CUDA/MPS/CPU)
-# - For MPS (Apple Silicon): Uses float16 for better performance
-# - For CPU: Uses float32 for stability
-# - Flash attention is automatically disabled on non-CUDA devices
+# GPU-Accelerated PCA (RAPIDS array of identical versions to avoid cudf/rmm mismatch)
+cudf-cu12==24.12.0
+rmm-cu12==24.12.0
+cuml-cu12==24.12.0
 
-# Additional Python Standard Library Dependencies
-# (These are typically included with Python but listed for completeness)
-# dataclasses - part of Python 3.7+
-# typing - part of Python 3.5+
-# os - built-in
-# pickle - built-in
-# random - built-in
-# collections - built-in
-# glob - built-in
-# ast - built-in
-# io - built-in
-
-# Optional: For better performance and GPU support
-# For CUDA support, install torch with CUDA:
-# torch>=2.0.0+cu118 --index-url https://download.pytorch.org/whl/cu118
-# torchvision>=0.15.0+cu118 --index-url https://download.pytorch.org/whl/cu118
-
-# Note: You may need to set HF_TOKEN environment variable or update the token in the script
-# The script references 'xxxxxxxxxxxx' which should be replaced with your actual Hugging Face token
-
-# GPU-Accelerated PCA (Optional but Recommended for A100/H100)
---extra-index-url https://pypi.nvidia.com
-cuml-cu12>=24.12.0
