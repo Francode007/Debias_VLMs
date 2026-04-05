@@ -251,41 +251,34 @@ class RewardVisualizer(RewardTrainer):
                     batch_indices = list(data_indices)
                 n_pairs = len(batch_indices)
 
+                if torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+
+                # Process the entire batch at once natively!
+                # inputs contains `n_pairs` of pairs (chosen/rejected), perfectly collated.
+                batch_inputs = dict(inputs)
+                
+                # Check if we literally already processed all of them
+                # If so, we can skip the computation pass entirely.
+                all_exist = all(os.path.exists(os.path.join(cls_embs_path, f"emb_{d_idx}.npy")) for d_idx in batch_indices)
+                if all_exist:
+                    logger.info(f"Skipping cached batch {idx}")
+                    continue
+
+                _, batched_logits, _, batched_emb = self.prediction_step(
+                    self.model, batch_inputs, prediction_loss_only=False
+                )
+                
+                # batched_logits shape: [n_pairs, 2]
+                # batched_emb shape: [n_pairs * 2, hidden_dim]
+                # Now we iterate through the RESULTS to save them and update the table.
+                
                 for batch_idx, data_index in enumerate(batch_indices):
-                    if torch.backends.mps.is_available():
-                        torch.mps.empty_cache()
-
                     fn = os.path.join(cls_embs_path, f"emb_{data_index}.npy")
-                    if os.path.exists(fn):
-                        continue
-
-                    pl = inputs["prompt_length"]
-                    prompt_length = pl[batch_idx] if isinstance(pl, (list, tuple)) else pl
-                    if isinstance(prompt_length, torch.Tensor):
-                        prompt_length = prompt_length.item()
-
-                    if n_pairs > 1:
-                        single_input = {
-                            "input_ids": inputs["input_ids"][batch_idx * 2 : (batch_idx + 1) * 2],
-                            "attention_mask": inputs["attention_mask"][batch_idx * 2 : (batch_idx + 1) * 2],
-                            "pixel_values": inputs["pixel_values"][batch_idx * 2 : (batch_idx + 1) * 2],
-                            "prompt_length": prompt_length,
-                            "data_index": data_index,
-                        }
-                        for k in ["image_grid_thw", "video_grid_thw"]:
-                            if k in inputs:
-                                single_input[k] = inputs[k][batch_idx * 2 : (batch_idx + 1) * 2]
-                    else:
-                        single_input = dict(inputs)
-                        single_input["prompt_length"] = prompt_length
-
-                    _, logits, _, emb = self.prediction_step(
-                        self.model, single_input, prediction_loss_only=False
-                    )
-
-                    chosen_text = inputs["chosen"][batch_idx] if n_pairs > 1 else inputs["chosen"][0]
-                    rejected_text = inputs["rejected"][batch_idx] if n_pairs > 1 else inputs["rejected"][0]
-                    prompt = inputs["prompt"][batch_idx] if n_pairs > 1 else inputs["prompt"][0]
+                    
+                    chosen_text = inputs["chosen"][batch_idx] if np.ndim(inputs["chosen"]) > 0 else inputs["chosen"]
+                    rejected_text = inputs["rejected"][batch_idx] if np.ndim(inputs["rejected"]) > 0 else inputs["rejected"]
+                    prompt = inputs["prompt"][batch_idx] if np.ndim(inputs["prompt"]) > 0 else inputs["prompt"]
                     
                     source = "sb_bench"
                     
@@ -299,17 +292,20 @@ class RewardVisualizer(RewardTrainer):
                     table["data_index"].append(data_index)
                     
                     processed_samples += 1
-                    if num_print_samples >= 0 and processed_samples >= num_print_samples:
-                        break
+                    
+                    pair_logits = batched_logits[batch_idx] # shape [2]
                     
                     # Determine flag
-                    if logits[0][0] > logits[0][1]:
+                    if pair_logits[0] > pair_logits[1]:
                         table["flag"].extend([1])
                     else:
                         table["flag"].extend([0])
                     
-                    # Save embeddings
-                    cls_emb = emb.float().cpu().numpy()
+                    # Extract the pair of embeddings (chosen, rejected)
+                    # chosen is at 2*batch_idx, rejected is at 2*batch_idx + 1
+                    # We output it as shape [1, 2, hidden_dim] to match existing expectations
+                    pair_emb = batched_emb[batch_idx * 2 : (batch_idx + 1) * 2, :]
+                    cls_emb = pair_emb.float().cpu().numpy()
                     cls_emb = cls_emb[None, ...]
                     np.save(fn, cls_emb)
                     
@@ -317,25 +313,23 @@ class RewardVisualizer(RewardTrainer):
                     if Accelerator().num_processes == 1:
                         table["cls_emb"].extend(gather_object([fn]))
                         table["logits"].extend(gather_object([
-                            [round(inner_item, 4) for inner_item in item] 
-                            for item in logits.tolist()
+                            [round(inner_item, 4) for inner_item in pair_logits.tolist()]
                         ]))
                     else:
                         table["cls_emb"].append(fn)
-                        table["logits"].extend([
-                            [round(inner_item, 4) for inner_item in item] 
-                            for item in logits.tolist()
-                        ])
+                        table["logits"].append(
+                            [round(inner_item, 4) for inner_item in pair_logits.tolist()]
+                        )
                     
                     # Save intermediate results
                     if len(table['chosen_text']) % 1000 == 0:
                         df = pd.DataFrame(table)
                         df.to_csv(f"data_{os.path.basename(cls_embs_path)}_{Accelerator().local_process_index}_interim.csv")
                         logger.info(f"Saved interim results after {len(table['chosen_text'])} samples")
-                
-                if num_print_samples >= 0 and processed_samples >= num_print_samples:
-                    break
                     
+                    if num_print_samples >= 0 and processed_samples >= num_print_samples:
+                        break
+                        
             except Exception as e:
                 logger.exception(f"Error processing batch {idx}: {e}")
                 raise

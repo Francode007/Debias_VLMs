@@ -32,6 +32,8 @@ import glob
 import argparse
 import numpy as np
 import torch
+import time
+import json
 try:
     from cuml.decomposition import PCA
     HAS_CUML = True
@@ -97,10 +99,22 @@ def generate_orthogonal_heads(args):
         print(f"Running PCA with n_components={k} using sklearn (CPU fallback)...")
         
     pca = PCA(n_components=k)
+    
+    t_start = time.time()
     pca.fit(diff)
+    t_end = time.time()
+    pure_pca_time = t_end - t_start
+
     components = pca.components_  # (k, hidden_dim)
     explained_variance_ratio = pca.explained_variance_ratio_
     explained_variance = pca.explained_variance_
+    
+    # Save pure pca timing metrics
+    try:
+        with open("/tmp/pca_metrics.json", "w") as f:
+            json.dump({"pure_pca_fit_time_seconds": pure_pca_time}, f)
+    except Exception as e:
+        print(f"Could not save pca metrics: {e}")
 
     print(f"Explained variance ratio (first 10): {explained_variance_ratio[:10]}")
 

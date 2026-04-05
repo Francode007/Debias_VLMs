@@ -65,7 +65,7 @@ import argparse
 
 def main():
     parser = argparse.ArgumentParser(description="Profile GPU Pipeline for SB-Bench")
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for embedding generation")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for embedding generation")
     args = parser.parse_args()
 
     print("=== Pipeline Profiler ===")
@@ -172,11 +172,20 @@ def main():
     util2, mem2 = profiler.stop()
     
     step2_time = t1 - t0
-    # PCA scales heavily with N, but for extrapolation we use a linear approximation 
-    estimated_step2_full = step2_time * (total_pairs / actual_pairs_processed) 
+    
+    # Try reading pure pca fit time
+    try:
+        with open("/tmp/pca_metrics.json", "r") as f:
+            pca_data = json.load(f)
+            pca_inference_time = pca_data.get("pure_pca_fit_time_seconds", step2_time)
+    except Exception:
+        pca_inference_time = step2_time
+        
+    estimated_step2_full = pca_inference_time * (total_pairs / actual_pairs_processed) 
     
     results['Step 2 (PCA)'] = {
         'time_subset': step2_time,
+        'inference_time_subset': pca_inference_time,
         'mem_max_mb': mem2,
         'util_avg': util2,
         'est_full_time': estimated_step2_full
@@ -200,10 +209,19 @@ def main():
     util3, mem3 = profiler.stop()
     
     step3_time = t1 - t0
-    estimated_step3_full = step3_time * (total_pairs / actual_pairs_processed)
+    
+    try:
+        with open("/tmp/eval_metrics.json", "r") as f:
+            eval_data = json.load(f)
+            eval_inference_time = eval_data.get("pure_eval_loop_time_seconds", step3_time)
+    except Exception:
+        eval_inference_time = step3_time
+        
+    estimated_step3_full = eval_inference_time * (total_pairs / actual_pairs_processed)
     
     results['Step 3 (Evaluate)'] = {
         'time_subset': step3_time,
+        'inference_time_subset': eval_inference_time,
         'mem_max_mb': mem3,
         'util_avg': util3,
         'est_full_time': estimated_step3_full

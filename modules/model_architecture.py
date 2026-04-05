@@ -186,19 +186,15 @@ def create_custom_forward(model, dtype):
             output = (pooled_logits,) + transformer_outputs[1:]
             return ((loss,) + output) if loss is not None else output
         
-        # Extract embeddings safely
+        # Extract embeddings safely across arbitrary batch size
         try:
-            chose_emb = hidden_states[0, sequence_lengths[0], :]
-            rej_emb = hidden_states[1, sequence_lengths[1], :]
-            if prompt_length is not None and prompt_length > 0:
-                prompt_emb = hidden_states[0, max(0, prompt_length-1):prompt_length+1, :]
-            else:
-                prompt_emb = hidden_states[0, max(0, sequence_lengths[0]-1):sequence_lengths[0]+1, :]
-            
-            emb = torch.cat([chose_emb[None,...], rej_emb[None,...], prompt_emb], 0)
+            # sequence_lengths is shape [batch_size]; we want the last token representation
+            batch_indices = torch.arange(batch_size, device=hidden_states.device)
+            # shape: [batch_size, hidden_dim]
+            emb = hidden_states[batch_indices, sequence_lengths, :]
         except Exception as e:
             logger.warning(f"Error extracting embeddings: {e}, using fallback")
-            emb = pooled_logits.unsqueeze(0).repeat(3, 1, 1)
+            emb = pooled_logits.repeat(1, 1).view(batch_size, -1)
         
         return SequenceClassifierOutputWithPast(
             loss=loss,

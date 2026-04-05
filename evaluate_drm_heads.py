@@ -33,6 +33,9 @@ import argparse
 import numpy as np
 import torch
 import pandas as pd
+import json
+import time
+
 from tqdm import tqdm
 from score_head import MultipleHead
 
@@ -126,11 +129,20 @@ def main():
     batch_size = args.batch_size
     
     with torch.no_grad():
+        t_start = time.time()
         for i in tqdm(range(0, len(embs_t), batch_size), desc="Evaluating heads"):
             batch_embs = embs_t[i:i+batch_size]
             rc, rr = head(batch_embs)
             rewards_chosen_list.append(rc.cpu().numpy())
             rewards_rejected_list.append(rr.cpu().numpy())
+        t_end = time.time()
+        pure_eval_time = t_end - t_start
+        
+    try:
+        with open("/tmp/eval_metrics.json", "w") as f:
+            json.dump({"pure_eval_loop_time_seconds": pure_eval_time}, f)
+    except Exception as e:
+        print(f"Could not save eval metrics: {e}")
             
     rewards_chosen = np.concatenate(rewards_chosen_list, axis=0)
     rewards_rejected = np.concatenate(rewards_rejected_list, axis=0)
