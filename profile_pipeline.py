@@ -192,14 +192,17 @@ def main():
     }
     
     print("\n--- Running Step 3: Evaluate ---")
+    import platform
+    gpu_device = "cuda" if platform.system() != "Darwin" else "mps"
+    
     cmd3 = [
         python_cmd, "evaluate_drm_heads.py",
         "--emb_dir", emb_dir,
         "--score_head_weight", "./generated_heads/sb_bench-PCA-component",
         "--data_path", data_path,
-        "--batch_size", "1024",
+        "--batch_size", "100000",
         "--output_json", "./drm_head_results.json",
-        "--device", "cpu"
+        "--device", gpu_device
     ]
 
     profiler.start()
