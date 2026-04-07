@@ -237,6 +237,9 @@ def main():
         logger.info("Loading model and processor...")
         model, processor = model_loader.load_model_and_processor()
         
+        # Ensure model is strictly in eval mode for inference
+        model.eval()
+        
         # Reward models must output a single scalar; tell TRL num_labels=1
         model.config.num_labels = 1
 

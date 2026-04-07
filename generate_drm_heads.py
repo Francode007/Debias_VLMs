@@ -93,6 +93,9 @@ def generate_orthogonal_heads(args):
         print("Not enough samples for PCA.")
         return
 
+    print(f"Zero-centering difference matrix... Original mean: {diff.mean():.6f}")
+    diff = diff - np.mean(diff, axis=0)
+
     if HAS_CUML:
         print(f"Running PCA with n_components={k} using RAPIDS cuML (GPU)...")
     else:
@@ -150,7 +153,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate orthogonal DRM heads (PCA) from embeddings")
     parser.add_argument("--input_dir", type=str, default="./embeddings_output", help="Directory with emb_*.npy files")
     parser.add_argument("--output_dir", type=str, default="./generated_heads", help="Directory to save heads and metadata")
-    parser.add_argument("--n_components", type=int, default=50, help="Number of PCA components")
+    parser.add_argument("--n_components", type=int, default=100, help="Number of PCA components")
     parser.add_argument("--case_name", type=str, default="sb_bench", help="Prefix for .pth filenames")
     parser.add_argument("--full_composed", action="store_true", help="Use all dimensions (k=hidden_dim)")
     args = parser.parse_args()

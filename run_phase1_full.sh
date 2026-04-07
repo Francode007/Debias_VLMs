@@ -32,8 +32,8 @@ DATA_PATH="${DATA_PATH:-./sb_bench_data/data}"
 EMB_DIR="${EMB_DIR:-./embeddings_output}"
 HEADS_DIR="${HEADS_DIR:-./generated_heads}"
 RESULTS_JSON="${RESULTS_JSON:-./drm_head_results.json}"
-N_COMPONENTS="${N_COMPONENTS:-50}"
-BATCH_SIZE="${BATCH_SIZE:-1}"
+N_COMPONENTS="${N_COMPONENTS:-100}"
+BATCH_SIZE="${BATCH_SIZE:-16}"
 USE_SMALLSET="${USE_SMALLSET:-0}"   # set to 1 for quick test
 
 echo "=== Phase 1: C-DeFR-L pipeline ==="

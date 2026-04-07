@@ -107,7 +107,7 @@ def create_custom_forward(model, dtype):
                 inputs_embeds=inputs_embeds,
                 use_cache=use_cache,
                 output_attentions=output_attentions,
-                output_hidden_states=False,
+                output_hidden_states=True,
                 return_dict=return_dict,
                 **kwargs
             )
@@ -134,8 +134,14 @@ def create_custom_forward(model, dtype):
             else:
                 raise
 
-        # Use last_hidden_state only (no full hidden_states stack) to save memory
-        hidden_states = transformer_outputs[0] if isinstance(transformer_outputs, tuple) else transformer_outputs.last_hidden_state
+        # Extract penultimate layer (-2) from full hidden states
+        if hasattr(transformer_outputs, 'hidden_states') and transformer_outputs.hidden_states is not None:
+            all_hidden_states = transformer_outputs.hidden_states
+        elif isinstance(transformer_outputs, tuple) and len(transformer_outputs) > 2:
+            all_hidden_states = transformer_outputs[2]
+        else:
+            raise ValueError("hidden_states not found in model output. Make sure output_hidden_states=True is effective.")
+        hidden_states = all_hidden_states[-2]
 
         if input_ids is not None:
             batch_size = input_ids.shape[0]

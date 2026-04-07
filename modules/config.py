@@ -62,7 +62,7 @@ class ScriptArguments:
     
     # Memory management
     batch_size: Optional[int] = field(
-        default=1,
+        default=16,
         metadata={"help": "Batch size for data processing. Controls memory usage during dataset processing."}
     )
     dataloader_batch_size: Optional[int] = field(
