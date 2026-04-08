@@ -141,7 +141,13 @@ def create_custom_forward(model, dtype):
             all_hidden_states = transformer_outputs[2]
         else:
             raise ValueError("hidden_states not found in model output. Make sure output_hidden_states=True is effective.")
-        hidden_states = all_hidden_states[-2]
+        
+        # Extract the penultimate layer (3D Tensor: [Batch, Seq, Dim])
+        penultimate_layer = all_hidden_states[-2]
+
+        # Slice to get only the final token's embedding (2D Tensor: [Batch, Dim])
+        # Assuming padding is handled and the last token is at index -1
+        hidden_states = penultimate_layer[:, -1, :]
 
         if input_ids is not None:
             batch_size = input_ids.shape[0]
@@ -194,10 +200,8 @@ def create_custom_forward(model, dtype):
         
         # Extract embeddings safely across arbitrary batch size
         try:
-            # sequence_lengths is shape [batch_size]; we want the last token representation
-            batch_indices = torch.arange(batch_size, device=hidden_states.device)
-            # shape: [batch_size, hidden_dim]
-            emb = hidden_states[batch_indices, sequence_lengths, :]
+            # hidden_states is already sliced to [Batch, Dim] representing the last token
+            emb = hidden_states
         except Exception as e:
             logger.warning(f"Error extracting embeddings: {e}, using fallback")
             emb = pooled_logits.repeat(1, 1).view(batch_size, -1)
