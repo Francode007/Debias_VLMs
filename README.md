@@ -1,6 +1,11 @@
-# Debias_VLMs: C-DeFR-L Phase 1 — Orthogonal Reward Head Extraction
+# Debias_VLMs: C-DeFR-L Pipeline (Phases 1, 2 & 3)
 
-This repository implements **Phase 1 of the C-DeFR-L (Causal Decomposed and Fair Reward Learning)** framework: extracting orthogonal reward heads from preference data using the [DRMs (Decomposed Reward Models)](https://arxiv.org/abs/2502.13131) approach. It targets **SB-Bench** ([ucf-crcv/SB-Bench](https://huggingface.co/datasets/ucf-crcv/SB-Bench)) with **Qwen2-VL / Qwen2.5-VL** as the embedding model. The resulting reward heads are intended for later RL fine-tuning to debias open-source VLMs.
+This repository implements the **C-DeFR-L (Causal Decomposed and Fair Reward Learning)** framework:
+- **Phase 1**: Extracting orthogonal reward heads from preference data using the [DRMs (Decomposed Reward Models)](https://arxiv.org/abs/2502.13131) approach.
+- **Phase 2 (Fast-RL)**: Dynamically balancing multi-dimensional rewards using Mirror Descent configurations.
+- **Phase 3 (CAA)**: Causality-Aware Alignment applying causal interventional feedback via a custom PPO loop.
+
+It targets **SB-Bench** ([ucf-crcv/SB-Bench](https://huggingface.co/datasets/ucf-crcv/SB-Bench)) with **Qwen2-VL / Qwen2.5-VL** architectures. The complete pipeline handles embedding extraction, DRM generation, and the final sample-weighted PPO decoupled reinforcement learning logic to debias open-source VLMs.
 
 ## Overview
 
@@ -16,6 +21,7 @@ SB-Bench (HuggingFace) → load_sb_bench.py → parquet
        → cal_emb_modular.py → embeddings (emb_*.npy)
        → generate_drm_heads.py → PCA components (.pth)
        → score_head.py / evaluate_drm_heads.py → metrics (JSON)
+       → train_rl.py (custom_vlm_ppo_trainer.py + fast_rl.py + caa_feedback.py) → Debiased VLM
 ```
 
 ## Quick Start (GPU)
@@ -102,6 +108,26 @@ python evaluate_drm_heads.py \
 ```
 
 Use `--num_heads N` to evaluate only the first N heads.
+
+### 7. Step 4: Run Fast-RL + CAA PPO Training
+
+After generating the `.pth` PCA heads, run the end-to-end memory-decoupled PPO execution script avoiding heavy abstract constraints. The script utilizes a specified Base model (policy) and a frozen Extractor model (reward tracking), employing LoRA adapter toggling to handle dynamic generation isolating VRAM loads efficiently on 80GB hardware logic instances.
+
+```bash
+python train_rl.py \
+  --policy_model_name "Qwen/Qwen2.5-VL-3B-Instruct" \
+  --extractor_model_name "Qwen/Qwen2.5-VL-7B-Instruct" \
+  --reward_heads_dir "./generated_heads/sb_bench-PCA-component" \
+  --fast_rl_strategy "exponentiated" \
+  --eta 0.01 \
+  --kl_beta 0.1 \
+  --num_heads 100
+```
+
+**Fast-RL Strategy Types Supported**:
+- `exponentiated`: Multiplicative weights / Exponentiated gradient steps keeping arrays inside Simplex space cleanly safely.
+- `projected`: Projected gradient ascent bounding math parameters robustly.
+- `adam`: Adam-style parameters scaling robust logs mapping cleanly back via softmax equations tracking batches.
 
 ---
 
@@ -204,12 +230,16 @@ So: run the full flow, open `drm_head_results.json`, and interpret `overall_mean
 
 ## Module Layout
 
-- **`modules/`** — Config, device manager, model loader, dataset builder (SB-Bench, 2 pairs per example, user/assistant format), data collator, custom forward (hidden-state extraction only), reward trainer (embedding visualization).
+- **`modules/`** — Backend components including config, device manager, model loader, dataset builder, data collator, and architecture abstractions.
+  - **`fast_rl.py`** — Evaluates and balances multi-dimensional orthogonal rewards dynamically.
+  - **`caa_feedback.py`** — Causal interventional weighting functions (L2 norms, min-max batched tracking).
+  - **`custom_vlm_ppo_trainer.py`** — A decoupled Accelerate PPO loop, applying FastRL, CAA feedback, KL penalties, and exact inference over visual elements via precise LoRA toggling logic.
 - **`load_sb_bench.py`** — Download SB-Bench and save as parquet.
 - **`cal_emb_modular.py`** — Entry point for embedding extraction.
 - **`generate_drm_heads.py`** — PCA on (chosen − rejected), save `.pth` heads.
-- **`score_head.py`** — `MultipleHead`: load `.pth` components and score embeddings `(N, 2, hidden_dim)` → (rewards_chosen, rewards_rejected).
-- **`evaluate_drm_heads.py`** — Load embeddings and DRM heads, compute overall and per-category accuracy, write JSON.
+- **`score_head.py`** — `MultipleHead`: load `.pth` components and score embeddings.
+- **`evaluate_drm_heads.py`** — Score embeddings and DRM heads statically.
+- **`train_rl.py`** — The Master Reinforcement Learning orchestration script to execute the PPO VLM training loops.
 
 ## References
 
