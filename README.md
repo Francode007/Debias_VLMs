@@ -116,7 +116,7 @@ After generating the `.pth` PCA heads, run the end-to-end memory-decoupled PPO e
 ```bash
 python train_rl.py \
   --policy_model_name "Qwen/Qwen2.5-VL-3B-Instruct" \
-  --extractor_model_name "Qwen/Qwen2.5-VL-7B-Instruct" \
+  --extractor_model_name "Qwen/Qwen2.5-VL-3B-Instruct" \
   --reward_heads_dir "./generated_heads/sb_bench-PCA-component" \
   --fast_rl_strategy "exponentiated" \
   --eta 0.01 \

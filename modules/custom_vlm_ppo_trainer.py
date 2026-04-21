@@ -33,7 +33,7 @@ class PPOVLMController:
         Args:
             active_policy: The 3B model (with LoRA attached and active).
                            We assume disabling the LoRA adapter yields the reference policy.
-            extractor_model: The 7B frozen feature extractor model.
+            extractor_model: The 3B frozen feature extractor model.
             reward_heads_weight: Tensor of shape (K, hidden_size) of the 100 PCA orthogonal directions.
             accelerator: Hugging Face Accelerate instance.
             fast_rl_node: Instance of FastRLNode for dynamic mirror descent updates.
@@ -167,7 +167,7 @@ class PPOVLMController:
         kl_divs = curr_logprobs - init_logprobs
         seq_kl = (kl_divs * loss_mask).sum(dim=1) # (Batch,)
         
-        # 5. Extract Embeddings from Frozen Extractor (7B model)
+        # 5. Extract Embeddings from Frozen Extractor (e.g. 3B model)
         e_curr = self.extract_preference_embeddings(
             self.extractor, input_ids, attention_mask, pixel_values, kwargs
         )

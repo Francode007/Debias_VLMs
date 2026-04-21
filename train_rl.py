@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def parse_args():
     parser = argparse.ArgumentParser(description="Run Fast-RL and CAA phase using Custom VLM PPO Training")
     parser.add_argument("--policy_model_name", type=str, default="Qwen/Qwen2.5-VL-3B-Instruct", help="The base VLM policy model path")
-    parser.add_argument("--extractor_model_name", type=str, default="Qwen/Qwen2.5-VL-7B-Instruct", help="The frozen feature extractor model path")
+    parser.add_argument("--extractor_model_name", type=str, default="Qwen/Qwen2.5-VL-3B-Instruct", help="The frozen feature extractor model path (Default: 3B for symmetry)")
     parser.add_argument("--reward_heads_dir", type=str, default="./generated_heads/sb_bench-PCA-component", help="Directory containing Phase 1 .pth component files")
     parser.add_argument("--fast_rl_strategy", type=str, default="exponentiated", choices=["exponentiated", "projected", "adam"], help="Mirror Descent update strategy")
     parser.add_argument("--eta", type=float, default=0.01, help="Learning rate for Fast-RL node")
@@ -77,6 +77,18 @@ def main():
         bias="none",
         task_type="CAUSAL_LM",
     )
+
+    """
+    Another possible configuration:
+
+    {
+    "r": 64, 
+    "lora_alpha": 128, # Maintaining the alpha = 2*r ratio for strong updates
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+    "bias": "none",
+    "task_type": "CAUSAL_LM"
+    }
+    """
     active_policy = get_peft_model(policy_base, lora_config)
     
     logger.info("Loading Phase 1 PCA Score Heads...")
