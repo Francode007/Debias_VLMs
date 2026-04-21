@@ -129,8 +129,8 @@ class PPOVLMController:
         """
         Executes a single custom PPO Step with decoupled CAA weighting.
         """
-        input_ids = batch["input_ids"]
-        attention_mask = batch["attention_mask"]
+        prompt_input_ids = batch["input_ids"]
+        prompt_attention_mask = batch["attention_mask"]
         pixel_values = batch.get("pixel_values", None)
         image_grid_thw = batch.get("image_grid_thw", None)
         video_grid_thw = batch.get("video_grid_thw", None)
@@ -139,27 +139,57 @@ class PPOVLMController:
         if image_grid_thw is not None: kwargs["image_grid_thw"] = image_grid_thw
         if video_grid_thw is not None: kwargs["video_grid_thw"] = video_grid_thw
         
-        # 1. GENERATION (If acting online, here we would call policy.generate)
-        # Assuming the batch already contains generated responses (input_ids includes prompt + response)
-        
-        # 2. Extract Active Policy Logprobs and Values
+        # 1. TRUE DUAL GENERATION
+        self.policy.eval()
+        with torch.no_grad():
+            # Generate $y_{curr}$ from Active Policy
+            unwrapped_policy = self.accelerator.unwrap_model(self.policy)
+            curr_outputs = unwrapped_policy.generate(
+                prompt_input_ids,
+                attention_mask=prompt_attention_mask,
+                pixel_values=pixel_values,
+                **kwargs,
+                max_new_tokens=64,
+                do_sample=True,
+                temperature=0.7,
+                top_p=0.9
+            )
+            
+            # Generate $y_{init}$ from Reference Policy
+            with self.policy.disable_adapter():
+                init_outputs = unwrapped_policy.generate(
+                    prompt_input_ids,
+                    attention_mask=prompt_attention_mask,
+                    pixel_values=pixel_values,
+                    **kwargs,
+                    max_new_tokens=64,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_p=0.9
+                )
+                
+        # Reconstruct dynamic attention masks natively
+        pad_token_id = self.policy.config.pad_token_id if self.policy.config.pad_token_id is not None else 0
+        curr_attention_mask = (curr_outputs != pad_token_id).long()
+        init_attention_mask = (init_outputs != pad_token_id).long()
+
+        # 2. Extract Active Policy Logprobs and Values over y_{curr}
         self.policy.train()
         self.value_head.train()
         
         curr_logits, curr_values = self.extract_logits_and_values(
-            self.policy, self.value_head, input_ids, attention_mask, pixel_values, kwargs
+            self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, kwargs
         )
-        curr_logprobs, loss_mask = self.compute_logprobs(curr_logits, input_ids)
+        curr_logprobs, loss_mask = self.compute_logprobs(curr_logits, curr_outputs)
         
-        # 3. Extract Reference Policy Logprobs
+        # 3. Extract Reference Policy Logprobs over y_{curr}
         with torch.no_grad():
             self.policy.eval()
-            # Toggle LoRA off to get the Reference Policy (\pi_init)
             with self.policy.disable_adapter():
-                init_logits, _ = self.extract_logits_and_values(
-                    self.policy, self.value_head, input_ids, attention_mask, pixel_values, kwargs
+                init_logits_curr_traj, _ = self.extract_logits_and_values(
+                    self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, kwargs
                 )
-                init_logprobs, _ = self.compute_logprobs(init_logits, input_ids)
+                init_logprobs, _ = self.compute_logprobs(init_logits_curr_traj, curr_outputs)
                 
             self.policy.train()
                 
@@ -167,28 +197,13 @@ class PPOVLMController:
         kl_divs = curr_logprobs - init_logprobs
         seq_kl = (kl_divs * loss_mask).sum(dim=1) # (Batch,)
         
-        # 5. Extract Embeddings from Frozen Extractor (e.g. 3B model)
+        # 5. Extract Embeddings from Frozen Extractor for BOTH Trajectories
         e_curr = self.extract_preference_embeddings(
-            self.extractor, input_ids, attention_mask, pixel_values, kwargs
+            self.extractor, curr_outputs, curr_attention_mask, pixel_values, kwargs
         )
-        
-        with self.policy.disable_adapter():
-            # If we dynamically generated the text, y_init and y_curr would be different.
-            # Assuming the batch contains the generated outputs from active policy,
-            # for y_init we should theoretically generate from the base model and evaluate its embeddings.
-            # However, standard PPO usually trains on the current rollouts. We evaluate the SAME trajectory
-            # through the extractor, or if strictly decoupled, the batch contains specific generation arrays.
-            # For this Phase 3 CAA, the formula requires |r_init - r_curr|. 
-            pass
-            
-        # Due to constraints, assuming e_curr captures the trajectory. If y_init was pre-generated alongside:
-        if "init_input_ids" in batch:
-            e_init = self.extract_preference_embeddings(
-                self.extractor, batch["init_input_ids"], batch["init_attention_mask"], pixel_values, kwargs
-            )
-        else:
-            # Fallback: using the same generation if not provided. (Ideally y_init is passed in batch)
-            e_init = e_curr.clone() # Placeholder
+        e_init = self.extract_preference_embeddings(
+            self.extractor, init_outputs, init_attention_mask, pixel_values, kwargs
+        )
         
         # 6. Orthogonal Scoring (Phase 1 application)
         # w_k dot e_curr => (Batch, K)
