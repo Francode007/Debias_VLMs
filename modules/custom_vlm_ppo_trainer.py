@@ -149,7 +149,7 @@ class PPOVLMController:
                 attention_mask=prompt_attention_mask,
                 pixel_values=pixel_values,
                 **kwargs,
-                max_new_tokens=64,
+                max_new_tokens=32,
                 do_sample=True,
                 temperature=0.7,
                 top_p=0.9
@@ -162,7 +162,7 @@ class PPOVLMController:
                     attention_mask=prompt_attention_mask,
                     pixel_values=pixel_values,
                     **kwargs,
-                    max_new_tokens=64,
+                    max_new_tokens=32,
                     do_sample=True,
                     temperature=0.7,
                     top_p=0.9
