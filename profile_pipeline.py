@@ -92,7 +92,7 @@ def main():
     python_cmd = ".venv/bin/python" if os.path.exists(".venv/bin/python") else "python"
     
     # Check if a model exists in local_model_config.py or fallback
-    model_id = "Qwen/Qwen2-VL-2B-Instruct"  # Smaller model for testing/MAC
+    model_id = "Qwen/Qwen2.5-VL-3B-Instruct"  # Updated to 3B for symmetry
     
     results = {}
     profiler = GPUProfiler()

@@ -209,6 +209,22 @@ These optimizations reduce the total pipeline estimate from ~171 hours to **unde
 
 So: run the full flow, open `drm_head_results.json`, and interpret `overall_mean`, `overall_per_head`, and `per_category` as above to validate Phase 1 before moving to RL.
 
+## Profiling the Pipeline
+
+To estimate the full GPU runtime for the complete dataset (both Phase 1 and the RL loop), use the included profiling scripts. They will run a small subset and extrapolate the total time based on the dataset size.
+
+**1. Profile Phase 1 (Embeddings + PCA + Evaluate):**
+```bash
+python profile_pipeline.py --batch_size 16
+```
+This generates `profiling_report.json` with the estimated time for creating the DRM heads.
+
+**2. Profile Phase 2 & 3 (PPO True Dual Generation):**
+```bash
+python profile_rl_pipeline.py --batch_size 4 --gradient_accumulation 4
+```
+This generates `profiling_report_rl.json` with the estimated time for 1 full Epoch of the reinforcement learning loop. Sum the total extrapolated hours from both JSON reports to plan your A100 compute budget!
+
 ## Key Arguments
 
 | Script | Argument | Description |
