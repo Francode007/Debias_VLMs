@@ -34,19 +34,50 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### 1.5. HuggingFace Remote Server Setup
+
+When working on a remote GPU server, it's highly recommended to configure your Hugging Face cache directory and authenticate to access gated models/datasets (like SB-Bench).
+
+```bash
+# Optional: Set a custom cache directory if your home/user partition has limited space
+export HF_HOME="/path/to/large/storage/huggingface"
+
+# Login to Hugging Face (requires a token from your HF account)
+huggingface-cli login
+```
+
 ### 2. Data
 
+**Option A: Automated via script (Recommended)**
 Download SB-Bench and save as parquet:
 
 ```bash
 python load_sb_bench.py
 ```
+Data is written to `./sb_bench_data/data/` (e.g. `sb_bench_data.parquet`). Make sure you have accepted the dataset terms on the [SB-Bench Hugging Face page](https://huggingface.co/datasets/ucf-crcv/SB-Bench) prior to running.
 
-Data is written to `./sb_bench_data/data/` (e.g. `sb_bench_data.parquet`). Accept the dataset terms on the [SB-Bench Hugging Face page](https://huggingface.co/datasets/ucf-crcv/SB-Bench) if required.
+**Option B: Manual Download via HF CLI**
+If you prefer to pre-download the dataset explicitly using the Hugging Face CLI:
+```bash
+huggingface-cli download ucf-crcv/SB-Bench --repo-type dataset --local-dir ./sb_bench_data/raw
+```
 
 ### 3. Models
 
-The pipeline uses **Qwen2.5-VL** (default), **Qwen2-VL**, or **Qwen3.5-VL**. Paths can be set in `local_model_config.py`; otherwise models are loaded from HuggingFace.
+The pipeline uses **Qwen2.5-VL** (default), **Qwen2-VL**, or **Qwen3.5-VL**.
+
+There is no separate script solely for downloading models. Instead, the models are handled in two ways:
+
+1. **Dynamic Download:** By default, the `transformers` library automatically downloads and caches models at runtime to your HuggingFace cache directory (e.g., the `HF_HOME` path set above).
+2. **Manual Pre-download (Recommended for Remote Servers):** To avoid connection interruptions or downloading large weights dynamically, you can explicitly pre-download the models to a specific local path using the Hugging Face CLI. You will then need to reference this custom path in `local_model_config.py`.
+
+```bash
+# Download Qwen2.5-VL 3B (Default) to a specific local folder
+huggingface-cli download Qwen/Qwen2.5-VL-3B-Instruct --local-dir ./models/Qwen2.5-VL-3B-Instruct
+
+# Download Qwen2-VL 2B (Fallback) to a specific local folder
+huggingface-cli download Qwen/Qwen2-VL-2B-Instruct --local-dir ./models/Qwen2-VL-2B-Instruct
+```
 
 - **Default:** `Qwen/Qwen2.5-VL-3B-Instruct` (Qwen2.5 series 3B; use 1.5B when available)
 - **Fallback:** `Qwen/Qwen2-VL-2B-Instruct`
