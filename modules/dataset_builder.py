@@ -14,6 +14,7 @@ import pandas as pd
 from PIL import Image
 from datasets import Dataset
 from typing import List, Optional
+from collections import defaultdict
 from .config import ScriptArguments
 
 logger = logging.getLogger(__name__)
@@ -207,23 +208,25 @@ class DatasetBuilder:
         ds = Dataset.from_list(expanded_rows)
         logger.info(f"Expanded to {len(ds)} preference pairs (2 per example)")
         
-        # Apply formatting
+        # Apply formatting with parallel processing
+        num_cpus = os.cpu_count() or 4
         ds = ds.map(
-            lambda example: self._formatting_func(example, processor),
-            batched=False,
-            num_proc=1
+            lambda examples: self._formatting_func_batched(examples, processor),
+            batched=True,
+            num_proc=num_cpus,
+            remove_columns=ds.column_names # Remove raw columns to avoid RewardTrainer auto-processing
         )
         
-        # Filter by length
+        # Filter by length with parallel processing
         ds = ds.filter(
             lambda x: (len(x["input_ids_chosen"]) <= self.script_args.max_length and
                       len(x["input_ids_rejected"]) <= self.script_args.max_length),
-            num_proc=1
+            num_proc=num_cpus
         )
         len_before_filter = len(ds)
         ds = ds.filter(
             lambda x: x["prompt_length"] < self.script_args.max_length,
-            num_proc=1
+            num_proc=num_cpus
         )
         len_after_filter = len(ds)
         logger.info(f"Filtered {len_before_filter - len_after_filter} samples due to length")
@@ -231,152 +234,146 @@ class DatasetBuilder:
         ds.set_format(type="torch")
         return ds
     
-    def _formatting_func(self, example, processor):
+    def _formatting_func_batched(self, examples, processor):
         """
-        Format individual examples for reward model training.
-        
-        Input:
-            example: Raw example from dataset (dict-like object)
-            processor: HuggingFace processor for tokenization and image processing
-        
-        Output:
-            dict: Formatted example with tokenized inputs and metadata
-        
-        Process:
-            1. Extract and validate example structure
-            2. Handle flattened file_name structure from parquet
-            3. Parse metadata and load image from bytes
-            4. Extract chosen/rejected answers based on label
-            5. Create conversation messages with image and text
-            6. Apply chat templates for tokenization
-            7. Process inputs with proper padding and length constraints
-            8. Calculate prompt length for reward gating
-            9. Return formatted example with all required fields
-        
-        Purpose:
-            Transform raw dataset examples into the format required
-            for reward model training, including proper tokenization,
-            image processing, and sequence structure.
-        
-        Raises:
-            ValueError: If example structure is invalid
-            KeyError: If required keys are missing from example
+        Format a batch of examples for reward model training.
         """
-        try:
-            # Check what we actually received - LazyRow behaves like dict but isn't one
-            if not hasattr(example, '__getitem__') or not hasattr(example, 'keys'):
-                logger.error(f"Expected dict-like object but got {type(example)}: {str(example)[:200]}")
-                raise ValueError(f"Expected dict-like object, got {type(example)}")
+        results = defaultdict(list)
+        
+        # Determine how many examples in this batch
+        batch_size = len(examples[next(iter(examples.keys()))])
+        
+        all_images = []
+        all_chosen_messages = []
+        all_rejected_messages = []
+        all_prompt_messages = []
+        
+        valid_indices = []
+        
+        for i in range(batch_size):
+            # Extract single example from batch
+            example = {k: examples[k][i] for k in examples.keys()}
             
-            # Convert LazyRow to dict if needed for easier debugging
-            if hasattr(example, '_data'):
-                example_dict = {k: example[k] for k in example.keys()}
-                logger.debug(f"LazyRow keys: {list(example.keys())}")
-            else:
-                example_dict = example
+            try:
+                # Handle flattened file_name structure
+                if 'file_name' in example:
+                    image_data = example['file_name']
+                elif 'file_name.bytes' in example:
+                    image_data = {
+                        'bytes': example['file_name.bytes'],
+                        'path': example['file_name.path']
+                    }
+                else:
+                    continue
+                    
+                # Load image
+                if isinstance(image_data, dict) and 'bytes' in image_data:
+                    image_bytes = image_data['bytes']
+                elif isinstance(image_data, bytes):
+                    image_bytes = image_data
+                else:
+                    continue
                 
-            # Handle flattened file_name structure
-            if 'file_name' in example:
-                image_data = example['file_name']
-            elif 'file_name.bytes' in example:
-                # Handle flattened structure from parquet
-                image_data = {
-                    'bytes': example['file_name.bytes'],
-                    'path': example['file_name.path']
-                }
-            else:
-                logger.error(f"Missing image data keys. Available keys: {list(example.keys())}")
-                raise KeyError("No image data found - missing both 'file_name' and 'file_name.bytes'")
+                image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                all_images.append(image)
                 
-            # Parse metadata
-            additional_metadata = ast.literal_eval(example['additional_metadata'])
+                # Extract chosen/rejected
+                label = int(example['label'])
+                chosen = example[f'ans{label}']
+                wrong_indices = [idx for idx in range(3) if idx != label]
+                pair_idx = int(example.get('pair_idx', 0))
+                rejected = example[f'ans{wrong_indices[pair_idx]}']
+                
+                prompt_text = example['context'] + " " + example['question']
+                
+                # User/assistant format
+                chosen_msg = [
+                    {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]},
+                    {"role": "assistant", "content": [{"type": "text", "text": chosen}]}
+                ]
+                rejected_msg = [
+                    {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]},
+                    {"role": "assistant", "content": [{"type": "text", "text": rejected}]}
+                ]
+                prompt_msg = [
+                    {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]}
+                ]
+                
+                all_chosen_messages.append(chosen_msg)
+                all_rejected_messages.append(rejected_msg)
+                all_prompt_messages.append(prompt_msg)
+                valid_indices.append(i)
+                
+            except Exception as e:
+                logger.warning(f"Error preparing example {i} in batch: {e}")
+                continue
+        
+        if not valid_indices:
+            return results
             
-            # Load image - handle different formats
-            if isinstance(image_data, dict) and 'bytes' in image_data:
-                # Handle format: {'bytes': b'...'}
-                image_bytes = image_data['bytes']
-            elif isinstance(image_data, bytes):
-                # Handle direct bytes
-                image_bytes = image_data
-            else:
-                raise ValueError(f"Unexpected image data format: {type(image_data)}")
+        # Apply chat templates in batch (tokenize=False returns list of strings)
+        chosen_texts = [processor.apply_chat_template(msg, tokenize=False) for msg in all_chosen_messages]
+        rejected_texts = [processor.apply_chat_template(msg, tokenize=False) for msg in all_rejected_messages]
+        prompt_templates = [processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in all_prompt_messages]
+        
+        # Process inputs in batch
+        kwargs = {
+            "padding": "max_length",
+            "truncation": False,
+            "max_length": self.script_args.max_length,
+            "return_tensors": "pt",
+        }
+        
+        # Batch call to processor is MUCH faster
+        inputs_chosen = processor(text=chosen_texts, images=all_images, **kwargs)
+        inputs_rejected = processor(text=rejected_texts, images=all_images, **kwargs)
+        
+        # Calculate prompt lengths
+        all_tokens_prompt = processor.tokenizer(prompt_templates, padding=False)["input_ids"]
+        
+        for idx_in_valid, orig_idx in enumerate(valid_indices):
+            example = {k: examples[k][orig_idx] for k in examples.keys()}
             
-            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            
-            # SB-Bench: label = correct/non-stereotypical answer index; other two are stereotypical
+            # Extract chosen/rejected again for metadata
             label = int(example['label'])
             chosen = example[f'ans{label}']
-            wrong_indices = [i for i in range(3) if i != label]
+            wrong_indices = [idx for idx in range(3) if idx != label]
             pair_idx = int(example.get('pair_idx', 0))
             rejected = example[f'ans{wrong_indices[pair_idx]}']
-            
-            # Prompt: context + question (no answer in user turn)
             prompt_text = example['context'] + " " + example['question']
             
-            # User/assistant format so token gating finds assistant response boundary
-            chosen_messages = [
-                {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]},
-                {"role": "assistant", "content": [{"type": "text", "text": chosen}]}
-            ]
-            rejected_messages = [
-                {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]},
-                {"role": "assistant", "content": [{"type": "text", "text": rejected}]}
-            ]
-            prompt_messages = [
-                {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]}
-            ]
-            
-            # Apply chat templates
-            prompt_plus_chosen = processor.apply_chat_template(chosen_messages, tokenize=False)
-            prompt_plus_rejected = processor.apply_chat_template(rejected_messages, tokenize=False)
-            prompt_template = processor.apply_chat_template(
-                prompt_messages, tokenize=False, add_generation_prompt=True
-            )
-            
-            # Process inputs: truncation=False to avoid breaking image token alignment; long sequences filtered below
-            kwargs = {
-                "padding": "max_length",
-                "truncation": False,
-                "max_length": self.script_args.max_length,
-                "return_tensors": "pt",
-            }
-            
-            inputs_chosen = processor(text=[prompt_plus_chosen], images=[image], **kwargs)
-            inputs_rejected = processor(text=[prompt_plus_rejected], images=[image], **kwargs)
-            
-            # Calculate prompt length
-            tokens_prompt = processor.tokenizer.encode(prompt_template)
+            tokens_prompt = all_tokens_prompt[idx_in_valid]
             try:
                 prompt_len = self.find_token_for_gating(tokens_prompt, "qwen")
             except:
                 prompt_len = len(tokens_prompt) - 1
             
-            result = {
-                "pixel_values_chosen": inputs_chosen["pixel_values"],
-                "input_ids_chosen": inputs_chosen["input_ids"][0],
-                "attention_mask_chosen": inputs_chosen["attention_mask"][0],
-                "pixel_values_rejected": inputs_rejected["pixel_values"],
-                "input_ids_rejected": inputs_rejected["input_ids"][0],
-                "attention_mask_rejected": inputs_rejected["attention_mask"][0],
-                "data_index": example['data_index'],
-                "prompt": prompt_text,
-                "chosen": chosen,
-                "rejected": rejected,
-                "prompt_plus_chosen_response": prompt_plus_chosen,
-                "prompt_plus_rejected_response": prompt_plus_rejected,
-                'prompt_length': prompt_len
-            }
+            # Add to results
+            results["pixel_values_chosen"].append(inputs_chosen["pixel_values"][idx_in_valid])
+            results["input_ids_chosen"].append(inputs_chosen["input_ids"][idx_in_valid])
+            results["attention_mask_chosen"].append(inputs_chosen["attention_mask"][idx_in_valid])
+            results["pixel_values_rejected"].append(inputs_rejected["pixel_values"][idx_in_valid])
+            results["input_ids_rejected"].append(inputs_rejected["input_ids"][idx_in_valid])
+            results["attention_mask_rejected"].append(inputs_rejected["attention_mask"][idx_in_valid])
+            results["data_index"].append(example['data_index'])
+            results["prompt"].append(prompt_text)
+            results["chosen"].append(chosen)
+            results["rejected"].append(rejected)
+            results["prompt_plus_chosen_response"].append(chosen_texts[idx_in_valid])
+            results["prompt_plus_rejected_response"].append(rejected_texts[idx_in_valid])
+            results["prompt_length"].append(prompt_len)
             
-            # Capture Qwen2-VL specific arguments if present
+            # Capture Qwen2-VL specific arguments - use slicing to preserve 2D shape [1, 3]
             for k in ["image_grid_thw", "video_grid_thw"]:
                 if k in inputs_chosen:
-                    result[f"{k}_chosen"] = inputs_chosen[k]
+                    results[f"{k}_chosen"].append(inputs_chosen[k][idx_in_valid : idx_in_valid + 1])
                 if k in inputs_rejected:
-                    result[f"{k}_rejected"] = inputs_rejected[k]
-            
-            return result
-        except Exception as e:
-            logger.warning(f"Error processing example {example.get('data_index', 'unknown') if isinstance(example, dict) else 'invalid'}: {e}")
-            logger.warning(f"Example keys: {list(example.keys()) if isinstance(example, dict) else 'Not a dict'}")
-            logger.warning(f"Error type: {type(e).__name__}")
-            raise
+                    results[f"{k}_rejected"].append(inputs_rejected[k][idx_in_valid : idx_in_valid + 1])
+                    
+        return results
+
+    def _formatting_func(self, example, processor):
+        # (keeping this for fallback or legacy if needed, but it's not used now)
+        pass
+
+

@@ -127,7 +127,7 @@ def create_custom_forward(model, dtype):
                     inputs_embeds=inputs_embeds,
                     use_cache=use_cache,
                     output_attentions=output_attentions,
-                    output_hidden_states=False,
+                    output_hidden_states=True,
                     return_dict=return_dict,
                     **safe_kwargs
                 )
@@ -146,9 +146,6 @@ def create_custom_forward(model, dtype):
         penultimate_layer = all_hidden_states[-2]
 
         # Slice to get only the final token's embedding (2D Tensor: [Batch, Dim])
-        # Assuming padding is handled and the last token is at index -1
-        hidden_states = penultimate_layer[:, -1, :]
-
         if input_ids is not None:
             batch_size = input_ids.shape[0]
         else:
@@ -161,11 +158,18 @@ def create_custom_forward(model, dtype):
             sequence_lengths = -1
         else:
             if input_ids is not None:
+                # Find the index of the last non-padding token
                 sequence_lengths = torch.eq(input_ids, self.config.pad_token_id).int().argmax(-1) - 1
                 sequence_lengths = sequence_lengths % input_ids.shape[-1]
-                sequence_lengths = sequence_lengths.to(hidden_states.device)
+                sequence_lengths = sequence_lengths.to(penultimate_layer.device)
             else:
                 sequence_lengths = -1
+
+        # Extract the hidden states for the last non-padding token
+        if isinstance(sequence_lengths, int) and sequence_lengths == -1:
+            hidden_states = penultimate_layer[:, -1, :]
+        else:
+            hidden_states = penultimate_layer[torch.arange(batch_size, device=penultimate_layer.device), sequence_lengths]
 
         # Phase 1: no score head; use dummy logits so trainer interface still works
         pooled_logits = torch.zeros(batch_size, 1, device=hidden_states.device, dtype=hidden_states.dtype)

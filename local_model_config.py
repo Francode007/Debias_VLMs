@@ -14,45 +14,45 @@ from pathlib import Path
 LOCAL_MODELS = {
     # Qwen2-VL
     "qwen2-vl-2b": {
-        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2-vl-2b",
+        "local_path": "./models/Qwen2-VL-2B-Instruct",
         "hf_name": "Qwen/Qwen2-VL-2B-Instruct",
         "hidden_size": 1280,
         "recommended": False
     },
     "qwen2-vl-7b": {
-        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2-vl-7b",
+        "local_path": "./models/Qwen2-VL-7B-Instruct",
         "hf_name": "Qwen/Qwen2-VL-7B-Instruct",
         "hidden_size": 3584,
         "recommended": False
     },
     # Qwen2.5-VL (default series): 3B, 7B
     "qwen2.5-vl-3b": {
-        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2.5-vl-3b",
+        "local_path": "./models/Qwen2.5-VL-3B-Instruct",
         "hf_name": "Qwen/Qwen2.5-VL-3B-Instruct",
         "hidden_size": 2048,
         "recommended": True
     },
     "qwen2.5-vl-7b": {
-        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen2.5-vl-7b",
+        "local_path": "./models/Qwen2.5-VL-7B-Instruct",
         "hf_name": "Qwen/Qwen2.5-VL-7B-Instruct",
         "hidden_size": 3584,
         "recommended": False
     },
     # Qwen3.5 series (2026): 800M, 2B, 4B
     "qwen3.5-vl-800m": {
-        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen3.5-vl-800m",
+        "local_path": "./models/Qwen3.5-VL-0.8B-Instruct",
         "hf_name": "Qwen/Qwen3.5-VL-0.8B-Instruct",
         "hidden_size": 2048,
         "recommended": False
     },
     "qwen3.5-vl-2b": {
-        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen3.5-vl-2b",
+        "local_path": "./models/Qwen3.5-VL-2B-Instruct",
         "hf_name": "Qwen/Qwen3.5-VL-2B-Instruct",
         "hidden_size": 2048,
         "recommended": False
     },
     "qwen3.5-vl-4b": {
-        "local_path": "/Users/f0s03xp/Debias_VLMs/models_cache/qwen3.5-vl-4b",
+        "local_path": "./models/Qwen3.5-VL-4B-Instruct",
         "hf_name": "Qwen/Qwen3.5-VL-4B-Instruct",
         "hidden_size": 2560,
         "recommended": False
