@@ -42,7 +42,12 @@ class PPOVLMController:
         self.extractor = extractor_model
         
         # Value head for PPO (scalar output mapping the hidden state of the active policy)
-        hidden_size = self.policy.config.hidden_size
+        if hasattr(self.policy.config, "hidden_size"):
+            hidden_size = self.policy.config.hidden_size
+        elif hasattr(self.policy.config, "text_config") and hasattr(self.policy.config.text_config, "hidden_size"):
+            hidden_size = self.policy.config.text_config.hidden_size
+        else:
+            hidden_size = self.policy.get_input_embeddings().weight.shape[-1]
         self.value_head = nn.Linear(hidden_size, 1, bias=False).to(accelerator.device, dtype=torch.bfloat16)
         
         self.accelerator = accelerator
@@ -82,8 +87,9 @@ class PPOVLMController:
             # Penultimate layer
             penultimate = outputs.hidden_states[-2] 
             # Assuming padding is handled, grab the last token
-            if model.config.pad_token_id is not None:
-                seq_lens = torch.eq(input_ids, model.config.pad_token_id).int().argmax(-1) - 1
+            pad_token_id = getattr(model.config, "pad_token_id", None)
+            if pad_token_id is not None:
+                seq_lens = torch.eq(input_ids, pad_token_id).int().argmax(-1) - 1
                 seq_lens = seq_lens % input_ids.shape[-1]
                 e_token = penultimate[torch.arange(penultimate.shape[0]), seq_lens, :]
             else:
@@ -144,6 +150,7 @@ class PPOVLMController:
         with torch.no_grad():
             # Generate $y_{curr}$ from Active Policy
             unwrapped_policy = self.accelerator.unwrap_model(self.policy)
+            
             curr_outputs = unwrapped_policy.generate(
                 prompt_input_ids,
                 attention_mask=prompt_attention_mask,
@@ -169,7 +176,9 @@ class PPOVLMController:
                 )
                 
         # Reconstruct dynamic attention masks natively
-        pad_token_id = self.policy.config.pad_token_id if self.policy.config.pad_token_id is not None else 0
+        pad_token_id = getattr(self.policy.config, "pad_token_id", None)
+        if pad_token_id is None:
+            pad_token_id = 151643 # Qwen2 default pad token, or fallback to 0
         curr_attention_mask = (curr_outputs != pad_token_id).long()
         init_attention_mask = (init_outputs != pad_token_id).long()
 

@@ -208,25 +208,24 @@ class DatasetBuilder:
         ds = Dataset.from_list(expanded_rows)
         logger.info(f"Expanded to {len(ds)} preference pairs (2 per example)")
         
-        # Apply formatting with parallel processing
-        num_cpus = os.cpu_count() or 4
+        # Apply formatting - disabling multiprocessing for stability
         ds = ds.map(
             lambda examples: self._formatting_func_batched(examples, processor),
             batched=True,
-            num_proc=num_cpus,
+            num_proc=1,
             remove_columns=ds.column_names # Remove raw columns to avoid RewardTrainer auto-processing
         )
         
-        # Filter by length with parallel processing
+        # Filter by length
         ds = ds.filter(
             lambda x: (len(x["input_ids_chosen"]) <= self.script_args.max_length and
                       len(x["input_ids_rejected"]) <= self.script_args.max_length),
-            num_proc=num_cpus
+            num_proc=1
         )
         len_before_filter = len(ds)
         ds = ds.filter(
             lambda x: x["prompt_length"] < self.script_args.max_length,
-            num_proc=num_cpus
+            num_proc=1
         )
         len_after_filter = len(ds)
         logger.info(f"Filtered {len_before_filter - len_after_filter} samples due to length")
@@ -316,15 +315,14 @@ class DatasetBuilder:
         rejected_texts = [processor.apply_chat_template(msg, tokenize=False) for msg in all_rejected_messages]
         prompt_templates = [processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in all_prompt_messages]
         
-        # Process inputs in batch
+        # Process inputs in batch - returning lists to handle variable lengths in ds.map
         kwargs = {
-            "padding": "max_length",
+            "padding": False,
             "truncation": False,
-            "max_length": self.script_args.max_length,
-            "return_tensors": "pt",
+            "return_tensors": None,
         }
         
-        # Batch call to processor is MUCH faster
+        # Batch call to processor
         inputs_chosen = processor(text=chosen_texts, images=all_images, **kwargs)
         inputs_rejected = processor(text=rejected_texts, images=all_images, **kwargs)
         
@@ -349,31 +347,33 @@ class DatasetBuilder:
                 prompt_len = len(tokens_prompt) - 1
             
             # Add to results
-            results["pixel_values_chosen"].append(inputs_chosen["pixel_values"][idx_in_valid])
-            results["input_ids_chosen"].append(inputs_chosen["input_ids"][idx_in_valid])
-            results["attention_mask_chosen"].append(inputs_chosen["attention_mask"][idx_in_valid])
-            results["pixel_values_rejected"].append(inputs_rejected["pixel_values"][idx_in_valid])
-            results["input_ids_rejected"].append(inputs_rejected["input_ids"][idx_in_valid])
-            results["attention_mask_rejected"].append(inputs_rejected["attention_mask"][idx_in_valid])
-            results["data_index"].append(example['data_index'])
+            results["prompt_length"].append(prompt_len)
             results["prompt"].append(prompt_text)
             results["chosen"].append(chosen)
             results["rejected"].append(rejected)
             results["prompt_plus_chosen_response"].append(chosen_texts[idx_in_valid])
             results["prompt_plus_rejected_response"].append(rejected_texts[idx_in_valid])
-            results["prompt_length"].append(prompt_len)
             
-            # Capture Qwen2-VL specific arguments - use slicing to preserve 2D shape [1, 3]
+            results["input_ids_chosen"].append(inputs_chosen["input_ids"][idx_in_valid])
+            results["attention_mask_chosen"].append(inputs_chosen["attention_mask"][idx_in_valid])
+            results["pixel_values_chosen"].append(inputs_chosen["pixel_values"][idx_in_valid])
+            
+            results["input_ids_rejected"].append(inputs_rejected["input_ids"][idx_in_valid])
+            results["attention_mask_rejected"].append(inputs_rejected["attention_mask"][idx_in_valid])
+            results["pixel_values_rejected"].append(inputs_rejected["pixel_values"][idx_in_valid])
+            
+            # Qwen2-VL grid tokens - preserve shape
             for k in ["image_grid_thw", "video_grid_thw"]:
                 if k in inputs_chosen:
-                    results[f"{k}_chosen"].append(inputs_chosen[k][idx_in_valid : idx_in_valid + 1])
+                    results[f"{k}_chosen"].append(inputs_chosen[k][idx_in_valid])
                 if k in inputs_rejected:
-                    results[f"{k}_rejected"].append(inputs_rejected[k][idx_in_valid : idx_in_valid + 1])
-                    
+                    results[f"{k}_rejected"].append(inputs_rejected[k][idx_in_valid])
+            
+            # Metadata
+            results["data_index"].append(example['data_index'])
+            results["pair_idx"].append(pair_idx)
+            
         return results
 
-    def _formatting_func(self, example, processor):
-        # (keeping this for fallback or legacy if needed, but it's not used now)
-        pass
 
 

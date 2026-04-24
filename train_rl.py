@@ -5,16 +5,19 @@ import logging
 import torch
 import json
 from accelerate import Accelerator
-from transformers import AutoProcessor, Qwen2_5VLForConditionalGeneration
+from transformers import AutoProcessor, AutoModelForImageTextToText
 from peft import LoraConfig, get_peft_model, PeftModel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from modules.model_loader import ModelLoader
+from modules.device_manager import DeviceManager
 from modules.fast_rl import FastRLNode
 from modules.custom_vlm_ppo_trainer import PPOVLMController
 from modules.rl_dataset_builder import RLDatasetBuilder
 from modules.rl_data_collator import RLDataCollatorWithPadding
 from modules.config import ScriptArguments
+from local_model_config import get_local_model_path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -71,11 +74,12 @@ def load_debiased_model(base_model_path: str, peft_adapter_path: str, device: st
     Loads the frozen base model and applies the saved debiased PEFT adapter back on top.
     """
     logger.info(f"Loading Base: {base_model_path}")
-    base_model = Qwen2_5VLForConditionalGeneration.from_pretrained(
+    base_model = AutoModel.from_pretrained(
         base_model_path,
         torch_dtype=torch.bfloat16,
         attn_implementation="flash_attention_2",
-        device_map={"": device}
+        device_map={"": device},
+        trust_remote_code=True
     )
     logger.info(f"Merging LoRA Adapter: {peft_adapter_path}")
     model = PeftModel.from_pretrained(base_model, peft_adapter_path)
@@ -89,27 +93,38 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps
     )
     
-    # Instantiate custom processor for Qwen2.5-VL to align image structures
-    processor = AutoProcessor.from_pretrained(args.policy_model_name)
+    # Setup model configuration for ModelLoader (Extractor)
+    extractor_cfg = ScriptArguments(
+        model=args.extractor_model_name,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        max_length=args.max_length,
+        use_smallset=args.use_smallset
+    )
+    device_manager = DeviceManager()
+    extractor_loader = ModelLoader(extractor_cfg, device_manager)
     
     logger.info("Loading Extractor Model (Frozen Base)...")
-    extractor = Qwen2_5VLForConditionalGeneration.from_pretrained(
-        args.extractor_model_name,
-        torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
-        device_map={"": accelerator.device}
-    )
+    extractor, _ = extractor_loader.load_model_and_processor()
     extractor.eval()
     for param in extractor.parameters():
         param.requires_grad = False
         
     logger.info("Loading Policy Model and injecting LoRA for Active PPO Policy...")
-    policy_base = Qwen2_5VLForConditionalGeneration.from_pretrained(
-        args.policy_model_name,
-        torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
-        device_map={"": accelerator.device}
+    # Setup model configuration for ModelLoader (Policy)
+    script_cfg = ScriptArguments(
+        model=args.policy_model_name,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        max_length=args.max_length,
+        use_smallset=args.use_smallset
     )
+    loader = ModelLoader(script_cfg, device_manager)
+    
+    # Instantiate custom processor
+    processor_path = get_local_model_path(args.policy_model_name)
+    from transformers import AutoProcessor
+    processor = AutoProcessor.from_pretrained(processor_path)
+    
+    policy_base, _ = loader.load_model_and_processor()
     
     lora_config = LoraConfig(
         r=16,
@@ -124,6 +139,8 @@ def main():
     logger.info("Loading Phase 1 PCA Score Heads...")
     try:
         reward_heads_weight = load_pca_components(args.reward_heads_dir, args.num_heads, accelerator.device)
+        # Update num_heads to actual number of loaded components
+        args.num_heads = reward_heads_weight.shape[0]
         logger.info(f"Loaded reward heads matrix of shape: {reward_heads_weight.shape}")
     except Exception as e:
         logger.error(f"Could not load reward heads: {e}")

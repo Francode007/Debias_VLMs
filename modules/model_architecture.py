@@ -70,7 +70,8 @@ def create_custom_forward(model, dtype):
         if attention_mask is not None:
             attention_mask = attention_mask.to(self.device)
         if pixel_values is not None:
-            pixel_values = pixel_values.to(self.device, dtype=dtype)
+            model_dtype = getattr(self.model, "dtype", torch.bfloat16)
+            pixel_values = pixel_values.to(self.device, dtype=model_dtype)
         
         # Handle kwargs tensors (e.g. image_grid_thw)
         for k, v in kwargs.items():
@@ -140,7 +141,11 @@ def create_custom_forward(model, dtype):
         elif isinstance(transformer_outputs, tuple) and len(transformer_outputs) > 2:
             all_hidden_states = transformer_outputs[2]
         else:
-            raise ValueError("hidden_states not found in model output. Make sure output_hidden_states=True is effective.")
+            # Debug: what is actually in transformer_outputs?
+            out_keys = getattr(transformer_outputs, "keys", lambda: "No keys")()
+            out_type = type(transformer_outputs)
+            logger.error(f"Missing hidden_states. Output type: {out_type}, Keys: {out_keys}")
+            raise ValueError(f"hidden_states not found in model output ({out_type}). Make sure output_hidden_states=True is effective.")
         
         # Extract the penultimate layer (3D Tensor: [Batch, Seq, Dim])
         penultimate_layer = all_hidden_states[-2]

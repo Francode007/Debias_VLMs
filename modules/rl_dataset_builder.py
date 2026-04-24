@@ -14,6 +14,7 @@ import pandas as pd
 from PIL import Image
 from datasets import Dataset
 from typing import Optional
+from collections import defaultdict
 from .config import ScriptArguments
 
 logger = logging.getLogger(__name__)
@@ -71,12 +72,18 @@ class RLDatasetBuilder:
         # We don't expand into 2 pairs per example. We just need the unique prompt contexts.
         logger.info(f"Loaded {len(ds)} unique prompts for PPO generation.")
         
+        # Apply formatting - disabling multiprocessing to avoid potential hangs with custom processor
+        logger.info("Starting dataset mapping (formatting)...")
         ds = ds.map(
-            lambda example: self._formatting_func(example, processor),
-            batched=False,
-            num_proc=1
+            lambda examples: self._formatting_func_batched(examples, processor),
+            batched=True,
+            batch_size=2, # Smaller batch size for progress tracking
+            num_proc=1,
+            remove_columns=ds.column_names
         )
+        logger.info("Dataset mapping completed.")
         
+        # Filter by length
         ds = ds.filter(
             lambda x: len(x["input_ids"]) <= self.script_args.max_length,
             num_proc=1
@@ -84,6 +91,108 @@ class RLDatasetBuilder:
         
         ds.set_format(type="torch")
         return ds
+
+    def _formatting_func_batched(self, examples, processor):
+        """
+        Format a batch of examples for RL generation.
+        """
+        results = defaultdict(list)
+        
+        # Determine how many examples in this batch
+        batch_size = len(examples[next(iter(examples.keys()))])
+        
+        all_images = []
+        all_prompt_messages = []
+        valid_indices = []
+        
+        for i in range(batch_size):
+            # Extract single example from batch
+            example = {k: examples[k][i] for k in examples.keys()}
+            
+            try:
+                # Handle flattened file_name structure
+                if 'file_name' in example:
+                    image_data = example['file_name']
+                elif 'file_name.bytes' in example:
+                    image_data = {'bytes': example['file_name.bytes']}
+                else:
+                    image_data = example
+                    
+                # Load image
+                if isinstance(image_data, dict) and 'bytes' in image_data:
+                    image_bytes = image_data['bytes']
+                elif isinstance(image_data, bytes):
+                    image_bytes = image_data
+                else:
+                    continue
+                
+                image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                all_images.append(image)
+                
+                prompt_text = example['context'] + " " + example['question']
+                
+                prompt_msg = [
+                    {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]}
+                ]
+                
+                all_prompt_messages.append(prompt_msg)
+                valid_indices.append(i)
+                
+            except Exception as e:
+                logger.warning(f"Error preparing example {i} in batch: {e}")
+                continue
+        
+        if not valid_indices:
+            return results
+            
+        # Apply chat templates in batch
+        prompt_templates = [processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in all_prompt_messages]
+        
+        # Process inputs in batch - returning lists (not tensors) to handle variable lengths in ds.map
+        kwargs = {
+            "padding": False,
+            "truncation": False,
+            "return_tensors": None,
+        }
+        
+        inputs = processor(text=prompt_templates, images=all_images, **kwargs)
+        
+        # Calculate patch boundaries
+        patch_slices = []
+        if "pixel_values" in inputs and "image_grid_thw" in inputs:
+            grid_thw = inputs["image_grid_thw"]
+            import torch
+            if isinstance(grid_thw, list):
+                grid_thw = torch.tensor(grid_thw)
+            start_idx = 0
+            for i in range(len(grid_thw)):
+                num_patches = int(grid_thw[i, 0] * grid_thw[i, 1] * grid_thw[i, 2])
+                patch_slices.append((start_idx, start_idx + num_patches))
+                start_idx += num_patches
+        
+        for idx_in_valid, orig_idx in enumerate(valid_indices):
+            # Add to results as lists/arrays (datasets will handle them)
+            if "pixel_values" in inputs:
+                if patch_slices:
+                    start_p, end_p = patch_slices[idx_in_valid]
+                    results["pixel_values"].append(inputs["pixel_values"][start_p:end_p])
+                else:
+                    results["pixel_values"].append(inputs["pixel_values"][idx_in_valid])
+                    
+            results["input_ids"].append(inputs["input_ids"][idx_in_valid])
+            results["attention_mask"].append(inputs["attention_mask"][idx_in_valid])
+            
+            if "image_grid_thw" in inputs:
+                results["image_grid_thw"].append(inputs["image_grid_thw"][idx_in_valid])
+            if "video_grid_thw" in inputs:
+                results["video_grid_thw"].append(inputs["video_grid_thw"][idx_in_valid])
+            
+            # Metadata
+            results["data_index"].append(orig_idx)
+            results["context"].append(examples["context"][orig_idx])
+            results["question"].append(examples["question"][orig_idx])
+            
+        return results
     
     def _formatting_func(self, example, processor):
         try:

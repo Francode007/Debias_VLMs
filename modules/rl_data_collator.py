@@ -28,24 +28,25 @@ class RLDataCollatorWithPadding:
         for feature in features:
             merged_input_ids.append(torch.as_tensor(feature["input_ids"]))
             merged_attention_mask.append(torch.as_tensor(feature["attention_mask"]))
-            merged_pixel_values.append(torch.as_tensor(feature["pixel_values"]))
+            
+            # Robust pixel_values collection
+            pv = torch.as_tensor(feature["pixel_values"])
+            # Qwen2.5-VL expects pixel_values as (num_patches, flat_dim) or (num_patches, C, T, P, P)
+            # If it has a batch dimension of 1, squeeze it.
+            if pv.ndim > 2 and pv.shape[0] == 1:
+                pv = pv.squeeze(0)
+            merged_pixel_values.append(pv)
             
         pixel_values = torch.cat(merged_pixel_values, dim=0)
 
         # Pad sequences to the longest in the batch
-        # We must pad on the LEFT usually if we are doing generation, but standard HF generate handles right padding
-        # Wait, for decoder generation, left padding is strongly recommended.
-        # However Qwen2.5-VL uses right padding sometimes, but we will pad left manually for safe generation if required.
-        # In typical PPO, we pad right but pass attention mask safely.
-        
-        # Let's pad efficiently
         max_length = max(len(ids) for ids in merged_input_ids)
         pad_token_id = self.processor.tokenizer.pad_token_id if self.processor.tokenizer.pad_token_id is not None else 0
         
         padded_input_ids = []
         padded_attention_mask = []
         
-        # We pad on the LEFT so generation concatenates easily on the right side without overriding parameters.
+        # We pad on the LEFT for generation
         for idx in range(len(merged_input_ids)):
             seq_len = len(merged_input_ids[idx])
             padding_len = max_length - seq_len
@@ -61,20 +62,48 @@ class RLDataCollatorWithPadding:
             padded_input_ids.append(pids)
             padded_attention_mask.append(pmask)
             
+        import sys
+        
         batch = {
             "input_ids": torch.stack(padded_input_ids),
             "attention_mask": torch.stack(padded_attention_mask),
             "pixel_values": pixel_values,
         }
         
+        # DEBUG to stderr
+        sys.stderr.write(f"\nDEBUG COLLATOR: Batch size: {len(features)}\n")
+        sys.stderr.write(f"DEBUG COLLATOR: Concatenated pixel_values shape: {pixel_values.shape}\n")
+
+        # Handle grid_thw concatenation
         for k in ["image_grid_thw", "video_grid_thw"]:
             merged_list = []
             has_key = False
-            for feature in features:
-                if k in feature:
+            for i, feature in enumerate(features):
+                if k in feature and feature[k] is not None:
                     has_key = True
-                    merged_list.append(torch.as_tensor(feature[k]))
+                    t = torch.as_tensor(feature[k])
+                    
+                    # Log individual shapes
+                    sys.stderr.write(f"DEBUG COLLATOR: Sample {i} {k} raw shape: {t.shape}\n")
+                    
+                    # Ensure t is (num_images_in_sample, 3)
+                    if t.ndim == 1:
+                        t = t.unsqueeze(0)
+                    elif t.ndim == 3 and t.shape[0] == 1:
+                        t = t.squeeze(0)
+                    merged_list.append(t)
+                    
             if has_key:
-                batch[k] = torch.cat(merged_list, dim=0)
+                batch[k] = torch.cat(merged_list, dim=0).long() # Explicitly cast to long
+                sys.stderr.write(f"DEBUG COLLATOR: Final {k} shape: {batch[k].shape}\n")
+                sys.stderr.write(f"DEBUG COLLATOR: {k} values: {batch[k].tolist()}\n")
         
+        # Final sanity check for Qwen2.5-VL: total patches must match grid_thw
+        if "image_grid_thw" in batch:
+            total_patches_from_grid = torch.sum(batch["image_grid_thw"][:, 0] * batch["image_grid_thw"][:, 1] * batch["image_grid_thw"][:, 2])
+            sys.stderr.write(f"DEBUG COLLATOR: Total patches from grid: {total_patches_from_grid}\n")
+            if pixel_values.shape[0] != total_patches_from_grid:
+                sys.stderr.write(f"CRITICAL WARNING: Patch mismatch! {pixel_values.shape[0]} != {total_patches_from_grid}\n")
+        
+        sys.stderr.flush()
         return batch

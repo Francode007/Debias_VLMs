@@ -194,35 +194,21 @@ class ModelLoader:
             logger.info(f"Attempting to load model: {model_name}")
             
             try:
-                # Use the correct model class; do not mix families (architecture mismatch)
-                if "3.5" in model_name:
-                    # Qwen3.5 series (2026): 800M, 2B, 4B
-                    try:
-                        from transformers import Qwen3_5VLForConditionalGeneration as ModelClass
-                        logger.info("Using Qwen3.5VL model class")
-                    except ImportError:
-                        try:
-                            from transformers import Qwen3VLForConditionalGeneration as ModelClass
-                            logger.info("Using Qwen3VL model class (fallback for 3.5)")
-                        except ImportError:
-                            logger.warning(
-                                "Qwen3.5-VL / Qwen3-VL not available (upgrade transformers). "
-                                "Skipping this model and trying next."
-                            )
-                            continue
-                elif "2.5" in model_name:
-                    try:
-                        from transformers import Qwen2_5VLForConditionalGeneration as ModelClass
-                        logger.info("Using Qwen2.5VL model class")
-                    except ImportError:
-                        logger.warning(
-                            "Qwen2_5VLForConditionalGeneration not available (upgrade transformers). "
-                            "Skipping this model and trying next."
-                        )
-                        continue
-                else:
-                    from transformers import Qwen2VLForConditionalGeneration as ModelClass
-                    logger.info("Using Qwen2VL model class")
+                # In Transformers v5, multimodal models use AutoModelForImageTextToText
+                try:
+                    from transformers import AutoModelForImageTextToText as ModelClass
+                    logger.info("Using AutoModelForImageTextToText (Transformers v5 standard)")
+                except ImportError:
+                    # Fallback for older versions or specific needs
+                    if "3.5" in model_name:
+                        from transformers import Qwen3_5ForConditionalGeneration as ModelClass
+                        logger.info("Using Qwen3_5ForConditionalGeneration")
+                    elif "2.5" in model_name:
+                        from transformers import Qwen2_5_VLForConditionalGeneration as ModelClass
+                        logger.info("Using Qwen2_5_VLForConditionalGeneration")
+                    else:
+                        from transformers import Qwen2VLForConditionalGeneration as ModelClass
+                        logger.info("Using Qwen2VL model class")
                 
                 # Configure backends
                 self.device_manager.configure_torch_backends(self.device)
