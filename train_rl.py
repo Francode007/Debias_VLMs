@@ -35,7 +35,7 @@ def parse_args():
     # Training Loop Args
     parser.add_argument("--data_path", type=str, default="./sb_bench_data/data", help="Path to parquet dataset")
     parser.add_argument("--output_dir", type=str, default="./output_ppo_debiased", help="Directory to save PEFT models")
-    parser.add_argument("--per_device_train_batch_size", type=int, default=4, help="Batch size (recommended 4 for A100)")
+    parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size (recommended 8 for A100 after optimization)")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=4, help="Gradient accumulation scale")
     parser.add_argument("--use_smallset", action="store_true", help="Use a tiny subset for testing")
     parser.add_argument("--max_length", type=int, default=1024, help="Maximum sequence length constraints")
@@ -93,22 +93,8 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps
     )
     
-    # Setup model configuration for ModelLoader (Extractor)
-    extractor_cfg = ScriptArguments(
-        model=args.extractor_model_name,
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        max_length=args.max_length,
-        use_smallset=args.use_smallset
-    )
     device_manager = DeviceManager()
-    extractor_loader = ModelLoader(extractor_cfg, device_manager)
     
-    logger.info("Loading Extractor Model (Frozen Base)...")
-    extractor, _ = extractor_loader.load_model_and_processor()
-    extractor.eval()
-    for param in extractor.parameters():
-        param.requires_grad = False
-        
     logger.info("Loading Policy Model and injecting LoRA for Active PPO Policy...")
     # Setup model configuration for ModelLoader (Policy)
     script_cfg = ScriptArguments(
@@ -150,7 +136,6 @@ def main():
     
     ppo_controller = PPOVLMController(
         active_policy=active_policy,
-        extractor_model=extractor,
         reward_heads_weight=reward_heads_weight,
         accelerator=accelerator,
         fast_rl_node=fast_rl_node,
@@ -202,7 +187,8 @@ def main():
                     pbar.set_postfix({
                         "loss": f"{metrics['loss']:.4f}",
                         "reward": f"{metrics['reward']:.4f}",
-                        "w_hat": f"{metrics['w_hat_mean']:.4f}"
+                        "w_hat": f"{metrics['w_hat_mean']:.4f}",
+                        "gpu_mem_gb": f"{torch.cuda.max_memory_allocated() / (1024**3):.2f}"
                     })
                 
                 global_step += 1

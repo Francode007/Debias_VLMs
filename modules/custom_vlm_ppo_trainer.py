@@ -19,7 +19,6 @@ class PPOVLMController:
     def __init__(
         self,
         active_policy: PreTrainedModel,
-        extractor_model: PreTrainedModel,
         reward_heads_weight: torch.Tensor,
         accelerator: Accelerator,
         fast_rl_node: FastRLNode,
@@ -33,13 +32,11 @@ class PPOVLMController:
         Args:
             active_policy: The 3B model (with LoRA attached and active).
                            We assume disabling the LoRA adapter yields the reference policy.
-            extractor_model: The 3B frozen feature extractor model.
             reward_heads_weight: Tensor of shape (K, hidden_size) of the 100 PCA orthogonal directions.
             accelerator: Hugging Face Accelerate instance.
             fast_rl_node: Instance of FastRLNode for dynamic mirror descent updates.
         """
         self.policy = active_policy
-        self.extractor = extractor_model
         
         # Value head for PPO (scalar output mapping the hidden state of the active policy)
         if hasattr(self.policy.config, "hidden_size"):
@@ -60,8 +57,8 @@ class PPOVLMController:
         
         self.reward_heads_weight = reward_heads_weight.to(accelerator.device, dtype=torch.bfloat16)
 
-    def extract_logits_and_values(self, model, value_head, input_ids, attention_mask, pixel_values, kwargs):
-        """Forward pass to extract logits and values."""
+    def extract_logits_and_values(self, model, value_head, input_ids, attention_mask, pixel_values, kwargs, extract_embedding=False):
+        """Forward pass to extract logits and values, and optionally the penultimate layer embedding."""
         outputs = model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -72,6 +69,19 @@ class PPOVLMController:
         logits = outputs.logits
         hidden_states = outputs.hidden_states[-1] # final layer
         values = value_head(hidden_states).squeeze(-1)
+        
+        if extract_embedding:
+            penultimate = outputs.hidden_states[-2] 
+            # Assuming padding is handled, grab the last token
+            pad_token_id = getattr(model.config, "pad_token_id", None)
+            if pad_token_id is not None:
+                seq_lens = torch.eq(input_ids, pad_token_id).int().argmax(-1) - 1
+                seq_lens = seq_lens % input_ids.shape[-1]
+                e_token = penultimate[torch.arange(penultimate.shape[0]), seq_lens, :]
+            else:
+                e_token = penultimate[:, -1, :]
+            return logits, values, e_token
+            
         return logits, values
 
     def extract_preference_embeddings(self, model, input_ids, attention_mask, pixel_values, kwargs):
@@ -191,28 +201,25 @@ class PPOVLMController:
         )
         curr_logprobs, loss_mask = self.compute_logprobs(curr_logits, curr_outputs)
         
-        # 3. Extract Reference Policy Logprobs over y_{curr}
+        # 3. Extract Reference Policy Logprobs over y_{curr} AND e_curr simultaneously
         with torch.no_grad():
             self.policy.eval()
             with self.policy.disable_adapter():
-                init_logits_curr_traj, _ = self.extract_logits_and_values(
-                    self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, kwargs
+                init_logits_curr_traj, _, e_curr = self.extract_logits_and_values(
+                    self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, kwargs, extract_embedding=True
                 )
                 init_logprobs, _ = self.compute_logprobs(init_logits_curr_traj, curr_outputs)
+                
+                # 5. Extract Embeddings for y_{init}
+                e_init = self.extract_preference_embeddings(
+                    self.policy, init_outputs, init_attention_mask, pixel_values, kwargs
+                )
                 
             self.policy.train()
                 
         # 4. KL Divergence Penalty (Token level)
         kl_divs = curr_logprobs - init_logprobs
         seq_kl = (kl_divs * loss_mask).sum(dim=1) # (Batch,)
-        
-        # 5. Extract Embeddings from Frozen Extractor for BOTH Trajectories
-        e_curr = self.extract_preference_embeddings(
-            self.extractor, curr_outputs, curr_attention_mask, pixel_values, kwargs
-        )
-        e_init = self.extract_preference_embeddings(
-            self.extractor, init_outputs, init_attention_mask, pixel_values, kwargs
-        )
         
         # 6. Orthogonal Scoring (Phase 1 application)
         # w_k dot e_curr => (Batch, K)
