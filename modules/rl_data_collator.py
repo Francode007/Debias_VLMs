@@ -29,6 +29,11 @@ class RLDataCollatorWithPadding:
             merged_input_ids.append(torch.as_tensor(feature["input_ids"]))
             merged_attention_mask.append(torch.as_tensor(feature["attention_mask"]))
             
+            if "mm_token_type_ids" in feature:
+                if not hasattr(self, "_merged_mm_token_type_ids"):
+                    self._merged_mm_token_type_ids = []
+                self._merged_mm_token_type_ids.append(torch.as_tensor(feature["mm_token_type_ids"]))
+            
             # Robust pixel_values collection
             pv = torch.as_tensor(feature["pixel_values"])
             # Qwen2.5-VL expects pixel_values as (num_patches, flat_dim) or (num_patches, C, T, P, P)
@@ -62,6 +67,15 @@ class RLDataCollatorWithPadding:
             padded_input_ids.append(pids)
             padded_attention_mask.append(pmask)
             
+            if hasattr(self, "_merged_mm_token_type_ids"):
+                if not hasattr(self, "_padded_mm_token_type_ids"):
+                    self._padded_mm_token_type_ids = []
+                pmm = torch.cat([
+                    torch.zeros((padding_len,), dtype=self._merged_mm_token_type_ids[idx].dtype),
+                    self._merged_mm_token_type_ids[idx]
+                ])
+                self._padded_mm_token_type_ids.append(pmm)
+            
         import sys
         
         batch = {
@@ -69,6 +83,11 @@ class RLDataCollatorWithPadding:
             "attention_mask": torch.stack(padded_attention_mask),
             "pixel_values": pixel_values,
         }
+        
+        if hasattr(self, "_padded_mm_token_type_ids"):
+            batch["mm_token_type_ids"] = torch.stack(self._padded_mm_token_type_ids)
+            delattr(self, "_merged_mm_token_type_ids")
+            delattr(self, "_padded_mm_token_type_ids")
         
         # DEBUG to stderr
         sys.stderr.write(f"\nDEBUG COLLATOR: Batch size: {len(features)}\n")

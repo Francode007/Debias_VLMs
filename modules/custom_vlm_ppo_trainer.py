@@ -150,10 +150,12 @@ class PPOVLMController:
         pixel_values = batch.get("pixel_values", None)
         image_grid_thw = batch.get("image_grid_thw", None)
         video_grid_thw = batch.get("video_grid_thw", None)
+        mm_token_type_ids = batch.get("mm_token_type_ids", None)
         
         kwargs = {}
         if image_grid_thw is not None: kwargs["image_grid_thw"] = image_grid_thw
         if video_grid_thw is not None: kwargs["video_grid_thw"] = video_grid_thw
+        if mm_token_type_ids is not None: kwargs["mm_token_type_ids"] = mm_token_type_ids
         
         # 1. TRUE DUAL GENERATION
         self.policy.eval()
@@ -192,12 +194,48 @@ class PPOVLMController:
         curr_attention_mask = (curr_outputs != pad_token_id).long()
         init_attention_mask = (init_outputs != pad_token_id).long()
 
+        # Build post-generation kwargs for scoring forward passes.
+        # Key differences from generation kwargs:
+        #   1. pixel_values=None: images were already consumed during generate() and
+        #      embedded into the KV cache. The generated input_ids still contain image
+        #      placeholder tokens, but passing raw pixel_values again would cause the
+        #      model to try to re-embed them, leading to a token count mismatch.
+        #   2. mm_token_type_ids must be extended: generated sequences are longer than
+        #      prompts by max_new_tokens. New tokens are text (type=0), so we pad with 0s.
+        #   3. image_grid_thw / video_grid_thw are kept as-is (they describe the image
+        #      patches, not the sequence length).
+        def _build_scoring_kwargs(gen_outputs, gen_attention_mask, original_kwargs):
+            """Build kwargs suitable for a full scoring forward pass on generated sequences."""
+            scoring_kw = {}
+            for k in ["image_grid_thw", "video_grid_thw"]:
+                if k in original_kwargs:
+                    scoring_kw[k] = original_kwargs[k]
+            
+            if "mm_token_type_ids" in original_kwargs:
+                orig_mm = original_kwargs["mm_token_type_ids"]  # (batch, prompt_len)
+                gen_len = gen_outputs.shape[1]
+                extra = gen_len - orig_mm.shape[1]
+                if extra > 0:
+                    # Extend with zeros (text token type) to match generated length
+                    ext = torch.zeros(
+                        (orig_mm.shape[0], extra),
+                        dtype=orig_mm.dtype,
+                        device=orig_mm.device
+                    )
+                    scoring_kw["mm_token_type_ids"] = torch.cat([orig_mm, ext], dim=1)
+                else:
+                    scoring_kw["mm_token_type_ids"] = orig_mm
+            return scoring_kw
+        
+        curr_scoring_kwargs = _build_scoring_kwargs(curr_outputs, curr_attention_mask, kwargs)
+        init_scoring_kwargs = _build_scoring_kwargs(init_outputs, init_attention_mask, kwargs)
+
         # 2. Extract Active Policy Logprobs and Values over y_{curr}
         self.policy.train()
         self.value_head.train()
         
         curr_logits, curr_values = self.extract_logits_and_values(
-            self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, kwargs
+            self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, curr_scoring_kwargs
         )
         curr_logprobs, loss_mask = self.compute_logprobs(curr_logits, curr_outputs)
         
@@ -206,13 +244,13 @@ class PPOVLMController:
             self.policy.eval()
             with self.policy.disable_adapter():
                 init_logits_curr_traj, _, e_curr = self.extract_logits_and_values(
-                    self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, kwargs, extract_embedding=True
+                    self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, curr_scoring_kwargs, extract_embedding=True
                 )
                 init_logprobs, _ = self.compute_logprobs(init_logits_curr_traj, curr_outputs)
                 
                 # 5. Extract Embeddings for y_{init}
                 e_init = self.extract_preference_embeddings(
-                    self.policy, init_outputs, init_attention_mask, pixel_values, kwargs
+                    self.policy, init_outputs, init_attention_mask, pixel_values, init_scoring_kwargs
                 )
                 
             self.policy.train()
@@ -223,6 +261,9 @@ class PPOVLMController:
         
         # 6. Orthogonal Scoring (Phase 1 application)
         # w_k dot e_curr => (Batch, K)
+        # Cast embeddings to match reward heads dtype (accelerate may upcast to fp32)
+        e_curr = e_curr.to(self.reward_heads_weight.dtype)
+        e_init = e_init.to(self.reward_heads_weight.dtype)
         r_curr_k = torch.matmul(e_curr, self.reward_heads_weight.T)
         r_init_k = torch.matmul(e_init, self.reward_heads_weight.T)
         
@@ -236,7 +277,11 @@ class PPOVLMController:
         R_final = R_curr - self.kl_beta * seq_kl
         
         # 10. Loss Optimization (GAE via R_final)
-        advantages, returns = self.compute_gae(R_final.detach(), curr_values.detach(), loss_mask)
+        # Align values with loss_mask: values has shape (batch, seq_len) but
+        # logprobs/loss_mask are shifted by 1 position, so shape is (batch, seq_len-1).
+        # Use values[:, :-1] as current token values for GAE computation.
+        curr_values_aligned = curr_values[:, :-1]
+        advantages, returns = self.compute_gae(R_final.detach(), curr_values_aligned.detach(), loss_mask)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
         # PPO Surrogate Loss
@@ -252,7 +297,7 @@ class PPOVLMController:
         scaled_pg_loss = (w_hat * seq_pg_loss).mean()
         
         # Value Loss
-        v_loss = 0.5 * ((curr_values - returns) ** 2) * loss_mask
+        v_loss = 0.5 * ((curr_values_aligned - returns) ** 2) * loss_mask
         v_loss = v_loss.sum(dim=1) / loss_mask.sum(dim=1)
         v_loss = v_loss.mean()
         

@@ -106,13 +106,35 @@ class RewardDataCollatorWithPadding:
             merged_features_input_ids.append(torch.as_tensor(feature["input_ids_rejected"]))
             merged_features_attention_mask.append(torch.as_tensor(feature["attention_mask_rejected"]))
             merged_features_pixel_values.append(torch.as_tensor(feature["pixel_values_rejected"]))
+            
+        # Pad sequences
+        max_length = max(len(ids) for ids in merged_features_input_ids)
+        pad_token_id = self.processor.tokenizer.pad_token_id if self.processor.tokenizer.pad_token_id is not None else 0
         
+        padded_input_ids = []
+        padded_attention_mask = []
+        
+        for idx in range(len(merged_features_input_ids)):
+            seq_len = len(merged_features_input_ids[idx])
+            padding_len = max_length - seq_len
+            
+            pids = torch.cat([
+                torch.full((padding_len,), pad_token_id, dtype=merged_features_input_ids[idx].dtype),
+                merged_features_input_ids[idx]
+            ])
+            pmask = torch.cat([
+                torch.zeros((padding_len,), dtype=merged_features_attention_mask[idx].dtype),
+                merged_features_attention_mask[idx]
+            ])
+            padded_input_ids.append(pids)
+            padded_attention_mask.append(pmask)
+            
         # Qwen2-VL pixel_values: concat on dim=0 (batch of images)
         pixel_values = torch.cat(merged_features_pixel_values, dim=0)
 
         batch = {
-            "input_ids": torch.stack(merged_features_input_ids),
-            "attention_mask": torch.stack(merged_features_attention_mask),
+            "input_ids": torch.stack(padded_input_ids),
+            "attention_mask": torch.stack(padded_attention_mask),
             "pixel_values": pixel_values,
             "prompt": [f["prompt"] for f in features],
             "chosen": [f["chosen"] for f in features],

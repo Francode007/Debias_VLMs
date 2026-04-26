@@ -44,6 +44,8 @@ class FastRLNode:
             composite_reward: Tensor of shape (batch_size,) - The weighted sum R_curr
         """
         batch_size = rewards_curr.shape[0]
+        # Ensure float32 for numerical stability (rewards may arrive in bf16)
+        rewards_curr = rewards_curr.float()
         # Average the rewards across the batch to get the expected gradient performance
         r_k_mean = rewards_curr.mean(dim=0)  # Shape (num_heads,)
         

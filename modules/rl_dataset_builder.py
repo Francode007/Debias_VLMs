@@ -186,6 +186,8 @@ class RLDatasetBuilder:
                 results["image_grid_thw"].append(inputs["image_grid_thw"][idx_in_valid])
             if "video_grid_thw" in inputs:
                 results["video_grid_thw"].append(inputs["video_grid_thw"][idx_in_valid])
+            if "mm_token_type_ids" in inputs:
+                results["mm_token_type_ids"].append(inputs["mm_token_type_ids"][idx_in_valid])
             
             # Metadata
             results["data_index"].append(orig_idx)
@@ -234,7 +236,7 @@ class RLDatasetBuilder:
                 "attention_mask": inputs["attention_mask"][0],
             }
             
-            for k in ["image_grid_thw", "video_grid_thw"]:
+            for k in ["image_grid_thw", "video_grid_thw", "mm_token_type_ids"]:
                 if k in inputs:
                     result[k] = inputs[k]
             
