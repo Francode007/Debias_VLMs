@@ -18,6 +18,8 @@ from modules.rl_dataset_builder import RLDatasetBuilder
 from modules.rl_data_collator import RLDataCollatorWithPadding
 from modules.config import ScriptArguments
 from local_model_config import get_local_model_path
+import time
+import multiprocessing
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -86,6 +88,7 @@ def load_debiased_model(base_model_path: str, peft_adapter_path: str, device: st
     return model
 
 def main():
+    t_start_setup = time.time()
     args = parse_args()
     
     accelerator = Accelerator(
@@ -122,6 +125,11 @@ def main():
 
     active_policy = get_peft_model(policy_base, lora_config)
     
+    # OOM Mitigation: Enable Gradient Checkpointing
+    if hasattr(active_policy, "gradient_checkpointing_enable"):
+        logger.info("Enabling gradient checkpointing for policy model...")
+        active_policy.gradient_checkpointing_enable()
+    
     logger.info("Loading Phase 1 PCA Score Heads...")
     try:
         reward_heads_weight = load_pca_components(args.reward_heads_dir, args.num_heads, accelerator.device)
@@ -156,11 +164,18 @@ def main():
     train_dataset = dataset_builder.build_dataset(data_path=args.data_path, processor=processor)
     collator = RLDataCollatorWithPadding(processor=processor)
     
+    # Optimization: Calculate num_workers as 80% of available cores
+    num_cpus = multiprocessing.cpu_count()
+    num_workers = max(1, int(num_cpus * 0.8))
+    logger.info(f"Using num_workers={num_workers} for DataLoader (80% of {num_cpus} cores)")
+
     train_dataloader = DataLoader(
         train_dataset, 
         batch_size=args.per_device_train_batch_size, 
         collate_fn=collator, 
-        shuffle=True
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True
     )
     
     # Accelerator Preparations
@@ -169,7 +184,13 @@ def main():
     )
     
     # Start Epoch Training Loop
+    t_end_setup = time.time()
+    setup_duration = t_end_setup - t_start_setup
+    logger.info(f"Setup completed in {setup_duration:.2f}s (Model loading + Dataset build)")
+    
     logger.info("Starting PPO Training Execution...")
+    t_start_training = time.time()
+    batch_times = []
     
     global_step = 0
     os.makedirs(args.output_dir, exist_ok=True)
@@ -180,9 +201,16 @@ def main():
         # We process batches with gradient accumulation directly through accelerate
         with tqdm(train_dataloader, desc=f"Epoch {epoch+1}") as pbar:
             for batch in pbar:
+                t_batch_start = time.time()
                 with accelerator.accumulate(active_policy):
                     # Execution of the explicit Dual Generation Pipeline
                     metrics = ppo_controller.step(batch, optimizer_policy, optimizer_value)
+                    
+                    # OOM Mitigation: Clear cache after heavy PPO step
+                    torch.cuda.empty_cache()
+                    
+                    t_batch_end = time.time()
+                    batch_times.append(t_batch_end - t_batch_start)
                     
                     pbar.set_postfix({
                         "loss": f"{metrics['loss']:.4f}",
@@ -221,6 +249,20 @@ def main():
         torch.save(ppo_controller.value_head.state_dict(), os.path.join(final_dir, "value_head.pth"))
             
         logger.info(f"PPO Debiasing complete. Model saved to {final_dir}")
+        
+    t_end_total = time.time()
+    total_training_duration = t_end_total - t_start_training
+    avg_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0
+    
+    timing_report = {
+        "setup_time": setup_duration,
+        "total_training_time": total_training_duration,
+        "avg_batch_time": avg_batch_time,
+        "num_batches": len(batch_times),
+        "total_samples": len(batch_times) * args.per_device_train_batch_size
+    }
+    
+    print(f"\nTIMING_REPORT_JSON: {json.dumps(timing_report)}")
 
 if __name__ == "__main__":
     main()

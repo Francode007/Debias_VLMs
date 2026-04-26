@@ -64,6 +64,7 @@ def main():
     parser = argparse.ArgumentParser(description="Profile RL Generation Pipeline over SB-Bench")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for RL Training Configuration")
     parser.add_argument("--gradient_accumulation", type=int, default=4, help="Grad Accum scale")
+    parser.add_argument("--epochs", type=int, default=2, help="Number of epochs to profile")
     args = parser.parse_args()
 
     print("=== RL PPO Pipeline Profiler ===")
@@ -90,39 +91,58 @@ def main():
     results = {}
     profiler = GPUProfiler()
     
-    print("\n--- Running True Dual Generation PPO Loop (Smallset) ---")
+    print(f"\n--- Running True Dual Generation PPO Loop (10 samples, {args.epochs} epochs) ---")
     
-    # Train RL natively operates on smallset representing ~5 samples 
     cmd_rl = [
         python_cmd, "train_rl.py",
         "--per_device_train_batch_size", str(args.batch_size),
         "--gradient_accumulation_steps", str(args.gradient_accumulation),
         "--data_path", data_path,
-        "--use_smallset"
+        "--use_smallset",
+        "--epochs", str(args.epochs)
     ]
     
     profiler.start()
     t0 = time.time()
-    subprocess.run(cmd_rl, check=True)
+    
+    # Run and capture output
+    env = os.environ.copy()
+    env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    process = subprocess.Popen(cmd_rl, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+    
+    timing_report = None
+    for line in process.stdout:
+        print(line, end="") # Stream output to user
+        if "TIMING_REPORT_JSON:" in line:
+            report_str = line.split("TIMING_REPORT_JSON:")[1].strip()
+            timing_report = json.loads(report_str)
+            
+    process.wait()
     t1 = time.time()
-    util1, mem1 = profiler.stop()
+    util_avg, mem_max = profiler.stop()
     
-    step1_time_total = t1 - t0
-    actual_samples_processed = 5 # RL smallset mapping bounds at 5 inputs
+    if process.returncode != 0:
+        print(f"\nError: train_rl.py exited with code {process.returncode}")
+        return
+
+    if not timing_report:
+        print("\nError: Could not find TIMING_REPORT_JSON in output.")
+        return
+
+    # Extrapolate based on actual batch time
+    avg_batch_time = timing_report["avg_batch_time"]
+    num_batches_total = (total_raw_samples + args.batch_size - 1) // args.batch_size
     
-    # Estimate time loading modules
-    load_overhead = 45 # Approximate ~45 seconds loading Qwen models
-    inference_time = max(10, step1_time_total - load_overhead)
-    time_per_sample = inference_time / actual_samples_processed
-    
-    estimated_step1_full = (time_per_sample * total_raw_samples) + load_overhead
+    # Total time = Setup Time + (Avg Batch Time * Total Batches)
+    est_total_time_sec = timing_report["setup_time"] + (avg_batch_time * num_batches_total)
     
     results['PPO Dual Generation (Epoch 1)'] = {
-        'time_subset': step1_time_total,
-        'inference_time_subset': inference_time,
-        'mem_max_mb': mem1,
-        'util_avg': util1,
-        'est_full_time': estimated_step1_full
+        'total_real_time': t1 - t0,
+        'setup_time': timing_report["setup_time"],
+        'avg_batch_time': avg_batch_time,
+        'mem_max_mb': mem_max,
+        'util_avg': util_avg,
+        'est_full_time_sec': est_total_time_sec
     }
     
     print("\n" + "="*60)
@@ -130,40 +150,26 @@ def main():
     print("="*60)
     print(f"Dataset Name:  SB-Bench (RL PPO Generation)")
     print(f"Total Raw Examples:       {total_raw_samples}")
-    print(f"Samples profiled (smallset): {actual_samples_processed}")
+    print(f"Batches per Epoch:        {num_batches_total}")
     print("-" * 60)
     
-    total_est_hours = 0
-    for step, data in results.items():
-        print(f"[{step}]")
-        print(f"  Execution Time (subset) : {data['time_subset']:.2f} seconds")
-        if profiler.gpu_available:
-            print(f"  Max GPU Memory Used     : {data['mem_max_mb']:.2f} MB")
-            print(f"  Avg GPU Utilization     : {data['util_avg']:.2f}%")
-        else:
-            print(f"  GPU Stats               : N/A (nvidia-smi not found, e.g. Mac/MPS)")
-            
-        est_hr = data['est_full_time'] / 3600.0
-        total_est_hours += est_hr
-        print(f"  -> Extrapolated Time (Full) : {est_hr:.2f} hours")
-        print()
-        
+    est_hr = est_total_time_sec / 3600.0
+    print(f"  Setup Time              : {timing_report['setup_time']:.2f} seconds")
+    print(f"  Avg Time per Batch      : {avg_batch_time:.2f} seconds")
+    print(f"  Max GPU Memory Used     : {mem_max:.2f} MB")
+    print(f"  Avg GPU Utilization     : {util_avg:.2f}%")
+    print(f"  -> Extrapolated Time (Full Epoch) : {est_hr:.2f} hours")
     print("-" * 60)
-    print(f"TOTAL ESTIMATED FULL PIPELINE TIME: {total_est_hours:.2f} hours")
-    print("="*60)
     
     print("\nOptimization & Budget Report:")
-    print(f"1. Target Budget    : 2.00 hours of GPU Compute per Epoch (Heavy PPO)")
-    print(f"2. Current Estimate : {total_est_hours:.2f} hours")
+    print(f"1. Target Budget    : 2.00 hours per Epoch")
+    print(f"2. Current Estimate : {est_hr:.2f} hours")
     
-    print("\nSuggestions for Optimization:")
-    if total_est_hours > 2.0:
-        print("   - High PPO load detected. Flash Attention 2 is mandatory.")
-        print("   - Try dropping max_new_tokens down to 32 if completion lengths permit.")
-        print("   - Double gradient accumulation to push matrix multiplication density.")
-    else:
-        print("   - Extremely rapid generation! Your Dual Rollout is stable.")
-        print("   - Try boosting training batch sizes cautiously utilizing NVIDIA memory.")
+    if est_hr > 2.0:
+        print("\nSuggestions for Optimization:")
+        print("   - High PPO load detected. Flash Attention 2 is active.")
+        print("   - Try increasing batch_size if memory permits.")
+        print("   - Increase gradient accumulation to improve compute density.")
         
     with open("profiling_report_rl.json", "w") as f:
         json.dump(results, f, indent=4)

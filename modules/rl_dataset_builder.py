@@ -59,7 +59,7 @@ class RLDatasetBuilder:
         del dfs
         
         if self.script_args.use_smallset:
-            full_df = full_df.head(5)
+            full_df = full_df.head(10)
         elif len(full_df) > 10000:
             full_df = full_df.head(2000)
         

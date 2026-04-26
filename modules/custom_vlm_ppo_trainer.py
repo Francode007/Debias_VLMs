@@ -171,7 +171,8 @@ class PPOVLMController:
                 max_new_tokens=32,
                 do_sample=True,
                 temperature=0.7,
-                top_p=0.9
+                top_p=0.9,
+                use_cache=True
             )
             
             # Generate $y_{init}$ from Reference Policy
@@ -184,7 +185,8 @@ class PPOVLMController:
                     max_new_tokens=32,
                     do_sample=True,
                     temperature=0.7,
-                    top_p=0.9
+                    top_p=0.9,
+                    use_cache=True
                 )
                 
         # Reconstruct dynamic attention masks natively
