@@ -4,7 +4,11 @@ from accelerate import Accelerator
 import evaluate
 import numpy as np
 import os
+<<<<<<< HEAD
 import tqdm
+=======
+from tqdm import tqdm
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 import pickle
 import random
 import pandas as pd
@@ -35,7 +39,11 @@ from accelerate.utils import gather_object
 from transformers.utils import PaddingStrategy
 from transformers.trainer_pt_utils import nested_detach
 torch.backends.cuda.matmul.allow_tf32 = True
+<<<<<<< HEAD
 os.environ["HF_TOKEN"] = 'xxxxxxxxxxxx'
+=======
+os.environ["HF_TOKEN"] = 'xxxxxxxxxxxxxxxxxx'
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 
 from PIL import Image
 import io
@@ -47,7 +55,11 @@ class ScriptArguments:
     """
     These arguments vary depending on how many GPUs you have, what their capacity and features are, and what size model you want to train.
     """
+<<<<<<< HEAD
     per_device_train_batch_size: Optional[int] = field(default=1) 
+=======
+    per_device_train_batch_size: Optional[int] = field(default=1)
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
     per_device_eval_batch_size: Optional[int] = field(default=1)
     gradient_accumulation_steps: Optional[int] = field(default=16)
     learning_rate: Optional[float] = field(default=5e-6)
@@ -60,7 +72,11 @@ class ScriptArguments:
         metadata={"help": "The optimizer to use."},
     )
     lr_scheduler_type: Optional[str] = field(default="cosine", metadata={"help": "The lr scheduler"},)
+<<<<<<< HEAD
     max_length: Optional[int] = field(default=1024) # 1024 512 , 600
+=======
+    max_length: Optional[int] = field(default=1024)  # 1024, 512, 600
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
     use_lora: Optional[bool] = field(default=False)
     base_model: Optional[str] = field(default='Qwen/Qwen2.5-VL-7B-Instruct')
     wandb_name: Optional[str] = field(default="qwen_vl_reward_sb_bench")
@@ -68,6 +84,7 @@ class ScriptArguments:
     loss_type: Optional[str] = field(default='origin')
     use_smallset: Optional[bool] = field(default=False)
     freeze_pretrained: Optional[bool] = field(default=False)
+<<<<<<< HEAD
     data_path: Optional[str] = field(default='E:\Debias_VLMs\Sb-Bench_Dataset\Synthetic')  # Path to directory with Parquet files
     save_steps: Optional[int] = field(default=100)
     cls_embs_path: Optional[str] = field(default='')
@@ -75,6 +92,13 @@ class ScriptArguments:
     # Memory management
     batch_size: Optional[int] = field(default=1, metadata={"help": "Processing batch size for memory management"})
 
+=======
+    data_path: Optional[str] = field(default='/content/drive/MyDrive/Debias_VLMs/Sb-Bench_Dataset/Real')  # Path to directory with Parquet files
+    save_steps: Optional[int] = field(default=100)
+    cls_embs_path: Optional[str] = field(default='/content/drive/MyDrive/Debias_VLMs/Embeddings')
+    debug: Optional[bool] = field(default=False)
+    batch_size: Optional[int] = field(default=4)  # New: Batch size for DataLoader
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
@@ -87,7 +111,10 @@ token_patterns = {
     "qwen": [151644, 46593, 198],  # <|im_start|>assistant\n - Adjust based on actual tokens if needed
 }
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 def find_token_for_gating(lst, model_family):
     """Find the last occurrence of a token_pattern in a list."""
     token_pattern = token_patterns[model_family]
@@ -98,6 +125,7 @@ def find_token_for_gating(lst, model_family):
             return j
     raise ValueError("Token pattern not found in the list.")
 
+<<<<<<< HEAD
 def build_dataset_mix(data_path, processor, split='train', size=None):
     # Load all Parquet files from directory
     import glob
@@ -106,6 +134,20 @@ def build_dataset_mix(data_path, processor, split='train', size=None):
     for f in parquet_files:
         df = pd.read_parquet(f, engine="fastparquet")
         dfs.append(df)
+=======
+def build_dataset_mix(data_path, processor, split='train', size=None, specific_file='0000.parquet'):
+    import glob
+    if specific_file:
+        parquet_file = os.path.join(data_path, specific_file)
+        if not os.path.exists(parquet_file):
+            raise FileNotFoundError(f"Specified file {parquet_file} not found.")
+        dfs = [pd.read_parquet(parquet_file, engine="fastparquet")]
+    else:
+        parquet_files = glob.glob(os.path.join(data_path, "*.parquet"))
+        if not parquet_files:
+            raise FileNotFoundError(f"No Parquet files found in {data_path}")
+        dfs = [pd.read_parquet(parquet_files[0], engine="fastparquet")]  # Default to first file if no specific file
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
     full_df = pd.concat(dfs, ignore_index=True)
 
     ds = Dataset.from_pandas(full_df)
@@ -113,17 +155,29 @@ def build_dataset_mix(data_path, processor, split='train', size=None):
     if size is not None:
         ds = ds.select(range(0, size))
 
+<<<<<<< HEAD
     # add num_index for dataset
+=======
+    # Add num_index for dataset
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
     new_column = list(range(len(ds)))
     ds = ds.add_column("data_index", new_column)
     print("length of dataset:", len(ds))
     
     def formatting_func(example):
+<<<<<<< HEAD
         import ast  # For parsing additional_metadata
         additional_metadata = ast.literal_eval(example['additional_metadata'])
 
         # Image from binary
         image_data = example['file_name']
+=======
+        import ast
+        additional_metadata = ast.literal_eval(example['additional_metadata'])
+
+        # Image from binary
+        image_data = example['file_name.bytes']
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
         image = Image.open(io.BytesIO(image_data)).convert("RGB")
 
         # Preferred answer
@@ -155,6 +209,7 @@ def build_dataset_mix(data_path, processor, split='train', size=None):
         prompt_plus_rejected = processor.apply_chat_template(rejected_messages, tokenize=False)
         prompt_template = processor.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
 
+<<<<<<< HEAD
         # Process with processor
         kwargs = {"padding": "max_length", "truncation": True, "max_length": script_args.max_length, "return_tensors": "pt"}
 
@@ -165,6 +220,32 @@ def build_dataset_mix(data_path, processor, split='train', size=None):
 
         # For prompt length (tokenize without image for simplicity, but approximate)
         tokens_prompt = processor.tokenizer.encode(prompt_template)  # Use tokenizer part
+=======
+        # Process with processor components
+        kwargs = {"padding": "max_length", "truncation": True, "max_length": script_args.max_length, "return_tensors": "pt"}
+
+        # Tokenize text using processor.tokenizer
+        text_inputs_chosen = processor.tokenizer(prompt_plus_chosen, **kwargs)
+        text_inputs_rejected = processor.tokenizer(prompt_plus_rejected, **kwargs)
+
+        # Process image using processor.image_processor
+        image_inputs = processor.image_processor.preprocess(image, return_tensors="pt")
+
+        # Combine (ensure tensor shapes are correct)
+        inputs_chosen = {
+            "input_ids": text_inputs_chosen["input_ids"][0],
+            "attention_mask": text_inputs_chosen["attention_mask"][0],
+            "pixel_values": image_inputs["pixel_values"][0],
+        }
+        inputs_rejected = {
+            "input_ids": text_inputs_rejected["input_ids"][0],
+            "attention_mask": text_inputs_rejected["attention_mask"][0],
+            "pixel_values": image_inputs["pixel_values"][0],  # Same image for both
+        }
+
+        # For prompt length (tokenize text only)
+        tokens_prompt = processor.tokenizer.encode(prompt_template)
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
         model_type = "qwen"
         try:
             prompt_len = find_token_for_gating(tokens_prompt, model_type)
@@ -172,12 +253,21 @@ def build_dataset_mix(data_path, processor, split='train', size=None):
             prompt_len = len(tokens_prompt) - 1  # Fallback
 
         return {
+<<<<<<< HEAD
             "pixel_values_chosen": inputs_chosen["pixel_values"][0],
             "input_ids_chosen": inputs_chosen["input_ids"][0],
             "attention_mask_chosen": inputs_chosen["attention_mask"][0],
             "pixel_values_rejected": inputs_rejected["pixel_values"][0],
             "input_ids_rejected": inputs_rejected["input_ids"][0],
             "attention_mask_rejected": inputs_rejected["attention_mask"][0],
+=======
+            "pixel_values_chosen": inputs_chosen["pixel_values"],
+            "input_ids_chosen": inputs_chosen["input_ids"],
+            "attention_mask_chosen": inputs_chosen["attention_mask"],
+            "pixel_values_rejected": inputs_rejected["pixel_values"],
+            "input_ids_rejected": inputs_rejected["input_ids"],
+            "attention_mask_rejected": inputs_rejected["attention_mask"],
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
             "data_index": example['data_index'],
             "prompt": prompt_text,
             "chosen": chosen,
@@ -187,11 +277,19 @@ def build_dataset_mix(data_path, processor, split='train', size=None):
             'prompt_length': prompt_len
         }
 
+<<<<<<< HEAD
     ds = ds.map(formatting_func, batched=False, num_proc=4)  # Reduced proc for memory
     ds = ds.filter(lambda x: len(x["input_ids_chosen"]) <= script_args.max_length and len(x["input_ids_rejected"]) <= script_args.max_length, num_proc=4)
     
     len_before_filter = len(ds)
     ds = ds.filter(lambda x: x["prompt_length"] < script_args.max_length, num_proc=4)
+=======
+    ds = ds.map(formatting_func, batched=False, num_proc=1)  # Reduced to 1 for stability
+    ds = ds.filter(lambda x: len(x["input_ids_chosen"]) <= script_args.max_length and len(x["input_ids_rejected"]) <= script_args.max_length, num_proc=1)
+    
+    len_before_filter = len(ds)
+    ds = ds.filter(lambda x: x["prompt_length"] < script_args.max_length, num_proc=1)
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
     len_after_filter = len(ds)
     print(f"{len_after_filter - len_before_filter} prompts' lengths are over the prompt_response")
     
@@ -199,7 +297,10 @@ def build_dataset_mix(data_path, processor, split='train', size=None):
     
     return ds
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 # Define the training args. Needs to be done before the model is loaded if you are using deepspeed.
 model_name_split = model_name.split("/")[-1]
 output_name = f"{script_args.log_dir}/{model_name_split}_{script_args.wandb_name}_{script_args.learning_rate}"
@@ -233,6 +334,7 @@ training_args = TrainingArguments(
 
 # Load the model and processor.
 processor = AutoProcessor.from_pretrained(processor_name)
+<<<<<<< HEAD
 
 print("use build_dataset_mix")
 dataset = build_dataset_mix(data_path, processor, split='train') 
@@ -244,6 +346,25 @@ print(len(eval_dataset))
 
 device = Accelerator().local_process_index 
 
+=======
+print("Processor tokenizer type:", type(processor.tokenizer))  # Debug print
+print("use build_dataset_mix")
+dataset = build_dataset_mix(data_path, processor, split='train')
+eval_dataset = dataset
+
+# Create DataLoader for batched loading
+train_dataloader = DataLoader(dataset, batch_size=script_args.batch_size, shuffle=False)
+eval_dataloader = DataLoader(eval_dataset, batch_size=script_args.batch_size, shuffle=False)
+
+#######################################################
+print("Length of train dataset:", len(dataset))
+print("Length of eval dataset:", len(eval_dataset))
+print("Batch size:", script_args.batch_size)
+print("Number of train batches:", len(train_dataloader))
+print("Number of eval batches:", len(eval_dataloader))
+
+device = Accelerator().local_process_index 
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 print("device:", device)
 
 model = Qwen2VLForConditionalGeneration.from_pretrained(
@@ -350,12 +471,18 @@ def custom_forward(
             attentions=transformer_outputs.attentions,
         )
 
+<<<<<<< HEAD
     
+=======
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 # hack model's forward
 model.original_forward = model.generate  # Or whatever, but for inference
 model.forward = custom_forward.__get__(model, type(model))
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 # Define the metric that we'll use for validation. (Not used for extraction)
 accuracy = evaluate.load('accuracy')
 
@@ -365,7 +492,10 @@ def compute_metrics(eval_pred):
     labels = np.zeros(predictions.shape)
     return accuracy.compute(predictions=predictions, references=labels)
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 @dataclass
 class RewardDataCollatorWithPadding:
     processor: AutoProcessor
@@ -530,14 +660,21 @@ class RewardVisualizer(RewardTrainer):
 
         return df
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 if __name__ == "__main__":
     trainer = RewardVisualizer(
     model=model,
     args=training_args,
     tokenizer=processor.tokenizer,  # Use processor's tokenizer
+<<<<<<< HEAD
     train_dataset=eval_dataset,
+=======
+    train_dataset=dataset,
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
     eval_dataset=eval_dataset,
     compute_metrics=compute_metrics,
     data_collator=RewardDataCollatorWithPadding(processor=processor, max_length=script_args.max_length, data_path=data_path),

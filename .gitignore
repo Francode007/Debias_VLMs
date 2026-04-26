@@ -143,7 +143,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+<<<<<<< HEAD
 debias_env/
+=======
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
 
 # Spyder project settings
 .spyderproject
@@ -207,6 +210,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+<<<<<<< HEAD
 # Project-specific files and directories
 # Data files (commonly large and shouldn't be in version control)
 *.csv
@@ -267,3 +271,10 @@ tb_logs/
 transformers_cache/
 sb_bench_data/
 models_cache/
+=======
+# Parquet files
+*.parquet
+*.csv
+*.json
+*.jpg
+>>>>>>> 8f4de44a5128e9db522b59b97945603f580f31d4
