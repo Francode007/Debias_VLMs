@@ -143,6 +143,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+debias_env/
 
 # Spyder project settings
 .spyderproject
@@ -205,3 +206,66 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project-specific files and directories
+# Data files (commonly large and shouldn't be in version control)
+*.csv
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.parquet
+*.feather
+*.xlsx
+*.xls
+
+# Large directories that might contain datasets or model files
+data/
+datasets/
+models/
+checkpoints/
+logs/
+outputs/
+results/
+experiments/
+
+# Unpacked images directory
+sb_bench_data/unpacked/
+
+# Temporary files
+*.tmp
+*.temp
+temp.*
+tmp.*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Weights and model files
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.ckpt
+*.pb
+*.onnx
+
+# ML experiment tracking
+wandb/
+mlruns/
+runs/
+tb_logs/
+
+# Hugging Face cache
+.cache/
+transformers_cache/
+sb_bench_data/
+models_cache/
+*.npy
+*.json
