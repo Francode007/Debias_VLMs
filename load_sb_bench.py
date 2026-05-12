@@ -8,7 +8,7 @@ def load_and_save_sb_bench():
     in the format expected by cal_emb_modular.py.
     """
     dataset_name = "ucf-crcv/SB-Bench"
-    output_dir = "./sb_bench_data/data"
+    output_dir = os.getenv("DATA_PATH", "./sb_bench_data/data")
     
     print(f"Loading dataset: {dataset_name}")
     

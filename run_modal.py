@@ -14,9 +14,7 @@ vlm_image = (
     .pip_install("packaging", "ninja", "wheel") # Pre-install build dependencies for flash-attn
     .pip_install_from_requirements("requirements.txt") # Assumes requirements.txt is local
     .pip_install("https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.6/flash_attn-2.5.6%2Bcu122torch2.1cxx11abiFALSE-cp310-cp310-linux_x86_64.whl") # Install pre-compiled flash-attn wheel to bypass source compilation
-    .run_commands(
-        f"git clone {GITHUB_REPO_URL} /root/debias-vlms"
-    )
+    .add_local_dir(".", remote_path="/root/debias-vlms", ignore=[".venv", "sb_bench_data", "__pycache__"])
 )
 
 # 3. Define Persistent Storage (for Models, Data, and Embeddings)
@@ -86,7 +84,7 @@ def run_pipeline(phase: str = "all"):
         subprocess.run([
             "python", "cal_emb_modular.py",
             "--device", "cuda",
-            "--data_path", "./sb_bench_data/data", # Or use os.environ["DATA_PATH"] depending on how you moved it
+            "--data_path", os.environ["DATA_PATH"], # Use the persistent volume path
             "--cls_embs_path", os.environ["OUTPUT_PATH"],
             "--batch_size", "32"
         ], check=True)

@@ -69,7 +69,7 @@ def main():
 
     print("=== RL PPO Pipeline Profiler ===")
     
-    data_path = "./sb_bench_data/data"
+    data_path = os.getenv("DATA_PATH", "./sb_bench_data/data")
     parquet_files = glob.glob(os.path.join(data_path, "*.parquet"))
     
     total_raw_samples = 0
@@ -86,7 +86,7 @@ def main():
             pass
             
     print(f"Total raw examples in complete dataset: {total_raw_samples}")
-    python_cmd = "python" if not os.path.exists(".venv/bin/python") else ".venv/bin/python"
+    python_cmd = "python"
     
     results = {}
     profiler = GPUProfiler()
