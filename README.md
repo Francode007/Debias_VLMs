@@ -43,7 +43,7 @@ When working on a remote GPU server, it's highly recommended to configure your H
 export HF_HOME="/path/to/large/storage/huggingface"
 
 # Login to Hugging Face (requires a token from your HF account)
-huggingface-cli login
+hf login
 ```
 
 ### 2. Data
@@ -59,7 +59,7 @@ Data is written to `./sb_bench_data/data/` (e.g. `sb_bench_data.parquet`). Make 
 **Option B: Manual Download via HF CLI**
 If you prefer to pre-download the dataset explicitly using the Hugging Face CLI:
 ```bash
-huggingface-cli download ucf-crcv/SB-Bench --repo-type dataset --local-dir ./sb_bench_data/raw
+hf download ucf-crcv/SB-Bench --repo-type dataset --local-dir ./sb_bench_data/raw
 ```
 
 ### 3. Models
@@ -73,10 +73,10 @@ There is no separate script solely for downloading models. Instead, the models a
 
 ```bash
 # Download Qwen2.5-VL 3B (Default) to a specific local folder
-huggingface-cli download Qwen/Qwen2.5-VL-3B-Instruct --local-dir ./models/Qwen2.5-VL-3B-Instruct
+hf download Qwen/Qwen2.5-VL-3B-Instruct --local-dir ./models/Qwen2.5-VL-3B-Instruct
 
 # Download Qwen2-VL 2B (Fallback) to a specific local folder
-huggingface-cli download Qwen/Qwen2-VL-2B-Instruct --local-dir ./models/Qwen2-VL-2B-Instruct
+hf download Qwen/Qwen2-VL-2B-Instruct --local-dir ./models/Qwen2-VL-2B-Instruct
 ```
 
 - **Default:** `Qwen/Qwen2.5-VL-3B-Instruct` (Qwen2.5 series 3B; use 1.5B when available)
@@ -297,7 +297,7 @@ This generates `profiling_report_rl.json` with the estimated time for 1 full Epo
 
 - **OOM:** Reduce `--batch_size` to 1, or use `--model Qwen/Qwen2-VL-2B-Instruct`.
 - **NaNs in embeddings / PCA "Input X contains NaN":** On **MPS** and **CPU**, the pipeline automatically uses **float32** (`--force_fp32` is set by `run_phase1_full.sh` when `DEVICE=mps` or `DEVICE=cpu`). On CUDA you can pass `--force_fp32` manually if you see NaNs. See below for how fp32 affects runs.
-- **Missing SB-Bench:** Log in with `huggingface-cli login` and accept the dataset terms on the SB-Bench dataset page.
+- **Missing SB-Bench:** Log in with `hf login` and accept the dataset terms on the SB-Bench dataset page.
 - **CUDA/MPS:** Device is auto-selected; override with `--device cuda` or `--device mps`.
 - **Invalid buffer size / size mismatch:** On Mac or limited GPU memory, use `MODEL=Qwen/Qwen2-VL-2B-Instruct` and `DEVICE=mps` or `DEVICE=cpu`. For Qwen2.5-VL-7B you need a recent `transformers` with `Qwen2_5VLForConditionalGeneration`; otherwise the loader skips to Qwen2-VL-7B.
 

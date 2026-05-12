@@ -10,13 +10,12 @@ VOLUME_NAME = "debias-vlm-persistent-storage"
 # 2. Define the Image (Environment & Code Persistence)
 vlm_image = (
     modal.Image.from_registry("nvidia/cuda:12.1.1-devel-ubuntu22.04", add_python="3.10")
-    .apt_install("git", "git-lfs")
+    .apt_install("git", "git-lfs", "build-essential", "cmake", "clang")
     .pip_install("packaging", "ninja", "wheel") # Pre-install build dependencies for flash-attn
     .pip_install_from_requirements("requirements.txt") # Assumes requirements.txt is local
-    .pip_install("flash-attn>=2.3.0") # Install flash-attn AFTER torch is fully installed
+    .pip_install("https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.6/flash_attn-2.5.6%2Bcu122torch2.1cxx11abiFALSE-cp310-cp310-linux_x86_64.whl") # Install pre-compiled flash-attn wheel to bypass source compilation
     .run_commands(
-        f"git clone {GITHUB_REPO_URL} /root/debias-vlms",
-        "cd /root/debias-vlms && pip install -e ." # Install as editable if needed
+        f"git clone {GITHUB_REPO_URL} /root/debias-vlms"
     )
 )
 
@@ -61,7 +60,7 @@ def run_pipeline(phase: str = "all"):
         # Download Models (Base & Extractors)
         print("📥 Downloading Model: Qwen/Qwen2.5-VL-3B-Instruct")
         subprocess.run([
-            "huggingface-cli", "download", "Qwen/Qwen2.5-VL-3B-Instruct"
+            "hf", "download", "Qwen/Qwen2.5-VL-3B-Instruct"
         ], check=True)
         volume.commit()
         print("✅ Setup complete.")
