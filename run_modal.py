@@ -9,9 +9,11 @@ VOLUME_NAME = "debias-vlm-persistent-storage"
 
 # 2. Define the Image (Environment & Code Persistence)
 vlm_image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.from_registry("nvidia/cuda:12.1.1-devel-ubuntu22.04", add_python="3.10")
     .apt_install("git", "git-lfs")
+    .pip_install("packaging", "ninja", "wheel") # Pre-install build dependencies for flash-attn
     .pip_install_from_requirements("requirements.txt") # Assumes requirements.txt is local
+    .pip_install("flash-attn>=2.3.0") # Install flash-attn AFTER torch is fully installed
     .run_commands(
         f"git clone {GITHUB_REPO_URL} /root/debias-vlms",
         "cd /root/debias-vlms && pip install -e ." # Install as editable if needed

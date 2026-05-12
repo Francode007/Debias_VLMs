@@ -2,8 +2,8 @@
 --extra-index-url https://pypi.nvidia.com
 
 # Core ML and Deep Learning Libraries (Pinned for CUDA 12.1 compatibility per cluster constraints)
-torch>=2.1.2+cu121
-torchvision>=0.16.2+cu121
+torch==2.1.2+cu121
+torchvision==0.16.2+cu121
 numpy>=1.21.0,<2.0.0
 
 # Transformers and Model Libraries
@@ -27,7 +27,7 @@ scikit-learn>=1.0.0
 
 # Flash Attention
 # Installed to optimize throughput for the Qwen2-VL model on the A100 cluster
-flash-attn>=2.3.0
+# flash-attn>=2.3.0 (Installed separately in run_modal.py after torch)
 
 # GPU-Accelerated PCA (RAPIDS array of identical versions to avoid cudf/rmm mismatch)
 cudf-cu12==24.12.0
