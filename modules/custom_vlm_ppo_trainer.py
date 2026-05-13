@@ -230,11 +230,10 @@ class PPOVLMController:
         #   3. image_grid_thw / video_grid_thw are kept as-is (they describe the image
         #      patches, not the sequence length).
         def _build_scoring_kwargs(gen_outputs, gen_attention_mask, original_kwargs):
-            """Build kwargs suitable for a full scoring forward pass on generated sequences."""
+            """Build kwargs suitable for a full scoring forward pass on generated sequences.
+            pixel_values are NOT passed for scoring (images consumed during generate()),
+            so image_grid_thw/video_grid_thw are also excluded."""
             scoring_kw = {}
-            for k in ["image_grid_thw", "video_grid_thw"]:
-                if k in original_kwargs:
-                    scoring_kw[k] = original_kwargs[k]
             
             if "mm_token_type_ids" in original_kwargs:
                 orig_mm = original_kwargs["mm_token_type_ids"]  # (batch, prompt_len)
@@ -256,11 +255,14 @@ class PPOVLMController:
         init_scoring_kwargs = _build_scoring_kwargs(init_outputs, init_attention_mask, kwargs)
 
         # 2. Extract Active Policy Logprobs and Values over y_{curr}
+        # NOTE: pixel_values=None for scoring passes. Images were consumed during generate()
+        # and are encoded in the generated input_ids as placeholder tokens. Re-passing
+        # pixel_values would cause a token/feature count mismatch.
         self.policy.train()
         self.value_head.train()
         
         curr_logits, curr_values = self.extract_logits_and_values(
-            self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, curr_scoring_kwargs
+            self.policy, self.value_head, curr_outputs, curr_attention_mask, None, curr_scoring_kwargs
         )
         curr_logprobs, loss_mask = self.compute_logprobs(curr_logits, curr_outputs)
         
@@ -269,13 +271,13 @@ class PPOVLMController:
             self.policy.eval()
             with self.policy.disable_adapter():
                 init_logits_curr_traj, _, e_curr = self.extract_logits_and_values(
-                    self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, curr_scoring_kwargs, extract_embedding=True
+                    self.policy, self.value_head, curr_outputs, curr_attention_mask, None, curr_scoring_kwargs, extract_embedding=True
                 )
                 init_logprobs, _ = self.compute_logprobs(init_logits_curr_traj, curr_outputs)
                 
                 # 5. Extract Embeddings for y_{init}
                 e_init = self.extract_preference_embeddings(
-                    self.policy, init_outputs, init_attention_mask, pixel_values, init_scoring_kwargs
+                    self.policy, init_outputs, init_attention_mask, None, init_scoring_kwargs
                 )
                 
             self.policy.train()
