@@ -111,7 +111,7 @@ def main():
     # Instantiate custom processor
     processor_path = get_local_model_path(args.policy_model_name)
     from transformers import AutoProcessor
-    processor = AutoProcessor.from_pretrained(processor_path)
+    processor = AutoProcessor.from_pretrained(processor_path, use_fast=True)
     processor.tokenizer.padding_side = "left"
     
     policy_base, _ = loader.load_model_and_processor()

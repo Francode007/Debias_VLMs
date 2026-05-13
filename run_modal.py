@@ -26,7 +26,7 @@ app = modal.App(name=APP_NAME)
 @app.function(
     image=vlm_image,
     gpu="A100",              # Optimized for your pipeline
-    cpu=8.0,                 # High CPU count for data loading
+    cpu=16.0,                # High CPU count for data loading
     memory=65536,            # 64GB RAM
     volumes={"/mnt/data": volume}, # Mount point for persistent storage
     timeout=86400,           # 24-hour timeout for long RL training
@@ -37,6 +37,7 @@ def run_pipeline(phase: str = "all"):
     os.environ["HF_HOME"] = "/mnt/data/huggingface"
     os.environ["DATA_PATH"] = "/mnt/data/sb_bench_data"
     os.environ["OUTPUT_PATH"] = "/mnt/data/embeddings_output"
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Prevent deadlocks in forked dataloader workers
     
     # Change directory to the cloned repository
     os.chdir("/root/debias-vlms")

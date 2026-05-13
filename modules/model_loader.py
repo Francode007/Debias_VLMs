@@ -215,7 +215,7 @@ class ModelLoader:
                 
                 # Load processor from local path
                 processor_path = self.get_local_model_path(model_name)
-                processor = AutoProcessor.from_pretrained(processor_path)
+                processor = AutoProcessor.from_pretrained(processor_path, use_fast=True)
                 
                 # Ensure pad_token is set (required for batch sizes > 1)
                 if hasattr(processor, 'tokenizer'):
