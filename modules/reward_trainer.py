@@ -269,9 +269,8 @@ class RewardVisualizer(RewardTrainer):
                     self.model, batch_inputs, prediction_loss_only=False
                 )
                 
-                # Move to CPU for numpy/tolist operations
-                batched_logits = batched_logits.detach().cpu()
-                batched_emb = batched_emb.detach().cpu()
+                # batched_logits shape: [n_pairs, 2]
+                # batched_emb shape: [n_pairs * 2, hidden_dim]
                 # Now we iterate through the RESULTS to save them and update the table.
                 
                 for batch_idx, data_index in enumerate(batch_indices):
@@ -306,7 +305,7 @@ class RewardVisualizer(RewardTrainer):
                     # chosen is at 2*batch_idx, rejected is at 2*batch_idx + 1
                     # We output it as shape [1, 2, hidden_dim] to match existing expectations
                     pair_emb = batched_emb[batch_idx * 2 : (batch_idx + 1) * 2, :]
-                    cls_emb = pair_emb.float().numpy()
+                    cls_emb = pair_emb.float().cpu().numpy()
                     cls_emb = cls_emb[None, ...]
                     np.save(fn, cls_emb)
                     

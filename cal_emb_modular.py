@@ -348,7 +348,7 @@ def main():
         logger.info("Process interrupted by user")
         sys.exit(0)
     except Exception as e:
-        logger.error(f"Error in main execution: {e}")
+        logger.exception(f"Error in main execution: {e}")
         sys.exit(1)
 
 
