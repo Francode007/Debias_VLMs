@@ -193,8 +193,31 @@ class PPOVLMController:
         pad_token_id = getattr(self.policy.config, "pad_token_id", None)
         if pad_token_id is None:
             pad_token_id = 151643 # Qwen2 default pad token, or fallback to 0
-        curr_attention_mask = (curr_outputs != pad_token_id).long()
-        init_attention_mask = (init_outputs != pad_token_id).long()
+        
+        # Re-pad generated sequences to the LEFT for Flash Attention compatibility.
+        # generate() produces right-padded outputs (content + pad tokens at end).
+        # Qwen2.5-VL with Flash Attention requires left-padding.
+        def _left_pad_generated(sequences, pad_id):
+            """Convert right-padded generated sequences to left-padded."""
+            attention_mask = (sequences != pad_id).long()
+            batch_size, seq_len = sequences.shape
+            # Count actual content length per sequence
+            content_lens = attention_mask.sum(dim=1)
+            # If all sequences have the same length (no padding), skip
+            if (content_lens == seq_len).all():
+                return sequences, attention_mask
+            # Re-arrange: move padding to the left
+            new_sequences = torch.full_like(sequences, pad_id)
+            new_mask = torch.zeros_like(attention_mask)
+            for i in range(batch_size):
+                clen = content_lens[i].item()
+                # Content is at the start of the original (right-padded) sequence
+                new_sequences[i, seq_len - clen:] = sequences[i, :clen]
+                new_mask[i, seq_len - clen:] = 1
+            return new_sequences, new_mask
+        
+        curr_outputs, curr_attention_mask = _left_pad_generated(curr_outputs, pad_token_id)
+        init_outputs, init_attention_mask = _left_pad_generated(init_outputs, pad_token_id)
 
         # Build post-generation kwargs for scoring forward passes.
         # Key differences from generation kwargs:
