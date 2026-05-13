@@ -9,10 +9,11 @@ import os
 import glob
 import ast
 import io
+import hashlib
 import logging
 import pandas as pd
 from PIL import Image
-from datasets import Dataset
+from datasets import Dataset, load_from_disk
 from typing import List, Optional
 from collections import defaultdict
 from .config import ScriptArguments
@@ -208,11 +209,25 @@ class DatasetBuilder:
         ds = Dataset.from_list(expanded_rows)
         logger.info(f"Expanded to {len(ds)} preference pairs (2 per example)")
         
-        # Apply formatting - disabling multiprocessing for stability
+        # Check for cached preprocessed dataset
+        cache_key = hashlib.md5(
+            f"{data_path}_{len(ds)}_{self.script_args.max_length}_{self.script_args.use_smallset}".encode()
+        ).hexdigest()[:12]
+        cache_dir = os.path.join(os.path.dirname(data_path), f"preprocessed_cache_{cache_key}")
+        
+        if os.path.exists(cache_dir):
+            logger.info(f"Loading cached preprocessed dataset from {cache_dir}")
+            ds = load_from_disk(cache_dir)
+            ds.set_format(type="torch")
+            return ds
+        
+        # Apply formatting with multiprocessing for speed
+        num_proc = min(8, os.cpu_count() or 1)
+        logger.info(f"Preprocessing dataset with num_proc={num_proc}")
         ds = ds.map(
             lambda examples: self._formatting_func_batched(examples, processor),
             batched=True,
-            num_proc=1,
+            num_proc=num_proc,
             remove_columns=ds.column_names # Remove raw columns to avoid RewardTrainer auto-processing
         )
         
@@ -220,15 +235,22 @@ class DatasetBuilder:
         ds = ds.filter(
             lambda x: (len(x["input_ids_chosen"]) <= self.script_args.max_length and
                       len(x["input_ids_rejected"]) <= self.script_args.max_length),
-            num_proc=1
+            num_proc=num_proc
         )
         len_before_filter = len(ds)
         ds = ds.filter(
             lambda x: x["prompt_length"] < self.script_args.max_length,
-            num_proc=1
+            num_proc=num_proc
         )
         len_after_filter = len(ds)
         logger.info(f"Filtered {len_before_filter - len_after_filter} samples due to length")
+        
+        # Cache to disk for future runs
+        try:
+            ds.save_to_disk(cache_dir)
+            logger.info(f"Saved preprocessed dataset to {cache_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to cache dataset: {e}")
         
         ds.set_format(type="torch")
         return ds

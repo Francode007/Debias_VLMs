@@ -112,7 +112,9 @@ def run_pipeline(phase: str = "all"):
             "--extractor_model_name", "Qwen/Qwen2.5-VL-3B-Instruct", # From README
             "--reward_heads_dir", "/mnt/data/generated_heads/sb_bench-PCA-component",
             "--num_heads", "100",
-            "--per_device_train_batch_size", "12"
+            "--per_device_train_batch_size", "12",
+            "--data_path", os.environ["DATA_PATH"],
+            "--output_dir", "/mnt/data/output_ppo_debiased"
         ], check=True)
         volume.commit()
 
