@@ -326,6 +326,38 @@ class DatasetBuilder:
         inputs_chosen = processor(text=chosen_texts, images=all_images, **kwargs)
         inputs_rejected = processor(text=rejected_texts, images=all_images, **kwargs)
         
+        # For Qwen2.5-VL, pixel_values is a flat concatenation of patches from all images.
+        # We need to split it per-example using image_grid_thw to determine patch counts.
+        import numpy as np
+        
+        def split_pixel_values(inputs):
+            """Split concatenated pixel_values into per-example arrays using image_grid_thw."""
+            if "image_grid_thw" not in inputs:
+                # Not a Qwen2-VL style model, pixel_values is already per-example
+                return inputs["pixel_values"], None
+            grid_thw = inputs["image_grid_thw"]
+            # Each image contributes t*h*w patches
+            if hasattr(grid_thw, 'tolist'):
+                grid_list = grid_thw if isinstance(grid_thw, list) else grid_thw.tolist()
+            else:
+                grid_list = list(grid_thw)
+            patches_per_image = [int(g[0]) * int(g[1]) * int(g[2]) for g in grid_list]
+            pv = inputs["pixel_values"]
+            if hasattr(pv, 'shape') and len(pv.shape) >= 2:
+                # It's a concatenated array/tensor: split along dim 0
+                splits = []
+                offset = 0
+                for n_patches in patches_per_image:
+                    splits.append(pv[offset:offset + n_patches])
+                    offset += n_patches
+                return splits, grid_list
+            else:
+                # Already a list per example
+                return pv, grid_list
+        
+        pv_chosen_splits, grid_chosen_list = split_pixel_values(inputs_chosen)
+        pv_rejected_splits, grid_rejected_list = split_pixel_values(inputs_rejected)
+        
         # Calculate prompt lengths
         all_tokens_prompt = processor.tokenizer(prompt_templates, padding=False)["input_ids"]
         
@@ -356,11 +388,11 @@ class DatasetBuilder:
             
             results["input_ids_chosen"].append(inputs_chosen["input_ids"][idx_in_valid])
             results["attention_mask_chosen"].append(inputs_chosen["attention_mask"][idx_in_valid])
-            results["pixel_values_chosen"].append(inputs_chosen["pixel_values"][idx_in_valid])
+            results["pixel_values_chosen"].append(pv_chosen_splits[idx_in_valid])
             
             results["input_ids_rejected"].append(inputs_rejected["input_ids"][idx_in_valid])
             results["attention_mask_rejected"].append(inputs_rejected["attention_mask"][idx_in_valid])
-            results["pixel_values_rejected"].append(inputs_rejected["pixel_values"][idx_in_valid])
+            results["pixel_values_rejected"].append(pv_rejected_splits[idx_in_valid])
             
             # Qwen2-VL grid tokens - preserve shape
             for k in ["image_grid_thw", "video_grid_thw"]:
