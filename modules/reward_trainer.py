@@ -269,6 +269,10 @@ class RewardVisualizer(RewardTrainer):
                     self.model, batch_inputs, prediction_loss_only=False
                 )
                 
+                # Ensure tensors are on CPU for downstream numpy/pandas operations
+                batched_logits = batched_logits.detach().cpu()
+                batched_emb = batched_emb.detach().cpu()
+                
                 # batched_logits shape: [n_pairs, 2]
                 # batched_emb shape: [n_pairs * 2, hidden_dim]
                 # Now we iterate through the RESULTS to save them and update the table.
