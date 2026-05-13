@@ -78,18 +78,6 @@ def create_custom_forward(model, dtype):
             if isinstance(v, torch.Tensor):
                 kwargs[k] = v.to(self.device)
         
-        if pixel_values is not None and "mm_token_type_ids" not in kwargs and input_ids is not None:
-            # Qwen2-VL specific: create mm_token_type_ids for M-RoPE
-            mm_token_type_ids = torch.zeros_like(input_ids)
-            image_token_id = getattr(self.config, "image_token_id", 151655)
-            video_token_id = getattr(self.config, "video_token_id", 151652)
-            
-            # Map vision tokens to type 1
-            mm_token_type_ids[input_ids == image_token_id] = 1
-            mm_token_type_ids[input_ids == video_token_id] = 1
-            
-            kwargs["mm_token_type_ids"] = mm_token_type_ids
-        
         # Handle different model architectures
         if hasattr(self, 'model'):
             # For models with a separate transformer component
@@ -97,6 +85,11 @@ def create_custom_forward(model, dtype):
         else:
             # For models where the main class is the transformer
             model_to_call = self
+
+        # Filter kwargs to only those accepted by the inner model's forward()
+        import inspect
+        valid_params = set(inspect.signature(model_to_call.forward).parameters.keys())
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
         
         try:
             transformer_outputs = model_to_call(
@@ -110,7 +103,7 @@ def create_custom_forward(model, dtype):
                 output_attentions=output_attentions,
                 output_hidden_states=True,
                 return_dict=return_dict,
-                **kwargs
+                **filtered_kwargs
             )
         except Exception as e:
             logger.error(f"Error in model forward pass: {e}")
@@ -118,7 +111,7 @@ def create_custom_forward(model, dtype):
                 logger.warning("Retrying without pixel_values")
                 
                 # Strip out multimodal kwargs safely
-                safe_kwargs = {k: v for k, v in kwargs.items() if k not in ["image_grid_thw", "video_grid_thw", "mm_token_type_ids"]}
+                safe_kwargs = {k: v for k, v in filtered_kwargs.items() if k not in ["image_grid_thw", "video_grid_thw"]}
                 
                 transformer_outputs = model_to_call(
                     input_ids=input_ids,
