@@ -14,7 +14,7 @@ vlm_image = (
     .pip_install("packaging", "ninja", "wheel") # Pre-install build dependencies for flash-attn
     .pip_install_from_requirements("requirements.txt") # Assumes requirements.txt is local
     .pip_install("https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.6/flash_attn-2.5.6%2Bcu122torch2.1cxx11abiFALSE-cp310-cp310-linux_x86_64.whl") # Install pre-compiled flash-attn wheel to bypass source compilation
-    .add_local_dir(".", remote_path="/root/debias-vlms", ignore=[".venv", "sb_bench_data", "__pycache__"])
+    .add_local_dir(".", remote_path="/root/debias-vlms", ignore=[".venv", ".git", "debias_env", "models_cache", "sb_bench_data", "__pycache__"])
 )
 
 # 3. Define Persistent Storage (for Models, Data, and Embeddings)
