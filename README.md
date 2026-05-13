@@ -256,6 +256,100 @@ python profile_rl_pipeline.py --batch_size 4 --gradient_accumulation 4
 ```
 This generates `profiling_report_rl.json` with the estimated time for 1 full Epoch of the reinforcement learning loop. Sum the total extrapolated hours from both JSON reports to plan your A100 compute budget!
 
+---
+
+## Running on Modal (Cloud GPU)
+
+The pipeline is configured for remote execution on [Modal](https://modal.com) with an A100-80GB GPU. All outputs are stored on a persistent volume (`/mnt/data`).
+
+### Prerequisites
+
+```bash
+pip install modal
+modal token set  # Authenticate with your Modal account
+```
+
+You also need a Modal secret named `huggingface-secret` with your HF token:
+```bash
+modal secret create huggingface-secret HF_TOKEN=hf_your_token_here
+```
+
+### Running the Pipeline
+
+**Step 1: Setup (download data + model)**
+```bash
+modal run run_modal.py --phase setup
+```
+
+**Step 2: Profile (estimate runtime)**
+```bash
+modal run run_modal.py --phase profiling
+```
+
+**Step 3: Run Phase 1 only (embeddings + PCA + evaluate)**
+```bash
+modal run run_modal.py --phase phase1
+```
+
+**Step 4: Run Phase 2 only (generate DRM heads)**
+```bash
+modal run run_modal.py --phase phase2
+```
+
+**Step 5: Run RL training only**
+```bash
+modal run run_modal.py --phase train
+```
+
+**Run the entire pipeline end-to-end:**
+```bash
+modal run run_modal.py --phase all
+```
+
+### Modal Configuration
+
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| GPU | A100-80GB | High VRAM for large batch sizes |
+| CPU | 16 cores | Parallel data preprocessing |
+| RAM | 64 GB | Dataset loading + PCA |
+| Timeout | 24 hours | Long RL training |
+| Volume | `debias-vlm-persistent-storage` | Persistent storage for all outputs |
+
+### Persistent Volume Layout (`/mnt/data/`)
+
+```
+/mnt/data/
+├── huggingface/              # HF model cache (HF_HOME)
+├── sb_bench_data/            # SB-Bench parquet data
+├── preprocessed_cache_*/     # Cached preprocessed datasets (auto-generated)
+├── embeddings_output/        # Phase 1: emb_*.npy files
+├── generated_heads/          # Phase 2: PCA components
+│   └── sb_bench-PCA-component/  # .pth reward head files
+└── output_ppo_debiased/      # Phase 3: RL training output
+    ├── checkpoint-*/         # Intermediate checkpoints
+    └── final_debiased_model/ # Final debiased LoRA adapter
+```
+
+### Accessing Results After Training
+
+Use Modal's volume commands to download outputs:
+```bash
+# List volume contents
+modal volume ls debias-vlm-persistent-storage
+
+# Download the final debiased model
+modal volume get debias-vlm-persistent-storage output_ppo_debiased/final_debiased_model ./local_output/
+
+# Download DRM head results
+modal volume get debias-vlm-persistent-storage generated_heads ./local_heads/
+
+# Download embeddings
+modal volume get debias-vlm-persistent-storage embeddings_output ./local_embeddings/
+```
+
+---
+
 ## Key Arguments
 
 | Script | Argument | Description |
