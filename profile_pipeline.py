@@ -111,7 +111,7 @@ def main():
         "--data_path", data_path,
         "--cls_embs_path", emb_dir,
         "--batch_size", str(args.batch_size),
-        "--dataloader_num_workers", str(os.cpu_count() or 4),
+        "--dataloader_num_workers", str(min(12, os.cpu_count() or 4)),
         "--use_smallset"
     ]
     

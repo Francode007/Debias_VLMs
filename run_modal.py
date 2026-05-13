@@ -25,7 +25,7 @@ app = modal.App(name=APP_NAME)
 # 4. The Execution Function
 @app.function(
     image=vlm_image,
-    gpu="A100",              # Optimized for your pipeline
+    gpu="A100-80GB",         # Explicit 80GB for large batch sizes
     cpu=16.0,                # High CPU count for data loading
     memory=65536,            # 64GB RAM
     volumes={"/mnt/data": volume}, # Mount point for persistent storage
@@ -70,10 +70,10 @@ def run_pipeline(phase: str = "all"):
         print("⏱️ Starting Profiling Phase...")
         
         print("-> Profiling Pipeline (Phase 1)...")
-        subprocess.run(["python", "profile_pipeline.py", "--batch_size", "16"], check=True)
+        subprocess.run(["python", "profile_pipeline.py", "--batch_size", "64"], check=True)
         
         print("-> Profiling RL Pipeline (Phase 2 & 3)...")
-        subprocess.run(["python", "profile_rl_pipeline.py", "--batch_size", "4", "--gradient_accumulation", "4"], check=True)
+        subprocess.run(["python", "profile_rl_pipeline.py", "--batch_size", "12", "--gradient_accumulation", "4"], check=True)
         
         volume.commit()
         print("✅ Profiling complete.")
@@ -87,7 +87,8 @@ def run_pipeline(phase: str = "all"):
             "--device", "cuda",
             "--data_path", os.environ["DATA_PATH"], # Use the persistent volume path
             "--cls_embs_path", os.environ["OUTPUT_PATH"],
-            "--batch_size", "32"
+            "--batch_size", "64",
+            "--dataloader_num_workers", "12"
         ], check=True)
         volume.commit()
 
@@ -110,7 +111,8 @@ def run_pipeline(phase: str = "all"):
             "--policy_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
             "--extractor_model_name", "Qwen/Qwen2.5-VL-3B-Instruct", # From README
             "--reward_heads_dir", "/mnt/data/generated_heads/sb_bench-PCA-component",
-            "--num_heads", "100"
+            "--num_heads", "100",
+            "--per_device_train_batch_size", "12"
         ], check=True)
         volume.commit()
 

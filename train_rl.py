@@ -165,10 +165,10 @@ def main():
     train_dataset = dataset_builder.build_dataset(data_path=args.data_path, processor=processor)
     collator = RLDataCollatorWithPadding(processor=processor)
     
-    # Optimization: Calculate num_workers as 80% of available cores
+    # Optimization: Cap num_workers to allocated CPU count (Modal reports machine cores, not allocated)
     num_cpus = multiprocessing.cpu_count()
-    num_workers = max(1, int(num_cpus * 0.8))
-    logger.info(f"Using num_workers={num_workers} for DataLoader (80% of {num_cpus} cores)")
+    num_workers = min(12, max(1, int(num_cpus * 0.8)))
+    logger.info(f"Using num_workers={num_workers} for DataLoader (capped at 12, machine reports {num_cpus} cores)")
 
     train_dataloader = DataLoader(
         train_dataset, 
