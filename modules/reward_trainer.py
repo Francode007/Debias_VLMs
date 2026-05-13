@@ -327,7 +327,16 @@ class RewardVisualizer(RewardTrainer):
                     
                     # Save intermediate results
                     if len(table['chosen_text']) % 1000 == 0:
-                        df = pd.DataFrame(table)
+                        interim_table = {
+                            key: [
+                                v.detach().cpu().item() if isinstance(v, torch.Tensor) and v.dim() == 0
+                                else v.detach().cpu().tolist() if isinstance(v, torch.Tensor)
+                                else v
+                                for v in vals
+                            ]
+                            for key, vals in table.items()
+                        }
+                        df = pd.DataFrame(interim_table)
                         df.to_csv(f"data_{os.path.basename(cls_embs_path)}_{Accelerator().local_process_index}_interim.csv")
                         logger.info(f"Saved interim results after {len(table['chosen_text'])} samples")
                     
@@ -339,6 +348,14 @@ class RewardVisualizer(RewardTrainer):
                 raise
         
         # Save final results
+        # Sanitize table: ensure no CUDA tensors remain (convert to Python scalars)
+        for key in table:
+            table[key] = [
+                v.detach().cpu().item() if isinstance(v, torch.Tensor) and v.dim() == 0
+                else v.detach().cpu().tolist() if isinstance(v, torch.Tensor)
+                else v
+                for v in table[key]
+            ]
         df = pd.DataFrame(table)
         df.to_csv(f"data_{os.path.basename(cls_embs_path)}_{Accelerator().local_process_index}.csv")
         logger.info(f"Processing completed. Total samples processed: {processed_samples}")
