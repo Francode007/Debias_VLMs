@@ -15,7 +15,6 @@ import pandas as pd
 from PIL import Image
 from datasets import Dataset, load_from_disk
 from typing import List, Optional
-from collections import defaultdict
 from .config import ScriptArguments
 
 logger = logging.getLogger(__name__)
@@ -252,7 +251,18 @@ class DatasetBuilder:
         """
         Format a batch of examples for reward model training.
         """
-        results = defaultdict(list)
+        # Pre-declare all output columns so Arrow always gets a consistent schema,
+        # even when every example in a batch is filtered out.
+        _RESULT_KEYS = [
+            "prompt_length", "prompt", "chosen", "rejected",
+            "prompt_plus_chosen_response", "prompt_plus_rejected_response",
+            "input_ids_chosen", "attention_mask_chosen", "pixel_values_chosen",
+            "input_ids_rejected", "attention_mask_rejected", "pixel_values_rejected",
+            "image_grid_thw_chosen", "image_grid_thw_rejected",
+            "video_grid_thw_chosen", "video_grid_thw_rejected",
+            "data_index", "pair_idx",
+        ]
+        results = {k: [] for k in _RESULT_KEYS}
         
         # Determine how many examples in this batch
         batch_size = len(examples[next(iter(examples.keys()))])
@@ -425,15 +435,24 @@ class DatasetBuilder:
             
             # Qwen2-VL grid tokens - preserve shape
             for k in ["image_grid_thw", "video_grid_thw"]:
-                if k in inputs_chosen:
-                    results[f"{k}_chosen"].append(inputs_chosen[k][idx_in_valid])
-                if k in inputs_rejected:
-                    results[f"{k}_rejected"].append(inputs_rejected[k][idx_in_valid])
+                results[f"{k}_chosen"].append(
+                    inputs_chosen[k][idx_in_valid] if k in inputs_chosen else None
+                )
+                results[f"{k}_rejected"].append(
+                    inputs_rejected[k][idx_in_valid] if k in inputs_rejected else None
+                )
             
             # Metadata
             results["data_index"].append(example['data_index'])
             results["pair_idx"].append(pair_idx)
             
+        # Remove columns that are entirely None (model doesn't produce them)
+        results = {k: v for k, v in results.items() if not all(x is None for x in v)}
+        # Ensure at least the core keys exist (even if empty) for Arrow schema
+        for k in _RESULT_KEYS[:12]:  # core columns that are always produced
+            if k not in results:
+                results[k] = []
+        
         return results
 
 
