@@ -200,41 +200,63 @@ class DatasetBuilder:
         ds = Dataset.from_list(expanded_rows)
         logger.info(f"Expanded to {len(ds)} preference pairs (2 per example)")
         
-        # Check for cached preprocessed dataset
+        # --- Chunked processing with disk persistence & resumability ---
+        # Instead of one giant ds.map() that builds a 500GB Arrow table (which
+        # deadlocks during finalization), process in small chunks, save each to
+        # disk immediately, then concatenate from disk at the end.
+        
+        chunk_size = 200  # examples per chunk
+        total = len(ds)
+        num_chunks = (total + chunk_size - 1) // chunk_size
+        
         cache_key = hashlib.md5(
-            f"{data_path}_{len(ds)}_{self.script_args.max_length}_{self.script_args.use_smallset}".encode()
+            f"{data_path}_{total}_{self.script_args.max_length}_{self.script_args.use_smallset}".encode()
         ).hexdigest()[:12]
-        cache_dir = os.path.join(os.path.dirname(data_path), f"preprocessed_cache_{cache_key}")
+        chunks_dir = os.path.join(os.path.dirname(data_path), f"chunks_{cache_key}")
+        os.makedirs(chunks_dir, exist_ok=True)
         
-        if os.path.exists(cache_dir):
-            logger.info(f"Loading cached preprocessed dataset from {cache_dir}")
-            ds = load_from_disk(cache_dir)
-            ds.set_format(type="torch")
-            return ds
+        logger.info(f"Processing {total} examples in {num_chunks} chunks of {chunk_size} (saving to {chunks_dir})")
         
-        # Apply formatting in single process to avoid IPC deadlocks.
-        # With num_proc>1, large pixel_values arrays returned by workers
-        # overflow pipe buffers causing deadlock after 100% completion.
-        # Single-process is reliable and fast enough on high-RAM machines.
-        map_batch_size = 32  # Larger batches for throughput; 1TB RAM handles this easily
-        num_proc = 1
-        logger.info(f"Preprocessing dataset with num_proc={num_proc}, batch_size={map_batch_size}")
-        ds = ds.map(
-            lambda examples: self._formatting_func_batched(examples, processor),
-            batched=True,
-            batch_size=map_batch_size,
-            num_proc=num_proc,
-            remove_columns=ds.column_names # Remove raw columns to avoid RewardTrainer auto-processing
-        )
+        processed_chunks = []
+        for chunk_idx in range(num_chunks):
+            chunk_path = os.path.join(chunks_dir, f"chunk_{chunk_idx:04d}")
+            
+            # Resumability: skip already-processed chunks
+            if os.path.exists(chunk_path):
+                logger.info(f"Chunk {chunk_idx+1}/{num_chunks} already exists, loading from disk")
+                chunk_ds = load_from_disk(chunk_path)
+                processed_chunks.append(chunk_ds)
+                continue
+            
+            start = chunk_idx * chunk_size
+            end = min(start + chunk_size, total)
+            chunk_ds = ds.select(range(start, end))
+            
+            # Process this chunk (single-process, small enough to finalize quickly)
+            chunk_ds = chunk_ds.map(
+                lambda examples: self._formatting_func_batched(examples, processor),
+                batched=True,
+                batch_size=32,
+                num_proc=1,
+                remove_columns=chunk_ds.column_names
+            )
+            
+            # Save chunk to disk immediately (small enough to not hang)
+            chunk_ds.save_to_disk(chunk_path)
+            processed_chunks.append(chunk_ds)
+            logger.info(f"Chunk {chunk_idx+1}/{num_chunks} done: {len(chunk_ds)} samples (saved to disk)")
+            
+            # Free memory from raw chunk data
+            import gc
+            gc.collect()
         
-        # Length filtering is done inline inside _formatting_func_batched
-        # to avoid a separate pass over the giant Arrow dataset (which deadlocks
-        # due to deserializing huge pixel_values arrays).
-        logger.info(f"Dataset after map (length-filtered inline): {len(ds)} samples")
+        # Concatenate all chunks
+        from datasets import concatenate_datasets
+        logger.info(f"Concatenating {len(processed_chunks)} chunks...")
+        ds = concatenate_datasets(processed_chunks)
+        del processed_chunks
         
-        # Skip disk caching — the Arrow table with pixel_values is 200+GB
-        # and serializing it causes the same deadlock/hang issues.
-        # The volume commit in run_modal.py handles persistence instead.
+        logger.info(f"Final dataset: {len(ds)} samples (length-filtered inline during processing)")
         
         ds.set_format(type="torch")
         return ds

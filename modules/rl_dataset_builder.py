@@ -66,16 +66,58 @@ class RLDatasetBuilder:
         # We don't expand into 2 pairs per example. We just need the unique prompt contexts.
         logger.info(f"Loaded {len(ds)} unique prompts for PPO generation.")
         
-        # Apply formatting - single process, larger batches for throughput on 1TB RAM
-        logger.info("Starting dataset mapping (formatting)...")
-        ds = ds.map(
-            lambda examples: self._formatting_func_batched(examples, processor),
-            batched=True,
-            batch_size=32,
-            num_proc=1,
-            remove_columns=ds.column_names
-        )
-        logger.info(f"Dataset mapping completed. {len(ds)} samples after inline length filter.")
+        # --- Chunked processing with disk persistence & resumability ---
+        # Process in small chunks to avoid Arrow finalization hangs on large datasets.
+        import hashlib
+        import gc
+        from datasets import concatenate_datasets, load_from_disk
+        
+        chunk_size = 200
+        total = len(ds)
+        num_chunks = (total + chunk_size - 1) // chunk_size
+        
+        cache_key = hashlib.md5(
+            f"{data_path}_{total}_{self.script_args.max_length}_rl".encode()
+        ).hexdigest()[:12]
+        chunks_dir = os.path.join(os.path.dirname(data_path), f"rl_chunks_{cache_key}")
+        os.makedirs(chunks_dir, exist_ok=True)
+        
+        logger.info(f"Processing {total} examples in {num_chunks} chunks of {chunk_size}")
+        
+        processed_chunks = []
+        for chunk_idx in range(num_chunks):
+            chunk_path = os.path.join(chunks_dir, f"chunk_{chunk_idx:04d}")
+            
+            # Resumability: skip already-processed chunks
+            if os.path.exists(chunk_path):
+                logger.info(f"Chunk {chunk_idx+1}/{num_chunks} already exists, loading from disk")
+                chunk_ds = load_from_disk(chunk_path)
+                processed_chunks.append(chunk_ds)
+                continue
+            
+            start = chunk_idx * chunk_size
+            end = min(start + chunk_size, total)
+            chunk_ds = ds.select(range(start, end))
+            
+            chunk_ds = chunk_ds.map(
+                lambda examples: self._formatting_func_batched(examples, processor),
+                batched=True,
+                batch_size=32,
+                num_proc=1,
+                remove_columns=chunk_ds.column_names
+            )
+            
+            chunk_ds.save_to_disk(chunk_path)
+            processed_chunks.append(chunk_ds)
+            logger.info(f"Chunk {chunk_idx+1}/{num_chunks} done: {len(chunk_ds)} samples")
+            gc.collect()
+        
+        # Concatenate all chunks
+        logger.info(f"Concatenating {len(processed_chunks)} chunks...")
+        ds = concatenate_datasets(processed_chunks)
+        del processed_chunks
+        
+        logger.info(f"Final RL dataset: {len(ds)} samples (length-filtered inline)")
         
         ds.set_format(type="torch")
         return ds
