@@ -222,16 +222,21 @@ class DatasetBuilder:
             return ds
         
         # Apply formatting with multiprocessing for speed
-        num_proc = min(8, os.cpu_count() or 1)
-        logger.info(f"Preprocessing dataset with num_proc={num_proc}")
+        # NOTE: num_proc and batch_size are kept low because each worker
+        # duplicates the processor and holds PIL images + pixel_values in
+        # memory.  High parallelism easily exceeds 64 GB RAM.
+        num_proc = min(2, os.cpu_count() or 1)
+        map_batch_size = 16  # small batches to cap per-worker memory
+        logger.info(f"Preprocessing dataset with num_proc={num_proc}, batch_size={map_batch_size}")
         ds = ds.map(
             lambda examples: self._formatting_func_batched(examples, processor),
             batched=True,
+            batch_size=map_batch_size,
             num_proc=num_proc,
             remove_columns=ds.column_names # Remove raw columns to avoid RewardTrainer auto-processing
         )
         
-        # Filter by length
+        # Filter by length (filters are lightweight, more procs are fine)
         ds = ds.filter(
             lambda x: (len(x["input_ids_chosen"]) <= self.script_args.max_length and
                       len(x["input_ids_rejected"]) <= self.script_args.max_length),
@@ -347,6 +352,11 @@ class DatasetBuilder:
         # Batch call to processor
         inputs_chosen = processor(text=chosen_texts, images=all_images, **kwargs)
         inputs_rejected = processor(text=rejected_texts, images=all_images, **kwargs)
+        
+        # Free PIL images immediately after processing to reduce memory
+        for img in all_images:
+            img.close()
+        del all_images, all_chosen_messages, all_rejected_messages, all_prompt_messages
         
         # For Qwen2.5-VL, pixel_values is a flat concatenation of patches from all images.
         # We need to split it per-example using image_grid_thw to determine patch counts.

@@ -27,7 +27,7 @@ app = modal.App(name=APP_NAME)
     image=vlm_image,
     gpu="A100-80GB",         # Explicit 80GB for large batch sizes
     cpu=16.0,                # High CPU count for data loading
-    memory=65536,            # 64GB RAM
+    memory=131072,           # 128GB RAM — preprocessing pixel_values is memory-intensive
     volumes={"/mnt/data": volume}, # Mount point for persistent storage
     timeout=86400,           # 24-hour timeout for long RL training
     secrets=[modal.Secret.from_name("huggingface-secret")] # Required for SB-Bench/Gated models
