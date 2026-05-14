@@ -33,8 +33,6 @@ class RLDatasetBuilder:
         
         if self.script_args.use_smallset:
             parquet_files = parquet_files[:2]
-        elif len(parquet_files) > 10:
-            parquet_files = parquet_files[:10]
         
         dfs = []
         for idx, f in enumerate(parquet_files):
@@ -42,8 +40,6 @@ class RLDatasetBuilder:
                 df = pd.read_parquet(f, engine="fastparquet")
                 if len(df) > 1000 and self.script_args.use_smallset:
                     df = df.head(100)
-                elif len(df) > 5000:
-                    df = df.head(1000)
                 dfs.append(df)
                 if self.script_args.use_smallset and len(dfs) >= 1:
                     break
@@ -59,9 +55,8 @@ class RLDatasetBuilder:
         
         if self.script_args.use_smallset:
             full_df = full_df.head(10)
-        elif len(full_df) > 10000:
-            full_df = full_df.head(2000)
         
+        logger.info(f"Full dataset size: {len(full_df)} samples")
         ds = Dataset.from_pandas(full_df)
         del full_df
         
@@ -71,12 +66,12 @@ class RLDatasetBuilder:
         # We don't expand into 2 pairs per example. We just need the unique prompt contexts.
         logger.info(f"Loaded {len(ds)} unique prompts for PPO generation.")
         
-        # Apply formatting - single process, small batches to avoid deadlocks
+        # Apply formatting - single process, larger batches for throughput on 1TB RAM
         logger.info("Starting dataset mapping (formatting)...")
         ds = ds.map(
             lambda examples: self._formatting_func_batched(examples, processor),
             batched=True,
-            batch_size=16,
+            batch_size=32,
             num_proc=1,
             remove_columns=ds.column_names
         )

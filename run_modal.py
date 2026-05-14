@@ -86,9 +86,10 @@ def run_pipeline(phase: str = "all"):
         subprocess.run([
             "python", "cal_emb_modular.py",
             "--device", "cuda",
-            "--data_path", os.environ["DATA_PATH"], # Use the persistent volume path
+            "--data_path", os.environ["DATA_PATH"],
             "--cls_embs_path", os.environ["OUTPUT_PATH"],
             "--batch_size", "64",
+            "--max_length", "2048",
             "--dataloader_num_workers", "12"
         ], check=True)
         volume.commit()
@@ -110,10 +111,11 @@ def run_pipeline(phase: str = "all"):
         subprocess.run([
             "python", "train_rl.py",
             "--policy_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
-            "--extractor_model_name", "Qwen/Qwen2.5-VL-3B-Instruct", # From README
+            "--extractor_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
             "--reward_heads_dir", "/mnt/data/generated_heads/sb_bench-PCA-component",
             "--num_heads", "100",
             "--per_device_train_batch_size", "12",
+            "--max_length", "2048",
             "--data_path", os.environ["DATA_PATH"],
             "--output_dir", "/mnt/data/output_ppo_debiased"
         ], check=True)

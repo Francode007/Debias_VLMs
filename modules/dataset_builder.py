@@ -125,13 +125,10 @@ class DatasetBuilder:
         
         logger.info(f"Found {len(parquet_files)} parquet files")
         
-        # For memory efficiency, limit the number of files we process
+        # For testing, limit the number of files we process
         if self.script_args.use_smallset:
             logger.info("Using small dataset for testing - limiting to first 2 files")
             parquet_files = parquet_files[:2]
-        elif len(parquet_files) > 10:
-            logger.info(f"Large dataset detected ({len(parquet_files)} files). Limiting to first 10 files for memory efficiency.")
-            parquet_files = parquet_files[:10]
         
         dfs = []
         max_memory_usage = 0
@@ -141,13 +138,10 @@ class DatasetBuilder:
                 logger.info(f"Loading file {idx+1}/{len(parquet_files)}: {os.path.basename(f)}")
                 df = pd.read_parquet(f, engine="fastparquet")
                 
-                # Limit rows per file for memory management
+                # Limit rows per file only for small-set testing
                 if len(df) > 1000 and self.script_args.use_smallset:
                     df = df.head(100)  # Very small for testing
                     logger.info(f"Limited to {len(df)} rows for small set testing")
-                elif len(df) > 5000:
-                    df = df.head(1000)  # Limit to 1000 rows per file
-                    logger.info(f"Limited to {len(df)} rows for memory efficiency")
                 
                 dfs.append(df)
                 
@@ -173,15 +167,13 @@ class DatasetBuilder:
         # Free memory from individual dataframes
         del dfs
         
-        # Limit dataset size for memory efficiency
+        # Limit dataset size only for testing
         if self.script_args.use_smallset:
             # Very small dataset for testing
             logger.info("Small set mode: limiting to 5 samples")
             full_df = full_df.head(5)
-        elif len(full_df) > 10000:
-            logger.info(f"Large dataset detected ({len(full_df)} samples). Limiting to 2000 samples for memory efficiency.")
-            full_df = full_df.head(2000)
         
+        logger.info(f"Full dataset size: {len(full_df)} samples")
         ds = Dataset.from_pandas(full_df)
         
         # Free pandas dataframe memory
@@ -224,7 +216,7 @@ class DatasetBuilder:
         # With num_proc>1, large pixel_values arrays returned by workers
         # overflow pipe buffers causing deadlock after 100% completion.
         # Single-process is reliable and fast enough on high-RAM machines.
-        map_batch_size = 16  # small batches to cap peak memory
+        map_batch_size = 32  # Larger batches for throughput; 1TB RAM handles this easily
         num_proc = 1
         logger.info(f"Preprocessing dataset with num_proc={num_proc}, batch_size={map_batch_size}")
         ds = ds.map(
