@@ -236,26 +236,14 @@ class DatasetBuilder:
             remove_columns=ds.column_names # Remove raw columns to avoid RewardTrainer auto-processing
         )
         
-        # Filter by length (filters are lightweight, more procs are fine)
-        ds = ds.filter(
-            lambda x: (len(x["input_ids_chosen"]) <= self.script_args.max_length and
-                      len(x["input_ids_rejected"]) <= self.script_args.max_length),
-            num_proc=1
-        )
-        len_before_filter = len(ds)
-        ds = ds.filter(
-            lambda x: x["prompt_length"] < self.script_args.max_length,
-            num_proc=1
-        )
-        len_after_filter = len(ds)
-        logger.info(f"Filtered {len_before_filter - len_after_filter} samples due to length")
+        # Length filtering is done inline inside _formatting_func_batched
+        # to avoid a separate pass over the giant Arrow dataset (which deadlocks
+        # due to deserializing huge pixel_values arrays).
+        logger.info(f"Dataset after map (length-filtered inline): {len(ds)} samples")
         
-        # Cache to disk for future runs
-        try:
-            ds.save_to_disk(cache_dir)
-            logger.info(f"Saved preprocessed dataset to {cache_dir}")
-        except Exception as e:
-            logger.warning(f"Failed to cache dataset: {e}")
+        # Skip disk caching — the Arrow table with pixel_values is 200+GB
+        # and serializing it causes the same deadlock/hang issues.
+        # The volume commit in run_modal.py handles persistence instead.
         
         ds.set_format(type="torch")
         return ds
@@ -409,6 +397,15 @@ class DatasetBuilder:
                 prompt_len = self.find_token_for_gating(tokens_prompt, "qwen")
             except:
                 prompt_len = len(tokens_prompt) - 1
+            
+            # Inline length filtering — skip examples that exceed max_length
+            # This avoids a separate ds.filter() pass over the huge Arrow table.
+            ids_chosen = inputs_chosen["input_ids"][idx_in_valid]
+            ids_rejected = inputs_rejected["input_ids"][idx_in_valid]
+            if (len(ids_chosen) > self.script_args.max_length or
+                len(ids_rejected) > self.script_args.max_length or
+                prompt_len >= self.script_args.max_length):
+                continue
             
             # Add to results
             results["prompt_length"].append(prompt_len)
