@@ -14,7 +14,6 @@ import pandas as pd
 from PIL import Image
 from datasets import Dataset
 from typing import Optional
-from collections import defaultdict
 from .config import ScriptArguments
 
 logger = logging.getLogger(__name__)
@@ -72,22 +71,16 @@ class RLDatasetBuilder:
         # We don't expand into 2 pairs per example. We just need the unique prompt contexts.
         logger.info(f"Loaded {len(ds)} unique prompts for PPO generation.")
         
-        # Apply formatting - disabling multiprocessing to avoid potential hangs with custom processor
+        # Apply formatting - single process, small batches to avoid deadlocks
         logger.info("Starting dataset mapping (formatting)...")
         ds = ds.map(
             lambda examples: self._formatting_func_batched(examples, processor),
             batched=True,
-            batch_size=2, # Smaller batch size for progress tracking
+            batch_size=16,
             num_proc=1,
             remove_columns=ds.column_names
         )
-        logger.info("Dataset mapping completed.")
-        
-        # Filter by length
-        ds = ds.filter(
-            lambda x: len(x["input_ids"]) <= self.script_args.max_length,
-            num_proc=1
-        )
+        logger.info(f"Dataset mapping completed. {len(ds)} samples after inline length filter.")
         
         ds.set_format(type="torch")
         return ds
@@ -96,7 +89,13 @@ class RLDatasetBuilder:
         """
         Format a batch of examples for RL generation.
         """
-        results = defaultdict(list)
+        # Pre-declare all output columns for consistent Arrow schema
+        _RESULT_KEYS = [
+            "pixel_values", "input_ids", "attention_mask",
+            "image_grid_thw", "video_grid_thw", "mm_token_type_ids",
+            "data_index", "context", "question",
+        ]
+        results = {k: [] for k in _RESULT_KEYS}
         
         # Determine how many examples in this batch
         batch_size = len(examples[next(iter(examples.keys()))])
@@ -144,7 +143,7 @@ class RLDatasetBuilder:
         
         if not valid_indices:
             return results
-            
+        
         # Apply chat templates in batch
         prompt_templates = [processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in all_prompt_messages]
         
@@ -156,6 +155,11 @@ class RLDatasetBuilder:
         }
         
         inputs = processor(text=prompt_templates, images=all_images, **kwargs)
+        
+        # Free PIL images immediately after processing
+        for img in all_images:
+            img.close()
+        del all_images, all_prompt_messages
         
         # Calculate patch boundaries
         patch_slices = []
@@ -171,6 +175,10 @@ class RLDatasetBuilder:
                 start_idx += num_patches
         
         for idx_in_valid, orig_idx in enumerate(valid_indices):
+            # Inline length filter — skip examples exceeding max_length
+            if len(inputs["input_ids"][idx_in_valid]) > self.script_args.max_length:
+                continue
+            
             # Add to results as lists/arrays (datasets will handle them)
             if "pixel_values" in inputs:
                 if patch_slices:
@@ -182,18 +190,28 @@ class RLDatasetBuilder:
             results["input_ids"].append(inputs["input_ids"][idx_in_valid])
             results["attention_mask"].append(inputs["attention_mask"][idx_in_valid])
             
-            if "image_grid_thw" in inputs:
-                results["image_grid_thw"].append(inputs["image_grid_thw"][idx_in_valid])
-            if "video_grid_thw" in inputs:
-                results["video_grid_thw"].append(inputs["video_grid_thw"][idx_in_valid])
-            if "mm_token_type_ids" in inputs:
-                results["mm_token_type_ids"].append(inputs["mm_token_type_ids"][idx_in_valid])
+            results["image_grid_thw"].append(
+                inputs["image_grid_thw"][idx_in_valid] if "image_grid_thw" in inputs else None
+            )
+            results["video_grid_thw"].append(
+                inputs["video_grid_thw"][idx_in_valid] if "video_grid_thw" in inputs else None
+            )
+            results["mm_token_type_ids"].append(
+                inputs["mm_token_type_ids"][idx_in_valid] if "mm_token_type_ids" in inputs else None
+            )
             
             # Metadata
             results["data_index"].append(orig_idx)
             results["context"].append(examples["context"][orig_idx])
             results["question"].append(examples["question"][orig_idx])
-            
+        
+        # Remove columns that are entirely None (model doesn't produce them)
+        results = {k: v for k, v in results.items() if not all(x is None for x in v)}
+        # Ensure core keys exist for Arrow schema consistency
+        for k in ["input_ids", "attention_mask", "pixel_values", "data_index", "context", "question"]:
+            if k not in results:
+                results[k] = []
+        
         return results
     
     def _formatting_func(self, example, processor):

@@ -2,8 +2,13 @@ import argparse
 import os
 import glob
 import logging
+import warnings
 import torch
 import json
+
+# Suppress kernel version warning from accelerate (Modal host kernel is 4.4.0)
+warnings.filterwarnings("ignore", message=".*Detected kernel version.*")
+
 from accelerate import Accelerator
 from transformers import AutoProcessor, AutoModelForImageTextToText
 from peft import LoraConfig, get_peft_model, PeftModel

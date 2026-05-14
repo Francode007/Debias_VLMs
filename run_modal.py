@@ -38,6 +38,7 @@ def run_pipeline(phase: str = "all"):
     os.environ["DATA_PATH"] = "/mnt/data/sb_bench_data"
     os.environ["OUTPUT_PATH"] = "/mnt/data/embeddings_output"
     os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Prevent deadlocks in forked dataloader workers
+    os.environ["ACCELERATE_LOG_LEVEL"] = "ERROR"  # Suppress kernel version warning (Modal host is 4.4.0)
     
     # Change directory to the cloned repository
     os.chdir("/root/debias-vlms")
