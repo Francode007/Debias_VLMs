@@ -221,12 +221,12 @@ class DatasetBuilder:
             ds.set_format(type="torch")
             return ds
         
-        # Apply formatting with multiprocessing for speed
-        # NOTE: num_proc and batch_size are kept low because each worker
-        # duplicates the processor and holds PIL images + pixel_values in
-        # memory.  High parallelism easily exceeds 64 GB RAM.
-        num_proc = min(2, os.cpu_count() or 1)
-        map_batch_size = 16  # small batches to cap per-worker memory
+        # Apply formatting in single process to avoid IPC deadlocks.
+        # With num_proc>1, large pixel_values arrays returned by workers
+        # overflow pipe buffers causing deadlock after 100% completion.
+        # Single-process is reliable and fast enough on high-RAM machines.
+        map_batch_size = 16  # small batches to cap peak memory
+        num_proc = 1
         logger.info(f"Preprocessing dataset with num_proc={num_proc}, batch_size={map_batch_size}")
         ds = ds.map(
             lambda examples: self._formatting_func_batched(examples, processor),
@@ -240,12 +240,12 @@ class DatasetBuilder:
         ds = ds.filter(
             lambda x: (len(x["input_ids_chosen"]) <= self.script_args.max_length and
                       len(x["input_ids_rejected"]) <= self.script_args.max_length),
-            num_proc=num_proc
+            num_proc=1
         )
         len_before_filter = len(ds)
         ds = ds.filter(
             lambda x: x["prompt_length"] < self.script_args.max_length,
-            num_proc=num_proc
+            num_proc=1
         )
         len_after_filter = len(ds)
         logger.info(f"Filtered {len_before_filter - len_after_filter} samples due to length")
