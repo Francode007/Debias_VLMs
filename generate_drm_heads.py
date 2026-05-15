@@ -35,6 +35,7 @@ import torch
 import time
 import json
 import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 try:
     from cuml.decomposition import PCA
     HAS_CUML = True
@@ -56,15 +57,26 @@ def generate_orthogonal_heads(args):
         print(f"No embedding files found in {input_dir}. Run cal_emb_modular.py first.")
         return
 
-    print(f"Loading {len(emb_files)} embedding files...")
-    arrays = []
-    for f in tqdm.tqdm(emb_files, desc="Loading embeddings"):
+    print(f"Loading {len(emb_files)} embedding files (parallel I/O)...")
+    
+    def _load_one(path):
         try:
-            arr = np.load(f)
-            arrays.append(arr)
+            return np.load(path)
         except Exception as e:
-            print(f"Error loading {f}: {e}")
-            continue
+            print(f"Error loading {path}: {e}")
+            return None
+    
+    arrays = [None] * len(emb_files)
+    with ThreadPoolExecutor(max_workers=32) as executor:
+        futures = {executor.submit(_load_one, f): i for i, f in enumerate(emb_files)}
+        for future in tqdm.tqdm(as_completed(futures), total=len(emb_files), desc="Loading embeddings"):
+            idx = futures[future]
+            result = future.result()
+            if result is not None:
+                arrays[idx] = result
+    
+    # Filter out failed loads (None entries)
+    arrays = [a for a in arrays if a is not None]
 
     # Merge: each file is (1, 3, hidden_dim) or (3, hidden_dim) -> chosen, rejected, prompt
     merged = np.concatenate(arrays, axis=0)

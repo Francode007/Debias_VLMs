@@ -92,7 +92,7 @@ def run_inference():
     cpu=16.0,
     memory=32768,            # 32GB RAM — PCA on ~500MB of embeddings
     volumes={"/mnt/data": volume},
-    timeout=3600,            # PCA finishes in minutes
+    timeout=14400,           # 4h — loading 21k files from volume is I/O-bound
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
 def run_drm_generation():
