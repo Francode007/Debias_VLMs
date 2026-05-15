@@ -119,10 +119,10 @@ def run_drm_generation():
     timeout=86400,
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
-def run_training():
+def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debiased"):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
-    print("🤖 Phase 4: PPO Training (A100-80GB)...")
+    print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s)...")
     subprocess.run([
         "python", "train_rl.py",
         "--policy_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
@@ -131,8 +131,9 @@ def run_training():
         "--num_heads", "100",
         "--per_device_train_batch_size", "12",
         "--max_length", "2048",
+        "--epochs", str(epochs),
         "--data_path", os.environ["DATA_PATH"],
-        "--output_dir", "/mnt/data/output_ppo_debiased"
+        "--output_dir", output_dir
     ], check=True)
     volume.commit()
     print("✅ PPO training complete.")
@@ -164,7 +165,7 @@ def run_setup():
 
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────
 @app.local_entrypoint()
-def main(phase: str = "all"):
+def main(phase: str = "all", epochs: int = 1):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -174,7 +175,9 @@ def main(phase: str = "all"):
       inference   - Extract embeddings (A100-80GB)
       phase1      - preprocess + inference combined
       phase2      - Generate DRM heads (CPU, 32GB RAM)
-      train       - PPO training (A100-80GB)
+      train       - PPO training (A100-80GB). Use --epochs N for multi-epoch.
+      train5      - PPO training for 5 epochs (separate output dir)
+      train10     - PPO training for 10 epochs (separate output dir)
       all         - Full pipeline
     """
     if phase in ["all", "setup"]:
@@ -190,4 +193,10 @@ def main(phase: str = "all"):
         run_drm_generation.remote()
     
     if phase in ["all", "train"]:
-        run_training.remote()
+        run_training.remote(epochs=epochs, output_dir="/mnt/data/output_ppo_debiased")
+    
+    if phase == "train5":
+        run_training.remote(epochs=5, output_dir="/mnt/data/output_ppo_debiased_5ep")
+    
+    if phase == "train10":
+        run_training.remote(epochs=10, output_dir="/mnt/data/output_ppo_debiased_10ep")
