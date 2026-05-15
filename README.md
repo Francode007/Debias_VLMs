@@ -258,9 +258,9 @@ This generates `profiling_report_rl.json` with the estimated time for 1 full Epo
 
 ---
 
-## Running on Modal (Cloud GPU)
+## Running on Modal (Cloud GPU — Cost-Optimized)
 
-The pipeline is configured for remote execution on [Modal](https://modal.com) with an A100-80GB GPU. All outputs are stored on a persistent volume (`/mnt/data`).
+The pipeline uses [Modal](https://modal.com) with **per-phase GPU allocation** to minimize cost. Each phase runs on the cheapest hardware that satisfies its requirements.
 
 ### Prerequisites
 
@@ -274,47 +274,68 @@ You also need a Modal secret named `huggingface-secret` with your HF token:
 modal secret create huggingface-secret HF_TOKEN=hf_your_token_here
 ```
 
+### Cost-Optimized Architecture
+
+Each pipeline phase is a **separate Modal function** with tailored resources:
+
+| Phase | Command | GPU | RAM | CPU | Est. Cost/hr | Purpose |
+|-------|---------|-----|-----|-----|-------------|---------|
+| `setup` | `--phase setup` | None | 16GB | 4 | ~$0.01 | Download data + model weights |
+| `preprocess` | `--phase preprocess` | **None** | 128GB | 16 | ~$0.10 | Tokenize + build dataset chunks (CPU only) |
+| `inference` | `--phase inference` | **A100-80GB** | 128GB | 16 | ~$3.50 | Model forward pass → embeddings |
+| `phase1` | `--phase phase1` | Mixed | — | — | — | Runs preprocess + inference sequentially |
+| `phase2` | `--phase phase2` | **None** | 32GB | 16 | ~$0.03 | sklearn PCA → DRM heads |
+| `train` | `--phase train` | **A100-80GB** | 128GB | 16 | ~$3.50 | PPO fine-tuning with LoRA |
+
+**Key cost savings:**
+- **Preprocessing** (the longest step, ~2-3 hours) uses **zero GPU**. The Qwen processor tokenizes text/images entirely on CPU.
+- **Phase 2** (DRM head generation) uses **zero GPU**. sklearn PCA runs on ~500MB of numpy arrays.
+- GPU billing only applies during inference and training.
+
 ### Running the Pipeline
 
-**Step 1: Setup (download data + model)**
 ```bash
+# Step 1: Setup (download data + model to volume)
 modal run run_modal.py --phase setup
-```
 
-**Step 2: Profile (estimate runtime)**
-```bash
-modal run run_modal.py --phase profiling
-```
+# Step 2: Preprocess dataset (CPU only — cheap)
+modal run run_modal.py --phase preprocess
 
-**Step 3: Run Phase 1 only (embeddings + PCA + evaluate)**
-```bash
-modal run run_modal.py --phase phase1
-```
+# Step 3: Extract embeddings (A100-80GB — needs GPU)
+modal run run_modal.py --phase inference
 
-**Step 4: Run Phase 2 only (generate DRM heads)**
-```bash
+# Step 4: Generate DRM heads (CPU only — cheap)
 modal run run_modal.py --phase phase2
-```
 
-**Step 5: Run RL training only**
-```bash
+# Step 5: RL training (A100-80GB)
 modal run run_modal.py --phase train
-```
 
-**Run the entire pipeline end-to-end:**
-```bash
+# Or run everything end-to-end:
 modal run run_modal.py --phase all
 ```
 
-### Modal Configuration
+**Convenience shortcuts:**
+```bash
+# Run Phase 1 = preprocess + inference (sequentially)
+modal run run_modal.py --phase phase1
+```
 
-| Parameter | Value | Purpose |
-|-----------|-------|---------|
-| GPU | A100-80GB | High VRAM for large batch sizes |
-| CPU | 16 cores | Parallel data preprocessing |
-| RAM | 64 GB | Dataset loading + PCA |
-| Timeout | 24 hours | Long RL training |
-| Volume | `debias-vlm-persistent-storage` | Persistent storage for all outputs |
+### Resumability
+
+Each phase is **resumable** — re-running a phase skips already-completed work:
+- **Preprocess**: Dataset chunks are cached on the volume. If chunks exist, they're reloaded instantly.
+- **Inference**: Each embedding is saved individually (`emb_N.npy`). Already-extracted embeddings are skipped.
+- **Phase 2**: Idempotent — PCA overwrites previous results if re-run.
+
+### Modal Configuration (per function)
+
+| Function | GPU | Memory | Timeout | Notes |
+|----------|-----|--------|---------|-------|
+| `run_setup` | None | 16 GB | 1h | Downloads only |
+| `run_preprocess` | None | 128 GB | 24h | Large pixel_values in RAM |
+| `run_inference` | A100-80GB | 128 GB | 24h | batch_size=16, max_length=2048 |
+| `run_drm_generation` | None | 32 GB | 1h | sklearn PCA (minutes) |
+| `run_training` | A100-80GB | 128 GB | 24h | PPO + LoRA |
 
 ### Persistent Volume Layout (`/mnt/data/`)
 
@@ -322,8 +343,8 @@ modal run run_modal.py --phase all
 /mnt/data/
 ├── huggingface/              # HF model cache (HF_HOME)
 ├── sb_bench_data/            # SB-Bench parquet data
-├── preprocessed_cache_*/     # Cached preprocessed datasets (auto-generated)
-├── embeddings_output/        # Phase 1: emb_*.npy files
+├── chunks_*/                 # Cached preprocessed dataset chunks (auto-generated)
+├── embeddings_output/        # Phase 1b: emb_*.npy files
 ├── generated_heads/          # Phase 2: PCA components
 │   └── sb_bench-PCA-component/  # .pth reward head files
 └── output_ppo_debiased/      # Phase 3: RL training output

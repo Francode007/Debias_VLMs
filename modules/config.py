@@ -171,3 +171,9 @@ class ScriptArguments:
         default=None,
         metadata={"help": "HuggingFace API token for accessing private models or increasing rate limits."}
     )
+    
+    # Pipeline splitting
+    preprocess_only: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Only run dataset preprocessing (no model loading or inference). For cost-efficient CPU-only runs."}
+    )

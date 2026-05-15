@@ -19,7 +19,7 @@ import logging
 import evaluate
 import numpy as np
 import torch
-from transformers import HfArgumentParser, TrainingArguments
+from transformers import AutoProcessor, HfArgumentParser, TrainingArguments
 
 # Import modular components
 from modules.config import ScriptArguments
@@ -227,6 +227,23 @@ def main():
         # Set up environment
         setup_environment(script_args)
         
+        # Initialize dataset builder (needed for both paths)
+        dataset_builder = DatasetBuilder(script_args)
+        
+        # ---- Preprocess-only mode: no GPU / model needed ----
+        if script_args.preprocess_only:
+            logger.info("Running in preprocess-only mode (no model loading)...")
+            # Load just the processor (tokenizer + image processor) — CPU only
+            processor = AutoProcessor.from_pretrained(script_args.model, use_fast=True)
+            if processor.tokenizer.pad_token is None:
+                processor.tokenizer.pad_token = processor.tokenizer.eos_token
+            
+            logger.info("Building dataset (preprocess only)...")
+            dataset = dataset_builder.build_dataset(script_args.data_path, processor)
+            logger.info(f"Preprocessing complete. Dataset has {len(dataset)} samples.")
+            return None
+        
+        # ---- Full inference mode: needs GPU ----
         # Initialize device manager
         device_manager = DeviceManager()
         
@@ -246,9 +263,6 @@ def main():
         # Create custom forward function
         custom_forward_func = create_custom_forward(model, model_loader.dtype)
         model.forward = custom_forward_func.__get__(model, type(model))
-        
-        # Initialize dataset builder
-        dataset_builder = DatasetBuilder(script_args)
         
         # Build dataset
         logger.info("Building dataset...")

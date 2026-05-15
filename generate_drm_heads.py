@@ -34,6 +34,7 @@ import numpy as np
 import torch
 import time
 import json
+import tqdm
 try:
     from cuml.decomposition import PCA
     HAS_CUML = True
@@ -57,7 +58,7 @@ def generate_orthogonal_heads(args):
 
     print(f"Loading {len(emb_files)} embedding files...")
     arrays = []
-    for f in emb_files:
+    for f in tqdm.tqdm(emb_files, desc="Loading embeddings"):
         try:
             arr = np.load(f)
             arrays.append(arr)
@@ -129,7 +130,7 @@ def generate_orthogonal_heads(args):
     component_dir = os.path.join(output_dir, f"{case_name}-PCA-component")
     os.makedirs(component_dir, exist_ok=True)
 
-    for i in range(k):
+    for i in tqdm.tqdm(range(k), desc="Saving PCA heads"):
         comp = components[i]
         comp_t = torch.tensor(comp, dtype=torch.float32)
         comp_2d = comp_t.unsqueeze(0)  # (1, hidden_dim)
