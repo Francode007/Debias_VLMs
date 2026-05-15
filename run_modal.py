@@ -38,7 +38,7 @@ def _setup_env():
 @app.function(
     image=vlm_image,
     gpu=None,                # No GPU needed — processor runs on CPU
-    cpu=16.0,
+    cpu=8.0,
     memory=131072,           # 128GB RAM for large pixel_values
     volumes={"/mnt/data": volume},
     timeout=86400,
@@ -62,7 +62,7 @@ def run_preprocess():
 @app.function(
     image=vlm_image,
     gpu="A100-80GB",         # Full 80GB for batch_size=16 with large images
-    cpu=16.0,
+    cpu=8.0,
     memory=131072,
     volumes={"/mnt/data": volume},
     timeout=86400,
@@ -79,7 +79,7 @@ def run_inference():
         "--cls_embs_path", os.environ["OUTPUT_PATH"],
         "--batch_size", "16",
         "--max_length", "2048",
-        "--dataloader_num_workers", "12"
+        "--dataloader_num_workers", "6"
     ], check=True)
     volume.commit()
     print("✅ Embedding extraction complete.")
@@ -89,7 +89,7 @@ def run_inference():
 @app.function(
     image=vlm_image,
     gpu=None,                # sklearn PCA is CPU-only
-    cpu=16.0,
+    cpu=8.0,
     memory=32768,            # 32GB RAM — PCA on ~500MB of embeddings
     volumes={"/mnt/data": volume},
     timeout=14400,           # 4h — loading 21k files from volume is I/O-bound
@@ -113,10 +113,10 @@ def run_drm_generation():
 @app.function(
     image=vlm_image,
     gpu="A100-80GB",
-    cpu=16.0,
+    cpu=8.0,
     memory=131072,
     volumes={"/mnt/data": volume},
-    timeout=86400,
+    timeout=43200,            # 12 hours
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
 def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debiased"):
@@ -143,7 +143,7 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
 @app.function(
     image=vlm_image,
     gpu=None,
-    cpu=4.0,
+    cpu=2.0,
     memory=16384,
     volumes={"/mnt/data": volume},
     timeout=3600,
