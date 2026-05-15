@@ -103,7 +103,7 @@ class RLDatasetBuilder:
                 lambda examples: self._formatting_func_batched(examples, processor),
                 batched=True,
                 batch_size=64,
-                num_proc=4,
+                num_proc=1,
                 remove_columns=chunk_ds.column_names
             )
             
