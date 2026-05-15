@@ -88,7 +88,7 @@ def run_pipeline(phase: str = "all"):
             "--device", "cuda",
             "--data_path", os.environ["DATA_PATH"],
             "--cls_embs_path", os.environ["OUTPUT_PATH"],
-            "--batch_size", "64",
+            "--batch_size", "16",
             "--max_length", "2048",
             "--dataloader_num_workers", "12"
         ], check=True)
