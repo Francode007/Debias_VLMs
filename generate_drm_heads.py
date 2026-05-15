@@ -38,8 +38,11 @@ import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 try:
     from cuml.decomposition import PCA
+    # Verify GPU is actually accessible (cuML needs a CUDA driver)
+    import cupy
+    cupy.cuda.device.get_device_id()
     HAS_CUML = True
-except ImportError:
+except (ImportError, Exception):
     from sklearn.decomposition import PCA
     HAS_CUML = False
 
