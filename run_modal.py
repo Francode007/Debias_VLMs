@@ -119,11 +119,11 @@ def run_drm_generation():
     timeout=43200,            # 12 hours
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
-def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debiased"):
+def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debiased", resume_from: str = None):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s)...")
-    subprocess.run([
+    cmd = [
         "python", "train_rl.py",
         "--policy_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
         "--extractor_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
@@ -134,7 +134,10 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--epochs", str(epochs),
         "--data_path", os.environ["DATA_PATH"],
         "--output_dir", output_dir
-    ], check=True)
+    ]
+    if resume_from:
+        cmd.extend(["--resume_from_checkpoint", resume_from])
+    subprocess.run(cmd, check=True)
     volume.commit()
     print("✅ PPO training complete.")
 
@@ -165,7 +168,7 @@ def run_setup():
 
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────
 @app.local_entrypoint()
-def main(phase: str = "all", epochs: int = 1):
+def main(phase: str = "all", epochs: int = 1, resume: str = ""):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -179,6 +182,8 @@ def main(phase: str = "all", epochs: int = 1):
       train5      - PPO training for 5 epochs (separate output dir)
       train10     - PPO training for 10 epochs (separate output dir)
       all         - Full pipeline
+    
+    Resume: pass --resume <checkpoint_path> e.g. /mnt/data/output_ppo_debiased/checkpoint-ep1-50pct
     """
     if phase in ["all", "setup"]:
         run_setup.remote()
@@ -192,11 +197,13 @@ def main(phase: str = "all", epochs: int = 1):
     if phase in ["all", "phase2"]:
         run_drm_generation.remote()
     
+    resume_ckpt = resume if resume else None
+    
     if phase in ["all", "train"]:
-        run_training.remote(epochs=epochs, output_dir="/mnt/data/output_ppo_debiased")
+        run_training.remote(epochs=epochs, output_dir="/mnt/data/output_ppo_debiased", resume_from=resume_ckpt)
     
     if phase == "train5":
-        run_training.remote(epochs=5, output_dir="/mnt/data/output_ppo_debiased_5ep")
+        run_training.remote(epochs=5, output_dir="/mnt/data/output_ppo_debiased_5ep", resume_from=resume_ckpt)
     
     if phase == "train10":
-        run_training.remote(epochs=10, output_dir="/mnt/data/output_ppo_debiased_10ep")
+        run_training.remote(epochs=10, output_dir="/mnt/data/output_ppo_debiased_10ep", resume_from=resume_ckpt)

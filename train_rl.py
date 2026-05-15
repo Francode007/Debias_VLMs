@@ -47,6 +47,7 @@ def parse_args():
     parser.add_argument("--use_smallset", action="store_true", help="Use a tiny subset for testing")
     parser.add_argument("--max_length", type=int, default=1024, help="Maximum sequence length constraints")
     parser.add_argument("--epochs", type=int, default=1, help="Total execution epochs")
+    parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="Path to checkpoint directory to resume training from")
     return parser.parse_args()
 
 def load_pca_components(heads_dir: str, num_heads: int, device: torch.device):
@@ -199,20 +200,131 @@ def main():
     batch_times = []
     
     global_step = 0
+    start_epoch = 0
+    resume_step = 0  # Step within epoch to resume from
     os.makedirs(args.output_dir, exist_ok=True)
     
-    for epoch in range(args.epochs):
+    # --- Resume from checkpoint ---
+    if args.resume_from_checkpoint and os.path.exists(args.resume_from_checkpoint):
+        ckpt_dir = args.resume_from_checkpoint
+        logger.info(f"Resuming from checkpoint: {ckpt_dir}")
+        
+        # Load LoRA adapter weights
+        unwrapped = accelerator.unwrap_model(active_policy)
+        from peft import set_peft_model_state_dict
+        adapter_bin = os.path.join(ckpt_dir, "adapter_model.bin")
+        adapter_safetensors = os.path.join(ckpt_dir, "adapter_model.safetensors")
+        if os.path.exists(adapter_safetensors):
+            from safetensors.torch import load_file
+            adapter_state = load_file(adapter_safetensors)
+        elif os.path.exists(adapter_bin):
+            adapter_state = torch.load(adapter_bin, map_location="cpu")
+        else:
+            raise FileNotFoundError(f"No adapter weights found in {ckpt_dir}")
+        set_peft_model_state_dict(unwrapped, adapter_state)
+        del adapter_state
+        logger.info("Loaded LoRA adapter weights")
+        
+        # Load value head
+        vh_path = os.path.join(ckpt_dir, "value_head.pth")
+        if os.path.exists(vh_path):
+            ppo_controller.value_head.load_state_dict(torch.load(vh_path, map_location="cpu"))
+            logger.info("Loaded value head")
+        
+        # Load Fast-RL state
+        frl_path = os.path.join(ckpt_dir, "fast_rl_state.json")
+        if os.path.exists(frl_path):
+            with open(frl_path) as f:
+                frl_state = json.load(f)
+            fast_rl_node.alpha = torch.tensor(frl_state["alpha"], device=accelerator.device)
+            logger.info("Loaded Fast-RL state")
+        
+        # Load optimizer states
+        opt_policy_path = os.path.join(ckpt_dir, "optimizer_policy.pth")
+        opt_value_path = os.path.join(ckpt_dir, "optimizer_value.pth")
+        if os.path.exists(opt_policy_path):
+            optimizer_policy.load_state_dict(torch.load(opt_policy_path, map_location="cpu"))
+            logger.info("Loaded policy optimizer state")
+        if os.path.exists(opt_value_path):
+            optimizer_value.load_state_dict(torch.load(opt_value_path, map_location="cpu"))
+            logger.info("Loaded value optimizer state")
+        
+        # Load training progress
+        progress_path = os.path.join(ckpt_dir, "training_progress.json")
+        if os.path.exists(progress_path):
+            with open(progress_path) as f:
+                progress = json.load(f)
+            start_epoch = progress.get("epoch", 0)
+            resume_step = progress.get("step_in_epoch", 0)
+            global_step = progress.get("global_step", 0)
+            logger.info(f"Resuming from epoch {start_epoch}, step {resume_step}, global_step {global_step}")
+        else:
+            # Fallback: infer global_step from old-style checkpoint directory name (e.g. checkpoint-200)
+            import re
+            ckpt_match = re.search(r"checkpoint-(\d+)$", ckpt_dir.rstrip("/"))
+            if ckpt_match:
+                global_step = int(ckpt_match.group(1))
+                # Estimate epoch and step_in_epoch (will be recalculated after dataloader is known)
+                logger.info(f"No training_progress.json found. Inferred global_step={global_step} from checkpoint name.")
+            else:
+                logger.warning("No training_progress.json found and could not infer step from checkpoint name. Starting from step 0.")
+    
+    # --- Helper to save a full checkpoint ---
+    def save_checkpoint(tag, epoch, step_in_epoch):
+        if not accelerator.is_main_process:
+            return
+        checkpoint_path = os.path.join(args.output_dir, f"checkpoint-{tag}")
+        logger.info(f"Saving checkpoint to {checkpoint_path}")
+        os.makedirs(checkpoint_path, exist_ok=True)
+        
+        unwrapped_model = accelerator.unwrap_model(active_policy)
+        unwrapped_model.save_pretrained(checkpoint_path)
+        
+        # Fast-RL state
+        with open(os.path.join(checkpoint_path, "fast_rl_state.json"), "w") as f:
+            json.dump({"alpha": fast_rl_node.alpha.detach().cpu().tolist()}, f)
+        
+        # Value head
+        torch.save(ppo_controller.value_head.state_dict(), os.path.join(checkpoint_path, "value_head.pth"))
+        
+        # Optimizer states (essential for resuming without loss spikes)
+        torch.save(optimizer_policy.state_dict(), os.path.join(checkpoint_path, "optimizer_policy.pth"))
+        torch.save(optimizer_value.state_dict(), os.path.join(checkpoint_path, "optimizer_value.pth"))
+        
+        # Training progress
+        with open(os.path.join(checkpoint_path, "training_progress.json"), "w") as f:
+            json.dump({"epoch": epoch, "step_in_epoch": step_in_epoch, "global_step": global_step}, f)
+        
+        logger.info(f"Checkpoint saved: epoch={epoch}, step={step_in_epoch}, global_step={global_step}")
+    
+    total_batches_per_epoch = len(train_dataloader)
+    
+    # Resolve epoch/step for old-style checkpoints (no training_progress.json)
+    if args.resume_from_checkpoint and resume_step == 0 and start_epoch == 0 and global_step > 0:
+        start_epoch = global_step // total_batches_per_epoch
+        resume_step = global_step % total_batches_per_epoch
+        logger.info(f"Computed resume position: epoch={start_epoch}, step_in_epoch={resume_step} (total_batches/epoch={total_batches_per_epoch})")
+    
+    quarter_steps = set()
+    for q in [0.25, 0.50, 0.75]:
+        quarter_steps.add(int(total_batches_per_epoch * q))
+    logger.info(f"Quarter-epoch checkpoints at steps: {sorted(quarter_steps)} (total batches/epoch: {total_batches_per_epoch})")
+    
+    for epoch in range(start_epoch, args.epochs):
         logger.info(f"--- Epoch {epoch+1}/{args.epochs} ---")
         
-        # We process batches with gradient accumulation directly through accelerate
+        step_in_epoch = 0
         with tqdm(train_dataloader, desc=f"Epoch {epoch+1}") as pbar:
             for batch in pbar:
+                # Skip steps if resuming mid-epoch
+                if epoch == start_epoch and step_in_epoch < resume_step:
+                    step_in_epoch += 1
+                    global_step += 1
+                    continue
+                
                 t_batch_start = time.time()
                 with accelerator.accumulate(active_policy):
-                    # Execution of the explicit Dual Generation Pipeline
                     metrics = ppo_controller.step(batch, optimizer_policy, optimizer_value)
-                    
-                    # OOM Mitigation: Clear cache after heavy PPO step
                     torch.cuda.empty_cache()
                     
                     t_batch_end = time.time()
@@ -226,23 +338,15 @@ def main():
                     })
                 
                 global_step += 1
+                step_in_epoch += 1
                 
-                # Dynamic Checkpointing (e.g., every 50 global steps)
-                if global_step % 50 == 0:
-                    checkpoint_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
-                    logger.info(f"Saving explicitly isolated PEFT adapters to {checkpoint_path}")
-                    # ONLY save LoRA parameters!
-                    if accelerator.is_main_process:
-                        unwrapped_model = accelerator.unwrap_model(active_policy)
-                        unwrapped_model.save_pretrained(checkpoint_path)
-                        
-                        # Save Fast-RL States
-                        state_dict = {"alpha": fast_rl_node.alpha.detach().cpu().tolist()}
-                        with open(os.path.join(checkpoint_path, "fast_rl_state.json"), "w") as f:
-                            json.dump(state_dict, f)
-                            
-                        # Save Value Head (Crucial parameter!)
-                        torch.save(ppo_controller.value_head.state_dict(), os.path.join(checkpoint_path, "value_head.pth"))
+                # Quarter-epoch checkpoint
+                if step_in_epoch in quarter_steps:
+                    pct = int(100 * step_in_epoch / total_batches_per_epoch)
+                    save_checkpoint(f"ep{epoch+1}-{pct}pct", epoch, step_in_epoch)
+        
+        # End-of-epoch checkpoint
+        save_checkpoint(f"ep{epoch+1}-end", epoch + 1, 0)
                             
     # Final Save
     if accelerator.is_main_process:
