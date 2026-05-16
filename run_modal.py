@@ -129,7 +129,8 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--extractor_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
         "--reward_heads_dir", "/mnt/data/generated_heads/sb_bench-PCA-component",
         "--num_heads", "100",
-        "--per_device_train_batch_size", "12",
+        "--per_device_train_batch_size", "16",
+        "--gradient_accumulation_steps", "3",
         "--max_length", "2048",
         "--epochs", str(epochs),
         "--data_path", os.environ["DATA_PATH"],
@@ -168,7 +169,7 @@ def run_setup():
 
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────
 @app.local_entrypoint()
-def main(phase: str = "all", epochs: int = 1, resume: str = ""):
+def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = ""):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -200,7 +201,8 @@ def main(phase: str = "all", epochs: int = 1, resume: str = ""):
     resume_ckpt = resume if resume else None
     
     if phase in ["all", "train"]:
-        run_training.remote(epochs=epochs, output_dir="/mnt/data/output_ppo_debiased", resume_from=resume_ckpt)
+        train_out = output_dir if output_dir else "/mnt/data/output_ppo_debiased"
+        run_training.remote(epochs=epochs, output_dir=train_out, resume_from=resume_ckpt)
     
     if phase == "train5":
         run_training.remote(epochs=5, output_dir="/mnt/data/output_ppo_debiased_5ep", resume_from=resume_ckpt)

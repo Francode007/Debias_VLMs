@@ -266,19 +266,55 @@ class PPOVLMController:
         )
         curr_logprobs, loss_mask = self.compute_logprobs(curr_logits, curr_outputs)
         
-        # 3. Extract Reference Policy Logprobs over y_{curr} AND e_curr simultaneously
+        # 3. Extract Reference Policy Logprobs + Embeddings (batched single forward pass)
         with torch.no_grad():
             self.policy.eval()
             with self.policy.disable_adapter():
-                init_logits_curr_traj, _, e_curr = self.extract_logits_and_values(
-                    self.policy, self.value_head, curr_outputs, curr_attention_mask, None, curr_scoring_kwargs, extract_embedding=True
-                )
-                init_logprobs, _ = self.compute_logprobs(init_logits_curr_traj, curr_outputs)
+                bs = curr_outputs.shape[0]
+                curr_len = curr_outputs.shape[1]
+                init_len = init_outputs.shape[1]
+                max_len = max(curr_len, init_len)
                 
-                # 5. Extract Embeddings for y_{init}
-                e_init = self.extract_preference_embeddings(
-                    self.policy, init_outputs, init_attention_mask, None, init_scoring_kwargs
+                # Left-pad shorter sequences to match for batching
+                def _left_pad_to(seq, mask, target_len, pad_id):
+                    if seq.shape[1] == target_len:
+                        return seq, mask
+                    extra = target_len - seq.shape[1]
+                    padded_seq = torch.full((seq.shape[0], target_len), pad_id, dtype=seq.dtype, device=seq.device)
+                    padded_mask = torch.zeros((seq.shape[0], target_len), dtype=mask.dtype, device=mask.device)
+                    padded_seq[:, extra:] = seq
+                    padded_mask[:, extra:] = mask
+                    return padded_seq, padded_mask
+                
+                curr_padded, curr_mask_padded = _left_pad_to(curr_outputs, curr_attention_mask, max_len, pad_token_id)
+                init_padded, init_mask_padded = _left_pad_to(init_outputs, init_attention_mask, max_len, pad_token_id)
+                
+                combined_ids = torch.cat([curr_padded, init_padded], dim=0)
+                combined_mask = torch.cat([curr_mask_padded, init_mask_padded], dim=0)
+                
+                combined_kw = {}
+                if "mm_token_type_ids" in curr_scoring_kwargs:
+                    c_mm = curr_scoring_kwargs["mm_token_type_ids"]
+                    i_mm = init_scoring_kwargs["mm_token_type_ids"]
+                    if c_mm.shape[1] < max_len:
+                        c_mm = torch.nn.functional.pad(c_mm, (max_len - c_mm.shape[1], 0), value=0)
+                    if i_mm.shape[1] < max_len:
+                        i_mm = torch.nn.functional.pad(i_mm, (max_len - i_mm.shape[1], 0), value=0)
+                    combined_kw["mm_token_type_ids"] = torch.cat([c_mm, i_mm], dim=0)
+                
+                combined_logits, _, combined_emb = self.extract_logits_and_values(
+                    self.policy, self.value_head, combined_ids, combined_mask, None, combined_kw, extract_embedding=True
                 )
+                
+                ref_logits_curr = combined_logits[:bs]
+                e_curr = combined_emb[:bs]
+                e_init = combined_emb[bs:]
+                
+                # Crop logits back to original curr length if padded
+                if curr_len < max_len:
+                    ref_logits_curr = ref_logits_curr[:, (max_len - curr_len):, :]
+                
+                init_logprobs, _ = self.compute_logprobs(ref_logits_curr, curr_outputs)
                 
             self.policy.train()
                 
