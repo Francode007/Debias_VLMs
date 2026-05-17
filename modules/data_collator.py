@@ -151,8 +151,15 @@ class RewardDataCollatorWithPadding:
             for feature in features:
                 if f"{k}_chosen" in feature and f"{k}_rejected" in feature:
                     has_key = True
-                    merged_list.append(torch.as_tensor(feature[f"{k}_chosen"]))
-                    merged_list.append(torch.as_tensor(feature[f"{k}_rejected"]))
+                    chosen_grid = torch.as_tensor(feature[f"{k}_chosen"])
+                    rejected_grid = torch.as_tensor(feature[f"{k}_rejected"])
+                    # Ensure 2D shape [num_images, 3] before concatenation
+                    if chosen_grid.dim() == 1:
+                        chosen_grid = chosen_grid.unsqueeze(0)
+                    if rejected_grid.dim() == 1:
+                        rejected_grid = rejected_grid.unsqueeze(0)
+                    merged_list.append(chosen_grid)
+                    merged_list.append(rejected_grid)
             if has_key:
                 batch[k] = torch.cat(merged_list, dim=0)
         

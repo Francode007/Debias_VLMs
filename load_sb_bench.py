@@ -8,7 +8,7 @@ def load_and_save_sb_bench():
     in the format expected by cal_emb_modular.py.
     """
     dataset_name = "ucf-crcv/SB-Bench"
-    output_dir = "./sb_bench_data/data"
+    output_dir = os.getenv("DATA_PATH", "./sb_bench_data/data")
     
     print(f"Loading dataset: {dataset_name}")
     
@@ -52,7 +52,7 @@ def load_and_save_sb_bench():
         print(f"Error loading/saving dataset: {e}")
         import traceback
         traceback.print_exc()
-        print("Please ensure you are logged in via `huggingface-cli login` if needed.")
+        print("Please ensure you are logged in via `hf login` if needed.")
 
 if __name__ == "__main__":
     load_and_save_sb_bench()

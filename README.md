@@ -43,7 +43,7 @@ When working on a remote GPU server, it's highly recommended to configure your H
 export HF_HOME="/path/to/large/storage/huggingface"
 
 # Login to Hugging Face (requires a token from your HF account)
-huggingface-cli login
+hf login
 ```
 
 ### 2. Data
@@ -59,7 +59,7 @@ Data is written to `./sb_bench_data/data/` (e.g. `sb_bench_data.parquet`). Make 
 **Option B: Manual Download via HF CLI**
 If you prefer to pre-download the dataset explicitly using the Hugging Face CLI:
 ```bash
-huggingface-cli download ucf-crcv/SB-Bench --repo-type dataset --local-dir ./sb_bench_data/raw
+hf download ucf-crcv/SB-Bench --repo-type dataset --local-dir ./sb_bench_data/raw
 ```
 
 ### 3. Models
@@ -73,10 +73,10 @@ There is no separate script solely for downloading models. Instead, the models a
 
 ```bash
 # Download Qwen2.5-VL 3B (Default) to a specific local folder
-huggingface-cli download Qwen/Qwen2.5-VL-3B-Instruct --local-dir ./models/Qwen2.5-VL-3B-Instruct
+hf download Qwen/Qwen2.5-VL-3B-Instruct --local-dir ./models/Qwen2.5-VL-3B-Instruct
 
 # Download Qwen2-VL 2B (Fallback) to a specific local folder
-huggingface-cli download Qwen/Qwen2-VL-2B-Instruct --local-dir ./models/Qwen2-VL-2B-Instruct
+hf download Qwen/Qwen2-VL-2B-Instruct --local-dir ./models/Qwen2-VL-2B-Instruct
 ```
 
 - **Default:** `Qwen/Qwen2.5-VL-3B-Instruct` (Qwen2.5 series 3B; use 1.5B when available)
@@ -256,6 +256,121 @@ python profile_rl_pipeline.py --batch_size 4 --gradient_accumulation 4
 ```
 This generates `profiling_report_rl.json` with the estimated time for 1 full Epoch of the reinforcement learning loop. Sum the total extrapolated hours from both JSON reports to plan your A100 compute budget!
 
+---
+
+## Running on Modal (Cloud GPU — Cost-Optimized)
+
+The pipeline uses [Modal](https://modal.com) with **per-phase GPU allocation** to minimize cost. Each phase runs on the cheapest hardware that satisfies its requirements.
+
+### Prerequisites
+
+```bash
+pip install modal
+modal token set  # Authenticate with your Modal account
+```
+
+You also need a Modal secret named `huggingface-secret` with your HF token:
+```bash
+modal secret create huggingface-secret HF_TOKEN=hf_your_token_here
+```
+
+### Cost-Optimized Architecture
+
+Each pipeline phase is a **separate Modal function** with tailored resources:
+
+| Phase | Command | GPU | RAM | CPU | Est. Cost/hr | Purpose |
+|-------|---------|-----|-----|-----|-------------|---------|
+| `setup` | `--phase setup` | None | 16GB | 4 | ~$0.01 | Download data + model weights |
+| `preprocess` | `--phase preprocess` | **None** | 128GB | 16 | ~$0.10 | Tokenize + build dataset chunks (CPU only) |
+| `inference` | `--phase inference` | **A100-80GB** | 128GB | 16 | ~$3.50 | Model forward pass → embeddings |
+| `phase1` | `--phase phase1` | Mixed | — | — | — | Runs preprocess + inference sequentially |
+| `phase2` | `--phase phase2` | **None** | 32GB | 16 | ~$0.03 | sklearn PCA → DRM heads |
+| `train` | `--phase train` | **A100-80GB** | 128GB | 16 | ~$3.50 | PPO fine-tuning with LoRA |
+
+**Key cost savings:**
+- **Preprocessing** (the longest step, ~2-3 hours) uses **zero GPU**. The Qwen processor tokenizes text/images entirely on CPU.
+- **Phase 2** (DRM head generation) uses **zero GPU**. sklearn PCA runs on ~500MB of numpy arrays.
+- GPU billing only applies during inference and training.
+
+### Running the Pipeline
+
+```bash
+# Step 1: Setup (download data + model to volume)
+modal run run_modal.py --phase setup
+
+# Step 2: Preprocess dataset (CPU only — cheap)
+modal run run_modal.py --phase preprocess
+
+# Step 3: Extract embeddings (A100-80GB — needs GPU)
+modal run run_modal.py --phase inference
+
+# Step 4: Generate DRM heads (CPU only — cheap)
+modal run run_modal.py --phase phase2
+
+# Step 5: RL training (A100-80GB)
+modal run run_modal.py --phase train
+
+# Or run everything end-to-end:
+modal run run_modal.py --phase all
+```
+
+**Convenience shortcuts:**
+```bash
+# Run Phase 1 = preprocess + inference (sequentially)
+modal run run_modal.py --phase phase1
+```
+
+### Resumability
+
+Each phase is **resumable** — re-running a phase skips already-completed work:
+- **Preprocess**: Dataset chunks are cached on the volume. If chunks exist, they're reloaded instantly.
+- **Inference**: Each embedding is saved individually (`emb_N.npy`). Already-extracted embeddings are skipped.
+- **Phase 2**: Idempotent — PCA overwrites previous results if re-run.
+
+### Modal Configuration (per function)
+
+| Function | GPU | Memory | Timeout | Notes |
+|----------|-----|--------|---------|-------|
+| `run_setup` | None | 16 GB | 1h | Downloads only |
+| `run_preprocess` | None | 128 GB | 24h | Large pixel_values in RAM |
+| `run_inference` | A100-80GB | 128 GB | 24h | batch_size=16, max_length=2048 |
+| `run_drm_generation` | None | 32 GB | 1h | sklearn PCA (minutes) |
+| `run_training` | A100-80GB | 128 GB | 24h | PPO + LoRA |
+
+### Persistent Volume Layout (`/mnt/data/`)
+
+```
+/mnt/data/
+├── huggingface/              # HF model cache (HF_HOME)
+├── sb_bench_data/            # SB-Bench parquet data
+├── chunks_*/                 # Cached preprocessed dataset chunks (auto-generated)
+├── embeddings_output/        # Phase 1b: emb_*.npy files
+├── generated_heads/          # Phase 2: PCA components
+│   └── sb_bench-PCA-component/  # .pth reward head files
+└── output_ppo_debiased/      # Phase 3: RL training output
+    ├── checkpoint-*/         # Intermediate checkpoints
+    └── final_debiased_model/ # Final debiased LoRA adapter
+```
+
+### Accessing Results After Training
+
+Use Modal's volume commands to download outputs:
+```bash
+# List volume contents
+modal volume ls debias-vlm-persistent-storage
+
+# Download the final debiased model
+modal volume get debias-vlm-persistent-storage output_ppo_debiased/final_debiased_model ./local_output/
+
+# Download DRM head results
+modal volume get debias-vlm-persistent-storage generated_heads ./local_heads/
+
+# Download embeddings
+modal volume get debias-vlm-persistent-storage embeddings_output ./local_embeddings/
+```
+
+---
+
 ## Key Arguments
 
 | Script | Argument | Description |
@@ -297,7 +412,7 @@ This generates `profiling_report_rl.json` with the estimated time for 1 full Epo
 
 - **OOM:** Reduce `--batch_size` to 1, or use `--model Qwen/Qwen2-VL-2B-Instruct`.
 - **NaNs in embeddings / PCA "Input X contains NaN":** On **MPS** and **CPU**, the pipeline automatically uses **float32** (`--force_fp32` is set by `run_phase1_full.sh` when `DEVICE=mps` or `DEVICE=cpu`). On CUDA you can pass `--force_fp32` manually if you see NaNs. See below for how fp32 affects runs.
-- **Missing SB-Bench:** Log in with `huggingface-cli login` and accept the dataset terms on the SB-Bench dataset page.
+- **Missing SB-Bench:** Log in with `hf login` and accept the dataset terms on the SB-Bench dataset page.
 - **CUDA/MPS:** Device is auto-selected; override with `--device cuda` or `--device mps`.
 - **Invalid buffer size / size mismatch:** On Mac or limited GPU memory, use `MODEL=Qwen/Qwen2-VL-2B-Instruct` and `DEVICE=mps` or `DEVICE=cpu`. For Qwen2.5-VL-7B you need a recent `transformers` with `Qwen2_5VLForConditionalGeneration`; otherwise the loader skips to Qwen2-VL-7B.
 

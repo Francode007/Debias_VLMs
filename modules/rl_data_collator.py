@@ -89,10 +89,6 @@ class RLDataCollatorWithPadding:
             delattr(self, "_merged_mm_token_type_ids")
             delattr(self, "_padded_mm_token_type_ids")
         
-        # DEBUG to stderr
-        sys.stderr.write(f"\nDEBUG COLLATOR: Batch size: {len(features)}\n")
-        sys.stderr.write(f"DEBUG COLLATOR: Concatenated pixel_values shape: {pixel_values.shape}\n")
-
         # Handle grid_thw concatenation
         for k in ["image_grid_thw", "video_grid_thw"]:
             merged_list = []
@@ -101,9 +97,6 @@ class RLDataCollatorWithPadding:
                 if k in feature and feature[k] is not None:
                     has_key = True
                     t = torch.as_tensor(feature[k])
-                    
-                    # Log individual shapes
-                    sys.stderr.write(f"DEBUG COLLATOR: Sample {i} {k} raw shape: {t.shape}\n")
                     
                     # Ensure t is (num_images_in_sample, 3)
                     if t.ndim == 1:
@@ -114,15 +107,12 @@ class RLDataCollatorWithPadding:
                     
             if has_key:
                 batch[k] = torch.cat(merged_list, dim=0).long() # Explicitly cast to long
-                sys.stderr.write(f"DEBUG COLLATOR: Final {k} shape: {batch[k].shape}\n")
-                sys.stderr.write(f"DEBUG COLLATOR: {k} values: {batch[k].tolist()}\n")
         
-        # Final sanity check for Qwen2.5-VL: total patches must match grid_thw
+        # Sanity check: total patches must match grid_thw
         if "image_grid_thw" in batch:
             total_patches_from_grid = torch.sum(batch["image_grid_thw"][:, 0] * batch["image_grid_thw"][:, 1] * batch["image_grid_thw"][:, 2])
-            sys.stderr.write(f"DEBUG COLLATOR: Total patches from grid: {total_patches_from_grid}\n")
             if pixel_values.shape[0] != total_patches_from_grid:
                 sys.stderr.write(f"CRITICAL WARNING: Patch mismatch! {pixel_values.shape[0]} != {total_patches_from_grid}\n")
+                sys.stderr.flush()
         
-        sys.stderr.flush()
         return batch

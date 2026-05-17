@@ -14,7 +14,6 @@ import pandas as pd
 from PIL import Image
 from datasets import Dataset
 from typing import Optional
-from collections import defaultdict
 from .config import ScriptArguments
 
 logger = logging.getLogger(__name__)
@@ -34,8 +33,6 @@ class RLDatasetBuilder:
         
         if self.script_args.use_smallset:
             parquet_files = parquet_files[:2]
-        elif len(parquet_files) > 10:
-            parquet_files = parquet_files[:10]
         
         dfs = []
         for idx, f in enumerate(parquet_files):
@@ -43,8 +40,6 @@ class RLDatasetBuilder:
                 df = pd.read_parquet(f, engine="fastparquet")
                 if len(df) > 1000 and self.script_args.use_smallset:
                     df = df.head(100)
-                elif len(df) > 5000:
-                    df = df.head(1000)
                 dfs.append(df)
                 if self.script_args.use_smallset and len(dfs) >= 1:
                     break
@@ -60,9 +55,8 @@ class RLDatasetBuilder:
         
         if self.script_args.use_smallset:
             full_df = full_df.head(10)
-        elif len(full_df) > 10000:
-            full_df = full_df.head(2000)
         
+        logger.info(f"Full dataset size: {len(full_df)} samples")
         ds = Dataset.from_pandas(full_df)
         del full_df
         
@@ -72,22 +66,58 @@ class RLDatasetBuilder:
         # We don't expand into 2 pairs per example. We just need the unique prompt contexts.
         logger.info(f"Loaded {len(ds)} unique prompts for PPO generation.")
         
-        # Apply formatting - disabling multiprocessing to avoid potential hangs with custom processor
-        logger.info("Starting dataset mapping (formatting)...")
-        ds = ds.map(
-            lambda examples: self._formatting_func_batched(examples, processor),
-            batched=True,
-            batch_size=2, # Smaller batch size for progress tracking
-            num_proc=1,
-            remove_columns=ds.column_names
-        )
-        logger.info("Dataset mapping completed.")
+        # --- Chunked processing with disk persistence & resumability ---
+        # Process in small chunks to avoid Arrow finalization hangs on large datasets.
+        import hashlib
+        import gc
+        from datasets import concatenate_datasets, load_from_disk
         
-        # Filter by length
-        ds = ds.filter(
-            lambda x: len(x["input_ids"]) <= self.script_args.max_length,
-            num_proc=1
-        )
+        chunk_size = 200
+        total = len(ds)
+        num_chunks = (total + chunk_size - 1) // chunk_size
+        
+        cache_key = hashlib.md5(
+            f"{data_path}_{total}_{self.script_args.max_length}_rl".encode()
+        ).hexdigest()[:12]
+        chunks_dir = os.path.join(os.path.dirname(data_path), f"rl_chunks_{cache_key}")
+        os.makedirs(chunks_dir, exist_ok=True)
+        
+        logger.info(f"Processing {total} examples in {num_chunks} chunks of {chunk_size}")
+        
+        processed_chunks = []
+        for chunk_idx in range(num_chunks):
+            chunk_path = os.path.join(chunks_dir, f"chunk_{chunk_idx:04d}")
+            
+            # Resumability: skip already-processed chunks
+            if os.path.exists(chunk_path):
+                logger.info(f"Chunk {chunk_idx+1}/{num_chunks} already exists, loading from disk")
+                chunk_ds = load_from_disk(chunk_path)
+                processed_chunks.append(chunk_ds)
+                continue
+            
+            start = chunk_idx * chunk_size
+            end = min(start + chunk_size, total)
+            chunk_ds = ds.select(range(start, end))
+            
+            chunk_ds = chunk_ds.map(
+                lambda examples: self._formatting_func_batched(examples, processor),
+                batched=True,
+                batch_size=64,
+                num_proc=1,
+                remove_columns=chunk_ds.column_names
+            )
+            
+            chunk_ds.save_to_disk(chunk_path)
+            processed_chunks.append(chunk_ds)
+            logger.info(f"Chunk {chunk_idx+1}/{num_chunks} done: {len(chunk_ds)} samples")
+            gc.collect()
+        
+        # Concatenate all chunks
+        logger.info(f"Concatenating {len(processed_chunks)} chunks...")
+        ds = concatenate_datasets(processed_chunks)
+        del processed_chunks
+        
+        logger.info(f"Final RL dataset: {len(ds)} samples (length-filtered inline)")
         
         ds.set_format(type="torch")
         return ds
@@ -96,7 +126,13 @@ class RLDatasetBuilder:
         """
         Format a batch of examples for RL generation.
         """
-        results = defaultdict(list)
+        # Pre-declare all output columns for consistent Arrow schema
+        _RESULT_KEYS = [
+            "pixel_values", "input_ids", "attention_mask",
+            "image_grid_thw", "video_grid_thw", "mm_token_type_ids",
+            "data_index", "context", "question",
+        ]
+        results = {k: [] for k in _RESULT_KEYS}
         
         # Determine how many examples in this batch
         batch_size = len(examples[next(iter(examples.keys()))])
@@ -144,7 +180,7 @@ class RLDatasetBuilder:
         
         if not valid_indices:
             return results
-            
+        
         # Apply chat templates in batch
         prompt_templates = [processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in all_prompt_messages]
         
@@ -156,6 +192,11 @@ class RLDatasetBuilder:
         }
         
         inputs = processor(text=prompt_templates, images=all_images, **kwargs)
+        
+        # Free PIL images immediately after processing
+        for img in all_images:
+            img.close()
+        del all_images, all_prompt_messages
         
         # Calculate patch boundaries
         patch_slices = []
@@ -171,6 +212,10 @@ class RLDatasetBuilder:
                 start_idx += num_patches
         
         for idx_in_valid, orig_idx in enumerate(valid_indices):
+            # Inline length filter — skip examples exceeding max_length
+            if len(inputs["input_ids"][idx_in_valid]) > self.script_args.max_length:
+                continue
+            
             # Add to results as lists/arrays (datasets will handle them)
             if "pixel_values" in inputs:
                 if patch_slices:
@@ -182,18 +227,28 @@ class RLDatasetBuilder:
             results["input_ids"].append(inputs["input_ids"][idx_in_valid])
             results["attention_mask"].append(inputs["attention_mask"][idx_in_valid])
             
-            if "image_grid_thw" in inputs:
-                results["image_grid_thw"].append(inputs["image_grid_thw"][idx_in_valid])
-            if "video_grid_thw" in inputs:
-                results["video_grid_thw"].append(inputs["video_grid_thw"][idx_in_valid])
-            if "mm_token_type_ids" in inputs:
-                results["mm_token_type_ids"].append(inputs["mm_token_type_ids"][idx_in_valid])
+            results["image_grid_thw"].append(
+                inputs["image_grid_thw"][idx_in_valid] if "image_grid_thw" in inputs else None
+            )
+            results["video_grid_thw"].append(
+                inputs["video_grid_thw"][idx_in_valid] if "video_grid_thw" in inputs else None
+            )
+            results["mm_token_type_ids"].append(
+                inputs["mm_token_type_ids"][idx_in_valid] if "mm_token_type_ids" in inputs else None
+            )
             
             # Metadata
             results["data_index"].append(orig_idx)
             results["context"].append(examples["context"][orig_idx])
             results["question"].append(examples["question"][orig_idx])
-            
+        
+        # Remove columns that are entirely None (model doesn't produce them)
+        results = {k: v for k, v in results.items() if not all(x is None for x in v)}
+        # Ensure core keys exist for Arrow schema consistency
+        for k in ["input_ids", "attention_mask", "pixel_values", "data_index", "context", "question"]:
+            if k not in results:
+                results[k] = []
+        
         return results
     
     def _formatting_func(self, example, processor):

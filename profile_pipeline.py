@@ -71,13 +71,13 @@ def main():
     print("=== Pipeline Profiler ===")
     
     # 1. Determine Full Dataset Size
-    data_path = "./sb_bench_data/data"
+    data_path = os.getenv("DATA_PATH", "./sb_bench_data/data")
     parquet_files = glob.glob(os.path.join(data_path, "*.parquet"))
     
     total_raw_samples = 0
     if not parquet_files:
         print(f"No parquet files found in {data_path}. Attempting to run load_sb_bench.py...")
-        subprocess.run([".venv/bin/python", "load_sb_bench.py"], check=True)
+        subprocess.run(["python", "load_sb_bench.py"], check=True)
         parquet_files = glob.glob(os.path.join(data_path, "*.parquet"))
         
     for f in parquet_files:
@@ -89,7 +89,7 @@ def main():
     print(f"Total preference pairs to process: {total_pairs}")
     
     # Determine python path
-    python_cmd = ".venv/bin/python" if os.path.exists(".venv/bin/python") else "python"
+    python_cmd = "python"
     
     # Check if a model exists in local_model_config.py or fallback
     model_id = "Qwen/Qwen2.5-VL-3B-Instruct"  # Updated to 3B for symmetry
@@ -111,7 +111,7 @@ def main():
         "--data_path", data_path,
         "--cls_embs_path", emb_dir,
         "--batch_size", str(args.batch_size),
-        "--dataloader_num_workers", str(os.cpu_count() or 4),
+        "--dataloader_num_workers", str(min(12, os.cpu_count() or 4)),
         "--use_smallset"
     ]
     

@@ -69,13 +69,13 @@ def main():
 
     print("=== RL PPO Pipeline Profiler ===")
     
-    data_path = "./sb_bench_data/data"
+    data_path = os.getenv("DATA_PATH", "./sb_bench_data/data")
     parquet_files = glob.glob(os.path.join(data_path, "*.parquet"))
     
     total_raw_samples = 0
     if not parquet_files:
         print(f"No parquet files found in {data_path}. Attempting to run load_sb_bench.py...")
-        subprocess.run([".venv/bin/python", "load_sb_bench.py"], check=True)
+        subprocess.run(["python", "load_sb_bench.py"], check=True)
         parquet_files = glob.glob(os.path.join(data_path, "*.parquet"))
         
     for f in parquet_files:
@@ -86,7 +86,7 @@ def main():
             pass
             
     print(f"Total raw examples in complete dataset: {total_raw_samples}")
-    python_cmd = ".venv/bin/python" if os.path.exists(".venv/bin/python") else "python"
+    python_cmd = "python"
     
     results = {}
     profiler = GPUProfiler()

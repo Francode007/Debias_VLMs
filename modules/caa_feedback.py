@@ -40,5 +40,11 @@ def compute_caa_weight(rewards_init: torch.Tensor, rewards_curr: torch.Tensor, e
     # to prevent erasing the loss.
     if torch.allclose(w_min, w_max, atol=1e-6):
         w_hat = torch.ones_like(w_feedback)
+    
+    # Apply baseline floor: map [0,1] -> [0.1, 1.0] so every sample contributes
+    # at least 10% of its gradient. Without this, min-max normalization crushes
+    # most samples to ~0 when the policy is close to the reference (early training),
+    # effectively reducing the batch to a single outlier sample.
+    w_hat = 0.1 + 0.9 * w_hat
         
     return w_hat.detach()

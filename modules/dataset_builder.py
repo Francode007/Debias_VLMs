@@ -9,12 +9,12 @@ import os
 import glob
 import ast
 import io
+import hashlib
 import logging
 import pandas as pd
 from PIL import Image
-from datasets import Dataset
+from datasets import Dataset, load_from_disk
 from typing import List, Optional
-from collections import defaultdict
 from .config import ScriptArguments
 
 logger = logging.getLogger(__name__)
@@ -125,13 +125,10 @@ class DatasetBuilder:
         
         logger.info(f"Found {len(parquet_files)} parquet files")
         
-        # For memory efficiency, limit the number of files we process
+        # For testing, limit the number of files we process
         if self.script_args.use_smallset:
             logger.info("Using small dataset for testing - limiting to first 2 files")
             parquet_files = parquet_files[:2]
-        elif len(parquet_files) > 10:
-            logger.info(f"Large dataset detected ({len(parquet_files)} files). Limiting to first 10 files for memory efficiency.")
-            parquet_files = parquet_files[:10]
         
         dfs = []
         max_memory_usage = 0
@@ -141,13 +138,10 @@ class DatasetBuilder:
                 logger.info(f"Loading file {idx+1}/{len(parquet_files)}: {os.path.basename(f)}")
                 df = pd.read_parquet(f, engine="fastparquet")
                 
-                # Limit rows per file for memory management
+                # Limit rows per file only for small-set testing
                 if len(df) > 1000 and self.script_args.use_smallset:
                     df = df.head(100)  # Very small for testing
                     logger.info(f"Limited to {len(df)} rows for small set testing")
-                elif len(df) > 5000:
-                    df = df.head(1000)  # Limit to 1000 rows per file
-                    logger.info(f"Limited to {len(df)} rows for memory efficiency")
                 
                 dfs.append(df)
                 
@@ -173,15 +167,13 @@ class DatasetBuilder:
         # Free memory from individual dataframes
         del dfs
         
-        # Limit dataset size for memory efficiency
+        # Limit dataset size only for testing
         if self.script_args.use_smallset:
             # Very small dataset for testing
             logger.info("Small set mode: limiting to 5 samples")
             full_df = full_df.head(5)
-        elif len(full_df) > 10000:
-            logger.info(f"Large dataset detected ({len(full_df)} samples). Limiting to 2000 samples for memory efficiency.")
-            full_df = full_df.head(2000)
         
+        logger.info(f"Full dataset size: {len(full_df)} samples")
         ds = Dataset.from_pandas(full_df)
         
         # Free pandas dataframe memory
@@ -208,27 +200,63 @@ class DatasetBuilder:
         ds = Dataset.from_list(expanded_rows)
         logger.info(f"Expanded to {len(ds)} preference pairs (2 per example)")
         
-        # Apply formatting - disabling multiprocessing for stability
-        ds = ds.map(
-            lambda examples: self._formatting_func_batched(examples, processor),
-            batched=True,
-            num_proc=1,
-            remove_columns=ds.column_names # Remove raw columns to avoid RewardTrainer auto-processing
-        )
+        # --- Chunked processing with disk persistence & resumability ---
+        # Instead of one giant ds.map() that builds a 500GB Arrow table (which
+        # deadlocks during finalization), process in small chunks, save each to
+        # disk immediately, then concatenate from disk at the end.
         
-        # Filter by length
-        ds = ds.filter(
-            lambda x: (len(x["input_ids_chosen"]) <= self.script_args.max_length and
-                      len(x["input_ids_rejected"]) <= self.script_args.max_length),
-            num_proc=1
-        )
-        len_before_filter = len(ds)
-        ds = ds.filter(
-            lambda x: x["prompt_length"] < self.script_args.max_length,
-            num_proc=1
-        )
-        len_after_filter = len(ds)
-        logger.info(f"Filtered {len_before_filter - len_after_filter} samples due to length")
+        chunk_size = 200  # examples per chunk
+        total = len(ds)
+        num_chunks = (total + chunk_size - 1) // chunk_size
+        
+        cache_key = hashlib.md5(
+            f"{data_path}_{total}_{self.script_args.max_length}_{self.script_args.use_smallset}".encode()
+        ).hexdigest()[:12]
+        chunks_dir = os.path.join(os.path.dirname(data_path), f"chunks_{cache_key}")
+        os.makedirs(chunks_dir, exist_ok=True)
+        
+        logger.info(f"Processing {total} examples in {num_chunks} chunks of {chunk_size} (saving to {chunks_dir})")
+        
+        processed_chunks = []
+        for chunk_idx in range(num_chunks):
+            chunk_path = os.path.join(chunks_dir, f"chunk_{chunk_idx:04d}")
+            
+            # Resumability: skip already-processed chunks
+            if os.path.exists(chunk_path):
+                logger.info(f"Chunk {chunk_idx+1}/{num_chunks} already exists, loading from disk")
+                chunk_ds = load_from_disk(chunk_path)
+                processed_chunks.append(chunk_ds)
+                continue
+            
+            start = chunk_idx * chunk_size
+            end = min(start + chunk_size, total)
+            chunk_ds = ds.select(range(start, end))
+            
+            # Process this chunk (single-process, small enough to finalize quickly)
+            chunk_ds = chunk_ds.map(
+                lambda examples: self._formatting_func_batched(examples, processor),
+                batched=True,
+                batch_size=32,
+                num_proc=1,
+                remove_columns=chunk_ds.column_names
+            )
+            
+            # Save chunk to disk immediately (small enough to not hang)
+            chunk_ds.save_to_disk(chunk_path)
+            processed_chunks.append(chunk_ds)
+            logger.info(f"Chunk {chunk_idx+1}/{num_chunks} done: {len(chunk_ds)} samples (saved to disk)")
+            
+            # Free memory from raw chunk data
+            import gc
+            gc.collect()
+        
+        # Concatenate all chunks
+        from datasets import concatenate_datasets
+        logger.info(f"Concatenating {len(processed_chunks)} chunks...")
+        ds = concatenate_datasets(processed_chunks)
+        del processed_chunks
+        
+        logger.info(f"Final dataset: {len(ds)} samples (length-filtered inline during processing)")
         
         ds.set_format(type="torch")
         return ds
@@ -237,7 +265,18 @@ class DatasetBuilder:
         """
         Format a batch of examples for reward model training.
         """
-        results = defaultdict(list)
+        # Pre-declare all output columns so Arrow always gets a consistent schema,
+        # even when every example in a batch is filtered out.
+        _RESULT_KEYS = [
+            "prompt_length", "prompt", "chosen", "rejected",
+            "prompt_plus_chosen_response", "prompt_plus_rejected_response",
+            "input_ids_chosen", "attention_mask_chosen", "pixel_values_chosen",
+            "input_ids_rejected", "attention_mask_rejected", "pixel_values_rejected",
+            "image_grid_thw_chosen", "image_grid_thw_rejected",
+            "video_grid_thw_chosen", "video_grid_thw_rejected",
+            "data_index", "pair_idx",
+        ]
+        results = {k: [] for k in _RESULT_KEYS}
         
         # Determine how many examples in this batch
         batch_size = len(examples[next(iter(examples.keys()))])
@@ -326,6 +365,43 @@ class DatasetBuilder:
         inputs_chosen = processor(text=chosen_texts, images=all_images, **kwargs)
         inputs_rejected = processor(text=rejected_texts, images=all_images, **kwargs)
         
+        # Free PIL images immediately after processing to reduce memory
+        for img in all_images:
+            img.close()
+        del all_images, all_chosen_messages, all_rejected_messages, all_prompt_messages
+        
+        # For Qwen2.5-VL, pixel_values is a flat concatenation of patches from all images.
+        # We need to split it per-example using image_grid_thw to determine patch counts.
+        import numpy as np
+        
+        def split_pixel_values(inputs):
+            """Split concatenated pixel_values into per-example arrays using image_grid_thw."""
+            if "image_grid_thw" not in inputs:
+                # Not a Qwen2-VL style model, pixel_values is already per-example
+                return inputs["pixel_values"], None
+            grid_thw = inputs["image_grid_thw"]
+            # Each image contributes t*h*w patches
+            if hasattr(grid_thw, 'tolist'):
+                grid_list = grid_thw if isinstance(grid_thw, list) else grid_thw.tolist()
+            else:
+                grid_list = list(grid_thw)
+            patches_per_image = [int(g[0]) * int(g[1]) * int(g[2]) for g in grid_list]
+            pv = inputs["pixel_values"]
+            if hasattr(pv, 'shape') and len(pv.shape) >= 2:
+                # It's a concatenated array/tensor: split along dim 0
+                splits = []
+                offset = 0
+                for n_patches in patches_per_image:
+                    splits.append(pv[offset:offset + n_patches])
+                    offset += n_patches
+                return splits, grid_list
+            else:
+                # Already a list per example
+                return pv, grid_list
+        
+        pv_chosen_splits, grid_chosen_list = split_pixel_values(inputs_chosen)
+        pv_rejected_splits, grid_rejected_list = split_pixel_values(inputs_rejected)
+        
         # Calculate prompt lengths
         all_tokens_prompt = processor.tokenizer(prompt_templates, padding=False)["input_ids"]
         
@@ -346,6 +422,15 @@ class DatasetBuilder:
             except:
                 prompt_len = len(tokens_prompt) - 1
             
+            # Inline length filtering — skip examples that exceed max_length
+            # This avoids a separate ds.filter() pass over the huge Arrow table.
+            ids_chosen = inputs_chosen["input_ids"][idx_in_valid]
+            ids_rejected = inputs_rejected["input_ids"][idx_in_valid]
+            if (len(ids_chosen) > self.script_args.max_length or
+                len(ids_rejected) > self.script_args.max_length or
+                prompt_len >= self.script_args.max_length):
+                continue
+            
             # Add to results
             results["prompt_length"].append(prompt_len)
             results["prompt"].append(prompt_text)
@@ -356,23 +441,32 @@ class DatasetBuilder:
             
             results["input_ids_chosen"].append(inputs_chosen["input_ids"][idx_in_valid])
             results["attention_mask_chosen"].append(inputs_chosen["attention_mask"][idx_in_valid])
-            results["pixel_values_chosen"].append(inputs_chosen["pixel_values"][idx_in_valid])
+            results["pixel_values_chosen"].append(pv_chosen_splits[idx_in_valid])
             
             results["input_ids_rejected"].append(inputs_rejected["input_ids"][idx_in_valid])
             results["attention_mask_rejected"].append(inputs_rejected["attention_mask"][idx_in_valid])
-            results["pixel_values_rejected"].append(inputs_rejected["pixel_values"][idx_in_valid])
+            results["pixel_values_rejected"].append(pv_rejected_splits[idx_in_valid])
             
             # Qwen2-VL grid tokens - preserve shape
             for k in ["image_grid_thw", "video_grid_thw"]:
-                if k in inputs_chosen:
-                    results[f"{k}_chosen"].append(inputs_chosen[k][idx_in_valid])
-                if k in inputs_rejected:
-                    results[f"{k}_rejected"].append(inputs_rejected[k][idx_in_valid])
+                results[f"{k}_chosen"].append(
+                    inputs_chosen[k][idx_in_valid] if k in inputs_chosen else None
+                )
+                results[f"{k}_rejected"].append(
+                    inputs_rejected[k][idx_in_valid] if k in inputs_rejected else None
+                )
             
             # Metadata
             results["data_index"].append(example['data_index'])
             results["pair_idx"].append(pair_idx)
             
+        # Remove columns that are entirely None (model doesn't produce them)
+        results = {k: v for k, v in results.items() if not all(x is None for x in v)}
+        # Ensure at least the core keys exist (even if empty) for Arrow schema
+        for k in _RESULT_KEYS[:12]:  # core columns that are always produced
+            if k not in results:
+                results[k] = []
+        
         return results
 
 

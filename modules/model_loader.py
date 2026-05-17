@@ -215,7 +215,13 @@ class ModelLoader:
                 
                 # Load processor from local path
                 processor_path = self.get_local_model_path(model_name)
-                processor = AutoProcessor.from_pretrained(processor_path)
+                processor = AutoProcessor.from_pretrained(processor_path, use_fast=True)
+                
+                # Ensure pad_token is set (required for batch sizes > 1)
+                if hasattr(processor, 'tokenizer'):
+                    if processor.tokenizer.pad_token is None:
+                        processor.tokenizer.pad_token = processor.tokenizer.eos_token
+                        logger.info("Set pad_token to eos_token for batch processing support")
                 
                 # Prepare model loading arguments (use torch_dtype)
                 model_kwargs = {
@@ -241,6 +247,10 @@ class ModelLoader:
                     if model_kwargs["device_map"] is None:
                         model = model.to(self.device)
                     
+                    # Ensure model config has pad_token_id set
+                    if model.config.pad_token_id is None and hasattr(processor, 'tokenizer'):
+                        model.config.pad_token_id = processor.tokenizer.pad_token_id
+                    
                     # Phase 1: no score head; PCA components become reward heads after generate_drm_heads
                     logger.info(f"Successfully loaded model: {model_name}")
                     return model, processor
@@ -260,6 +270,11 @@ class ModelLoader:
                         )
                         model = model.to(self.device)
                         self.dtype = torch.float32
+                        
+                        # Ensure model config has pad_token_id set
+                        if model.config.pad_token_id is None and hasattr(processor, 'tokenizer'):
+                            model.config.pad_token_id = processor.tokenizer.pad_token_id
+                        
                         logger.info(f"Successfully loaded {model_name} with fallback settings")
                         return model, processor
                         
