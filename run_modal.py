@@ -163,7 +163,8 @@ def run_setup():
     else:
         print("✅ SB-Bench Data already exists.")
         
-    if not os.path.exists(os.environ["POPE_DATA_PATH"]):
+    pope_jsonl = os.path.join(os.environ["POPE_DATA_PATH"], "pope_data.jsonl")
+    if not os.path.exists(os.environ["POPE_DATA_PATH"]) or not os.path.exists(pope_jsonl):
         subprocess.run(["python", "load_pope.py"], check=True)
     else:
         print("✅ POPE Data already exists.")
@@ -173,9 +174,71 @@ def run_setup():
     print("✅ Setup complete.")
 
 
+# ─── Phase: Generation ────────────────────────────────────────────────────────
+@app.function(
+    image=vlm_image,
+    gpu="A100-80GB",
+    cpu=8.0,
+    memory=65536,
+    volumes={"/mnt/data": volume},
+    timeout=14400,
+)
+def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jsonl: str):
+    """Run generation (inference) for a given dataset."""
+    _setup_env()
+    print(f"🧠 Starting Generation Phase for dataset: {dataset}")
+    
+    if dataset.lower() == "pope":
+        subprocess.run([
+            "python", "generate_answers.py",
+            "--checkpoint_dir", checkpoint_dir,
+            "--data_path", data_path,
+            "--output_jsonl", output_jsonl,
+            "--batch_size", "16"
+        ], check=True)
+        volume.commit()
+        print(f"✅ Generation complete. Results saved to {output_jsonl}")
+    else:
+        print(f"❌ Error: Generation not implemented for dataset '{dataset}'")
+
+
+# ─── Phase: Evaluation ────────────────────────────────────────────────────────
+@app.function(
+    image=vlm_image,
+    gpu=None,
+    cpu=4.0,
+    memory=16384,
+    volumes={"/mnt/data": volume},
+    timeout=3600,
+)
+def run_evaluation(dataset: str, gt_file: str, gen_file: str):
+    """Run evaluation scripts based on the selected dataset."""
+    _setup_env()
+    print(f"📊 Starting Evaluation Phase for dataset: {dataset}")
+    
+    if dataset.lower() == "pope":
+        if not gt_file or not gen_file:
+            print("❌ Error: Both --gt-file and --gen-file must be provided for POPE evaluation.")
+            return
+            
+        print(f"Evaluating POPE using GT: {gt_file} and Gens: {gen_file}")
+        subprocess.run([
+            "python", "eval_pope.py",
+            "--gt_files", gt_file,
+            "--gen_files", gen_file
+        ], check=True)
+        
+    elif dataset.lower() == "sb_bench":
+        print("ℹ️ Note: SB-Bench internal evaluation is normally handled within Phase 2 (evaluate_drm_heads.py).")
+        # Can be expanded later if SB-Bench gets a standalone generation eval script
+        
+    else:
+        print(f"❌ Error: Unknown dataset '{dataset}'. Supported datasets: pope, sb_bench")
+
+
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────
 @app.local_entrypoint()
-def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = ""):
+def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = "", dataset: str = "sb_bench", gt_file: str = "", gen_file: str = ""):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -188,6 +251,7 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
       train       - PPO training (A100-80GB). Use --epochs N for multi-epoch.
       train5      - PPO training for 5 epochs (separate output dir)
       train10     - PPO training for 10 epochs (separate output dir)
+      evaluation  - Run evaluation metrics on generated outputs (requires --dataset)
       all         - Full pipeline
     
     Resume: pass --resume <checkpoint_path> e.g. /mnt/data/output_ppo_debiased/checkpoint-ep1-50pct
@@ -215,3 +279,20 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
     
     if phase == "train10":
         run_training.remote(epochs=10, output_dir="/mnt/data/output_ppo_debiased_10ep", resume_from=resume_ckpt)
+
+    if phase == "evaluation":
+        if dataset.lower() == "pope":
+            checkpoint = resume_ckpt if resume_ckpt else "/mnt/data/output_ppo_debiased/checkpoint-ep1-end"
+            gen_data_path = "/mnt/data/pope_data/pope_data.parquet"
+            if not gen_file:
+                gen_file = f"{checkpoint}/generations.jsonl"
+                print(f"ℹ️ No --gen-file provided. Running Generation phase first to create {gen_file}...")
+                run_generation.remote(
+                    dataset="pope", 
+                    checkpoint_dir=checkpoint, 
+                    data_path=gen_data_path, 
+                    output_jsonl=gen_file
+                )
+            if not gt_file:
+                gt_file = "/mnt/data/pope_data/pope_data.jsonl"
+        run_evaluation.remote(dataset=dataset, gt_file=gt_file, gen_file=gen_file)

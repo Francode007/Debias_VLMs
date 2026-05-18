@@ -286,6 +286,7 @@ Each pipeline phase is a **separate Modal function** with tailored resources:
 | `phase1` | `--phase phase1` | Mixed | — | — | — | Runs preprocess + inference sequentially |
 | `phase2` | `--phase phase2` | **None** | 32GB | 16 | ~$0.03 | sklearn PCA → DRM heads |
 | `train` | `--phase train` | **A100-80GB** | 128GB | 16 | ~$3.50 | PPO fine-tuning with LoRA |
+| `evaluation` | `--phase evaluation` | **None** | 16GB | 4 | ~$0.01 | Evaluate model generations on dataset (e.g. POPE) |
 
 **Key cost savings:**
 - **Preprocessing** (the longest step, ~2-3 hours) uses **zero GPU**. The Qwen processor tokenizes text/images entirely on CPU.
@@ -309,6 +310,10 @@ modal run run_modal.py --phase phase2
 
 # Step 5: RL training (A100-80GB)
 modal run run_modal.py --phase train
+
+# Step 6: Evaluation (CPU only — cheap)
+# NOTE: You will first need to generate the answers (generations.jsonl) using your debiased model checkpoint.
+modal run run_modal.py --phase evaluation --dataset pope --gt-file "/mnt/data/pope_data/pope_data.parquet" --gen-file "/mnt/data/output_ppo_debiased/checkpoint-ep1-end/generations.jsonl"
 
 # Or run everything end-to-end:
 modal run run_modal.py --phase all
