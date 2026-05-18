@@ -201,12 +201,25 @@ def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jso
             "--output_jsonl", output_jsonl,
             "--batch_size", "16"
         ]
-        # Only pass --checkpoint_dir when running the debiased model (not vanilla)
         if checkpoint_dir:
             cmd += ["--checkpoint_dir", checkpoint_dir]
         subprocess.run(cmd, check=True)
         volume.commit()
         print(f"✅ Generation complete. Results saved to {output_jsonl}")
+
+    elif dataset.lower() == "sb_bench":
+        cmd = [
+            "python", "generate_sb_bench_answers.py",
+            "--data_path", data_path,
+            "--output_jsonl", output_jsonl,
+            "--batch_size", "8"
+        ]
+        if checkpoint_dir:
+            cmd += ["--checkpoint_dir", checkpoint_dir]
+        subprocess.run(cmd, check=True)
+        volume.commit()
+        print(f"✅ SB-Bench generation complete. Results saved to {output_jsonl}")
+
     else:
         print(f"❌ Error: Generation not implemented for dataset '{dataset}'")
 
@@ -227,12 +240,30 @@ def run_evaluation(dataset: str, gt_file: str, gen_file: str):
     
     import sys
     sys.path.append("/root/debias-vlms")
-    try:
-        from modules.evaluation.registry import get_evaluator
-        evaluator = get_evaluator(dataset.lower())
-        evaluator.evaluate(gt_file, gen_file)
-    except Exception as e:
-        print(f"❌ Error during evaluation: {e}")
+
+    if dataset.lower() == "pope":
+        if not gt_file or not gen_file:
+            print("❌ Error: Both --gt-file and --gen-file must be provided for POPE evaluation.")
+            return
+        print(f"Evaluating POPE using GT: {gt_file} and Gens: {gen_file}")
+        subprocess.run([
+            "python", "eval_pope.py",
+            "--gt_files", gt_file,
+            "--gen_files", gen_file
+        ], check=True)
+
+    elif dataset.lower() == "sb_bench":
+        if not gen_file:
+            print("❌ Error: --gen-file must be provided for SB-Bench evaluation.")
+            return
+        print(f"Evaluating SB-Bench generations: {gen_file}")
+        subprocess.run([
+            "python", "eval_sb_bench.py",
+            "--gen_file", gen_file
+        ], check=True)
+
+    else:
+        print(f"❌ Error: Unknown dataset '{dataset}'. Supported: pope, sb_bench")
 
 
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────
@@ -286,12 +317,10 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
         if dataset.lower() == "pope":
             gen_data_path = "/mnt/data/pope_data/pope_data.parquet"
             if vanilla:
-                # Vanilla baseline: run base model with NO LoRA adapter
                 checkpoint = None
                 default_gen_file = "/mnt/data/vanilla_baseline/pope_generations.jsonl"
                 print("ℹ️ Vanilla mode: generating with raw Qwen2.5-VL-3B-Instruct (no debiasing adapter).")
             else:
-                # Debiased model: use the 1-epoch PPO checkpoint by default
                 checkpoint = resume_ckpt if resume_ckpt else "/mnt/data/output_ppo_debiased/checkpoint-ep1-end"
                 default_gen_file = f"{checkpoint}/generations.jsonl"
             if not gen_file:
@@ -305,4 +334,27 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
                 )
             if not gt_file:
                 gt_file = "/mnt/data/pope_data/pope_data.jsonl"
-        run_evaluation.remote(dataset=dataset, gt_file=gt_file, gen_file=gen_file)
+            run_evaluation.remote(dataset=dataset, gt_file=gt_file, gen_file=gen_file)
+
+        elif dataset.lower() == "sb_bench":
+            gen_data_path = "/mnt/data/sb_bench_data/sb_bench_data.parquet"
+            if vanilla:
+                checkpoint = None
+                default_gen_file = "/mnt/data/sb_bench_vanilla_baseline/sb_bench_generations.jsonl"
+                print("ℹ️ Vanilla mode: generating SB-Bench answers with raw Qwen2.5-VL-3B-Instruct.")
+            else:
+                checkpoint = resume_ckpt if resume_ckpt else "/mnt/data/output_ppo_debiased/checkpoint-ep1-end"
+                default_gen_file = f"{checkpoint}/sb_bench_generations.jsonl"
+            if not gen_file:
+                gen_file = default_gen_file
+                print(f"ℹ️ No --gen-file provided. Running SB-Bench generation first → {gen_file}")
+                run_generation.remote(
+                    dataset="sb_bench",
+                    checkpoint_dir=checkpoint,
+                    data_path=gen_data_path,
+                    output_jsonl=gen_file
+                )
+            run_evaluation.remote(dataset=dataset, gt_file="", gen_file=gen_file)
+
+        else:
+            print(f"❌ Unsupported dataset for evaluation: '{dataset}'. Choose: pope, sb_bench")
