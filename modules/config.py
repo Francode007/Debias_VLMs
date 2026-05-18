@@ -79,6 +79,10 @@ class ScriptArguments:
         default='Qwen/Qwen2.5-VL-3B-Instruct',
         metadata={"help": "Primary model name or path. Can be HuggingFace model ID or local path. Default: Qwen2.5-VL 3B."}
     )
+    model_family: Optional[str] = field(
+        default='qwen',
+        metadata={"help": "Model family for loading the correct model wrapper. Default: 'qwen'"}
+    )
     use_lora: Optional[bool] = field(
         default=False,
         metadata={"help": "Whether to use LoRA (Low-Rank Adaptation) for parameter-efficient training."}
@@ -115,6 +119,10 @@ class ScriptArguments:
     )
     
     # Paths and logging
+    dataset_name: Optional[str] = field(
+        default='sb_bench',
+        metadata={"help": "Name of the dataset for formatting (e.g., sb_bench, pope)."}
+    )
     data_path: Optional[str] = field(
         default='./sb_bench_data/data',
         metadata={"help": "Path to training data directory containing parquet files."}

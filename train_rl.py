@@ -40,6 +40,8 @@ def parse_args():
     parser.add_argument("--num_heads", type=int, default=100, help="Number of PCA components to use")
     
     # Training Loop Args
+    parser.add_argument("--dataset_name", type=str, default="sb_bench", help="Dataset name for formatting")
+    parser.add_argument("--model_family", type=str, default="qwen", help="Model family for wrapper")
     parser.add_argument("--data_path", type=str, default="./sb_bench_data/data", help="Path to parquet dataset")
     parser.add_argument("--output_dir", type=str, default="./output_ppo_debiased", help="Directory to save PEFT models")
     parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size (recommended 8 for A100 after optimization)")
@@ -105,12 +107,13 @@ def main():
     device_manager = DeviceManager()
     
     logger.info("Loading Policy Model and injecting LoRA for Active PPO Policy...")
-    # Setup model configuration for ModelLoader (Policy)
     script_cfg = ScriptArguments(
         model=args.policy_model_name,
         device="cuda" if torch.cuda.is_available() else "cpu",
         max_length=args.max_length,
-        use_smallset=args.use_smallset
+        use_smallset=args.use_smallset,
+        dataset_name=args.dataset_name,
+        model_family=args.model_family
     )
     loader = ModelLoader(script_cfg, device_manager)
     
@@ -165,7 +168,9 @@ def main():
     logger.info("Initializing Dataset Build...")
     script_cfg = ScriptArguments(
         max_length=args.max_length, 
-        use_smallset=args.use_smallset
+        use_smallset=args.use_smallset,
+        dataset_name=args.dataset_name,
+        model_family=args.model_family
     )
     dataset_builder = RLDatasetBuilder(script_cfg)
     train_dataset = dataset_builder.build_dataset(data_path=args.data_path, processor=processor)

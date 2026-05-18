@@ -15,6 +15,7 @@ from PIL import Image
 from datasets import Dataset
 from typing import Optional
 from .config import ScriptArguments
+from .datasets.registry import get_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class RLDatasetBuilder:
     
     def __init__(self, script_args: ScriptArguments):
         self.script_args = script_args
+        self.dataset_adapter = get_dataset(getattr(script_args, 'dataset_name', 'sb_bench'))
     
     def build_dataset(self, data_path: str, processor, split: str = 'train', size: Optional[int] = None):
         logger.info(f"Loading RL generation dataset from: {data_path}")
@@ -146,26 +148,15 @@ class RLDatasetBuilder:
             example = {k: examples[k][i] for k in examples.keys()}
             
             try:
-                # Handle flattened file_name structure
-                if 'file_name' in example:
-                    image_data = example['file_name']
-                elif 'file_name.bytes' in example:
-                    image_data = {'bytes': example['file_name.bytes']}
-                else:
-                    image_data = example
-                    
                 # Load image
-                if isinstance(image_data, dict) and 'bytes' in image_data:
-                    image_bytes = image_data['bytes']
-                elif isinstance(image_data, bytes):
-                    image_bytes = image_data
-                else:
+                image_bytes = self.dataset_adapter.extract_image_bytes(example)
+                if not image_bytes:
                     continue
                 
                 image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
                 all_images.append(image)
                 
-                prompt_text = example['context'] + " " + example['question']
+                prompt_text = self.dataset_adapter.get_prompt_text(example)
                 
                 prompt_msg = [
                     {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]}
@@ -239,8 +230,11 @@ class RLDatasetBuilder:
             
             # Metadata
             results["data_index"].append(orig_idx)
-            results["context"].append(examples["context"][orig_idx])
-            results["question"].append(examples["question"][orig_idx])
+            
+            # Since RLDatasetBuilder just uses context and question for prompt debugging, we'll
+            # extract them or fall back to the generic prompt text for metadata.
+            results["context"].append(example.get("context", ""))
+            results["question"].append(example.get("question", self.dataset_adapter.get_prompt_text(example)))
         
         # Remove columns that are entirely None (model doesn't produce them)
         results = {k: v for k, v in results.items() if not all(x is None for x in v)}
@@ -253,21 +247,10 @@ class RLDatasetBuilder:
     
     def _formatting_func(self, example, processor):
         try:
-            if 'file_name' in example:
-                image_data = example['file_name']
-            elif 'file_name.bytes' in example:
-                image_data = {'bytes': example['file_name.bytes']}
-            else:
-                image_data = example
-                
-            if isinstance(image_data, dict) and 'bytes' in image_data:
-                image_bytes = image_data['bytes']
-            elif isinstance(image_data, bytes):
-                image_bytes = image_data
-                
+            image_bytes = self.dataset_adapter.extract_image_bytes(example)
             image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             
-            prompt_text = example['context'] + " " + example['question']
+            prompt_text = self.dataset_adapter.get_prompt_text(example)
             
             prompt_messages = [
                 {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt_text}]}

@@ -45,13 +45,15 @@ def _setup_env():
     timeout=86400,
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
-def run_preprocess():
+def run_preprocess(dataset: str = "sb_bench", model_family: str = "qwen"):
     """Build and cache the preprocessed dataset chunks (CPU only)."""
     _setup_env()
-    print("📦 Phase 1a: Dataset Preprocessing (CPU only)...")
+    print(f"📦 Phase 1a: Dataset Preprocessing (CPU only) for {dataset}...")
     subprocess.run([
         "python", "cal_emb_modular.py",
         "--preprocess_only",
+        "--dataset_name", dataset,
+        "--model_family", model_family,
         "--data_path", os.environ["DATA_PATH"],
         "--max_length", "2048",
     ], check=True)
@@ -69,12 +71,14 @@ def run_preprocess():
     timeout=86400,
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
-def run_inference():
+def run_inference(dataset: str = "sb_bench", model_family: str = "qwen"):
     """Load model + cached dataset, extract embeddings via forward pass."""
     _setup_env()
-    print("🚀 Phase 1b: Embedding Extraction (A100-80GB)...")
+    print(f"🚀 Phase 1b: Embedding Extraction (A100-80GB) for {dataset}...")
     subprocess.run([
         "python", "cal_emb_modular.py",
+        "--dataset_name", dataset,
+        "--model_family", model_family,
         "--device", "cuda",
         "--data_path", os.environ["DATA_PATH"],
         "--cls_embs_path", os.environ["OUTPUT_PATH"],
@@ -120,12 +124,14 @@ def run_drm_generation():
     timeout=43200,            # 12 hours
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
-def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debiased", resume_from: str = None):
+def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debiased", resume_from: str = None, dataset: str = "sb_bench", model_family: str = "qwen"):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
-    print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s)...")
+    print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
     cmd = [
         "python", "train_rl.py",
+        "--dataset_name", dataset,
+        "--model_family", model_family,
         "--policy_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
         "--extractor_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
         "--reward_heads_dir", "/mnt/data/generated_heads/sb_bench-PCA-component",
@@ -216,29 +222,19 @@ def run_evaluation(dataset: str, gt_file: str, gen_file: str):
     _setup_env()
     print(f"📊 Starting Evaluation Phase for dataset: {dataset}")
     
-    if dataset.lower() == "pope":
-        if not gt_file or not gen_file:
-            print("❌ Error: Both --gt-file and --gen-file must be provided for POPE evaluation.")
-            return
-            
-        print(f"Evaluating POPE using GT: {gt_file} and Gens: {gen_file}")
-        subprocess.run([
-            "python", "eval_pope.py",
-            "--gt_files", gt_file,
-            "--gen_files", gen_file
-        ], check=True)
-        
-    elif dataset.lower() == "sb_bench":
-        print("ℹ️ Note: SB-Bench internal evaluation is normally handled within Phase 2 (evaluate_drm_heads.py).")
-        # Can be expanded later if SB-Bench gets a standalone generation eval script
-        
-    else:
-        print(f"❌ Error: Unknown dataset '{dataset}'. Supported datasets: pope, sb_bench")
+    import sys
+    sys.path.append("/root/debias-vlms")
+    try:
+        from modules.evaluation.registry import get_evaluator
+        evaluator = get_evaluator(dataset.lower())
+        evaluator.evaluate(gt_file, gen_file)
+    except Exception as e:
+        print(f"❌ Error during evaluation: {e}")
 
 
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────
 @app.local_entrypoint()
-def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = "", dataset: str = "sb_bench", gt_file: str = "", gen_file: str = ""):
+def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = "", dataset: str = "sb_bench", model_family: str = "qwen", gt_file: str = "", gen_file: str = ""):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -260,10 +256,10 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
         run_setup.remote()
     
     if phase in ["all", "phase1", "preprocess"]:
-        run_preprocess.remote()
+        run_preprocess.remote(dataset=dataset, model_family=model_family)
     
     if phase in ["all", "phase1", "inference"]:
-        run_inference.remote()
+        run_inference.remote(dataset=dataset, model_family=model_family)
     
     if phase in ["all", "phase2"]:
         run_drm_generation.remote()
@@ -272,13 +268,13 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
     
     if phase in ["all", "train"]:
         train_out = output_dir if output_dir else "/mnt/data/output_ppo_debiased"
-        run_training.remote(epochs=epochs, output_dir=train_out, resume_from=resume_ckpt)
+        run_training.remote(epochs=epochs, output_dir=train_out, resume_from=resume_ckpt, dataset=dataset, model_family=model_family)
     
     if phase == "train5":
-        run_training.remote(epochs=5, output_dir="/mnt/data/output_ppo_debiased_5ep", resume_from=resume_ckpt)
+        run_training.remote(epochs=5, output_dir="/mnt/data/output_ppo_debiased_5ep", resume_from=resume_ckpt, dataset=dataset, model_family=model_family)
     
     if phase == "train10":
-        run_training.remote(epochs=10, output_dir="/mnt/data/output_ppo_debiased_10ep", resume_from=resume_ckpt)
+        run_training.remote(epochs=10, output_dir="/mnt/data/output_ppo_debiased_10ep", resume_from=resume_ckpt, dataset=dataset, model_family=model_family)
 
     if phase == "evaluation":
         if dataset.lower() == "pope":

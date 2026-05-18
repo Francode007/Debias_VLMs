@@ -16,6 +16,8 @@ from PIL import Image
 from datasets import Dataset, load_from_disk
 from typing import List, Optional
 from .config import ScriptArguments
+from .datasets.registry import get_dataset
+from .models.registry import get_model_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -48,43 +50,11 @@ class DatasetBuilder:
             for proper sequence gating in reward model training.
         """
         self.script_args = script_args
-        self.token_patterns = {
-            "qwen": [151644, 46593, 198],  # <|im_start|>assistant\n
-        }
+        self.dataset_adapter = get_dataset(getattr(script_args, 'dataset_name', 'sb_bench'))
+        self.model_wrapper = get_model_wrapper(getattr(script_args, 'model_family', 'qwen'))
     
     def find_token_for_gating(self, lst: List[int], model_family: str) -> int:
-        """
-        Find the last occurrence of a token pattern in a tokenized sequence.
-        
-        Input:
-            lst (List[int]): List of token IDs
-            model_family (str): Model family name ("qwen", etc.)
-        
-        Output:
-            int: Index of the last occurrence of the token pattern
-        
-        Process:
-            1. Get token pattern for the specified model family
-            2. Search backwards through the token list
-            3. Return index when pattern is found
-            4. Raise ValueError if pattern not found
-        
-        Purpose:
-            Identify the position where the assistant response begins
-            in the tokenized sequence, which is crucial for reward model
-            training to properly gate the loss computation.
-        
-        Raises:
-            ValueError: If token pattern is not found in the sequence
-        """
-        token_pattern = self.token_patterns[model_family]
-        token_pattern_len = len(token_pattern)
-        search_end = len(lst)
-        
-        for j in range(search_end - token_pattern_len, -1, -1):
-            if lst[j : j + token_pattern_len] == token_pattern:
-                return j
-        raise ValueError("Token pattern not found in the list.")
+        return self.model_wrapper.find_token_for_gating(lst)
     
     def build_dataset(self, data_path: str, processor, split: str = 'train', size: Optional[int] = None):
         """
@@ -293,36 +263,18 @@ class DatasetBuilder:
             example = {k: examples[k][i] for k in examples.keys()}
             
             try:
-                # Handle flattened file_name structure
-                if 'file_name' in example:
-                    image_data = example['file_name']
-                elif 'file_name.bytes' in example:
-                    image_data = {
-                        'bytes': example['file_name.bytes'],
-                        'path': example['file_name.path']
-                    }
-                else:
-                    continue
-                    
                 # Load image
-                if isinstance(image_data, dict) and 'bytes' in image_data:
-                    image_bytes = image_data['bytes']
-                elif isinstance(image_data, bytes):
-                    image_bytes = image_data
-                else:
+                image_bytes = self.dataset_adapter.extract_image_bytes(example)
+                if not image_bytes:
                     continue
                 
                 image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
                 all_images.append(image)
                 
                 # Extract chosen/rejected
-                label = int(example['label'])
-                chosen = example[f'ans{label}']
-                wrong_indices = [idx for idx in range(3) if idx != label]
-                pair_idx = int(example.get('pair_idx', 0))
-                rejected = example[f'ans{wrong_indices[pair_idx]}']
+                chosen, rejected = self.dataset_adapter.get_chosen_rejected(example)
                 
-                prompt_text = example['context'] + " " + example['question']
+                prompt_text = self.dataset_adapter.get_prompt_text(example)
                 
                 # User/assistant format
                 chosen_msg = [
@@ -370,37 +322,8 @@ class DatasetBuilder:
             img.close()
         del all_images, all_chosen_messages, all_rejected_messages, all_prompt_messages
         
-        # For Qwen2.5-VL, pixel_values is a flat concatenation of patches from all images.
-        # We need to split it per-example using image_grid_thw to determine patch counts.
-        import numpy as np
-        
-        def split_pixel_values(inputs):
-            """Split concatenated pixel_values into per-example arrays using image_grid_thw."""
-            if "image_grid_thw" not in inputs:
-                # Not a Qwen2-VL style model, pixel_values is already per-example
-                return inputs["pixel_values"], None
-            grid_thw = inputs["image_grid_thw"]
-            # Each image contributes t*h*w patches
-            if hasattr(grid_thw, 'tolist'):
-                grid_list = grid_thw if isinstance(grid_thw, list) else grid_thw.tolist()
-            else:
-                grid_list = list(grid_thw)
-            patches_per_image = [int(g[0]) * int(g[1]) * int(g[2]) for g in grid_list]
-            pv = inputs["pixel_values"]
-            if hasattr(pv, 'shape') and len(pv.shape) >= 2:
-                # It's a concatenated array/tensor: split along dim 0
-                splits = []
-                offset = 0
-                for n_patches in patches_per_image:
-                    splits.append(pv[offset:offset + n_patches])
-                    offset += n_patches
-                return splits, grid_list
-            else:
-                # Already a list per example
-                return pv, grid_list
-        
-        pv_chosen_splits, grid_chosen_list = split_pixel_values(inputs_chosen)
-        pv_rejected_splits, grid_rejected_list = split_pixel_values(inputs_rejected)
+        pv_chosen_splits, grid_chosen_list = self.model_wrapper.extract_pixel_values(inputs_chosen)
+        pv_rejected_splits, grid_rejected_list = self.model_wrapper.extract_pixel_values(inputs_rejected)
         
         # Calculate prompt lengths
         all_tokens_prompt = processor.tokenizer(prompt_templates, padding=False)["input_ids"]
@@ -409,12 +332,9 @@ class DatasetBuilder:
             example = {k: examples[k][orig_idx] for k in examples.keys()}
             
             # Extract chosen/rejected again for metadata
-            label = int(example['label'])
-            chosen = example[f'ans{label}']
-            wrong_indices = [idx for idx in range(3) if idx != label]
+            chosen, rejected = self.dataset_adapter.get_chosen_rejected(example)
+            prompt_text = self.dataset_adapter.get_prompt_text(example)
             pair_idx = int(example.get('pair_idx', 0))
-            rejected = example[f'ans{wrong_indices[pair_idx]}']
-            prompt_text = example['context'] + " " + example['question']
             
             tokens_prompt = all_tokens_prompt[idx_in_valid]
             try:
