@@ -28,6 +28,7 @@ def _setup_env():
     """Common environment setup for all functions."""
     os.environ["HF_HOME"] = "/mnt/data/huggingface"
     os.environ["DATA_PATH"] = "/mnt/data/sb_bench_data"
+    os.environ["POPE_DATA_PATH"] = "/mnt/data/pope_data"
     os.environ["OUTPUT_PATH"] = "/mnt/data/embeddings_output"
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     os.environ["ACCELERATE_LOG_LEVEL"] = "ERROR"
@@ -160,7 +161,12 @@ def run_setup():
     if not os.path.exists(os.environ["DATA_PATH"]):
         subprocess.run(["python", "load_sb_bench.py"], check=True)
     else:
-        print("✅ Data already exists.")
+        print("✅ SB-Bench Data already exists.")
+        
+    if not os.path.exists(os.environ["POPE_DATA_PATH"]):
+        subprocess.run(["python", "load_pope.py"], check=True)
+    else:
+        print("✅ POPE Data already exists.")
     print("📥 Downloading Model: Qwen/Qwen2.5-VL-3B-Instruct")
     subprocess.run(["hf", "download", "Qwen/Qwen2.5-VL-3B-Instruct"], check=True)
     volume.commit()
