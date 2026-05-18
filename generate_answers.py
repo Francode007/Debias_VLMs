@@ -12,7 +12,7 @@ import io
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_model", type=str, default="Qwen/Qwen2.5-VL-3B-Instruct")
-    parser.add_argument("--checkpoint_dir", type=str, required=True, help="Path to LoRA checkpoint")
+    parser.add_argument("--checkpoint_dir", type=str, default=None, help="Path to LoRA checkpoint (omit for vanilla baseline)")
     parser.add_argument("--data_path", type=str, required=True, help="Path to parquet dataset")
     parser.add_argument("--output_jsonl", type=str, required=True, help="Path to save generated outputs")
     parser.add_argument("--batch_size", type=int, default=16, help="Inference batch size")
@@ -35,8 +35,12 @@ def main():
         trust_remote_code=True
     )
 
-    print(f"Loading LoRA Checkpoint: {args.checkpoint_dir}")
-    model = PeftModel.from_pretrained(base_model, args.checkpoint_dir)
+    if args.checkpoint_dir:
+        print(f"Loading LoRA Checkpoint: {args.checkpoint_dir}")
+        model = PeftModel.from_pretrained(base_model, args.checkpoint_dir)
+    else:
+        print("ℹ️ No --checkpoint_dir provided. Running vanilla Qwen2.5-VL-3B-Instruct (no LoRA adapter).")
+        model = base_model
     model.eval()
 
     print(f"Loading Dataset: {args.data_path}")

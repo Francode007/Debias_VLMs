@@ -195,13 +195,16 @@ def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jso
     print(f"🧠 Starting Generation Phase for dataset: {dataset}")
     
     if dataset.lower() == "pope":
-        subprocess.run([
+        cmd = [
             "python", "generate_answers.py",
-            "--checkpoint_dir", checkpoint_dir,
             "--data_path", data_path,
             "--output_jsonl", output_jsonl,
             "--batch_size", "16"
-        ], check=True)
+        ]
+        # Only pass --checkpoint_dir when running the debiased model (not vanilla)
+        if checkpoint_dir:
+            cmd += ["--checkpoint_dir", checkpoint_dir]
+        subprocess.run(cmd, check=True)
         volume.commit()
         print(f"✅ Generation complete. Results saved to {output_jsonl}")
     else:
@@ -234,7 +237,7 @@ def run_evaluation(dataset: str, gt_file: str, gen_file: str):
 
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────
 @app.local_entrypoint()
-def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = "", dataset: str = "sb_bench", model_family: str = "qwen", gt_file: str = "", gen_file: str = ""):
+def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = "", dataset: str = "sb_bench", model_family: str = "qwen", gt_file: str = "", gen_file: str = "", vanilla: bool = False):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -249,6 +252,9 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
       train10     - PPO training for 10 epochs (separate output dir)
       evaluation  - Run evaluation metrics on generated outputs (requires --dataset)
       all         - Full pipeline
+    
+    Flags:
+      --vanilla   Skip LoRA; run raw Qwen2.5-VL-3B-Instruct as baseline (evaluation phase only)
     
     Resume: pass --resume <checkpoint_path> e.g. /mnt/data/output_ppo_debiased/checkpoint-ep1-50pct
     """
@@ -278,15 +284,23 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
 
     if phase == "evaluation":
         if dataset.lower() == "pope":
-            checkpoint = resume_ckpt if resume_ckpt else "/mnt/data/output_ppo_debiased/checkpoint-ep1-end"
             gen_data_path = "/mnt/data/pope_data/pope_data.parquet"
+            if vanilla:
+                # Vanilla baseline: run base model with NO LoRA adapter
+                checkpoint = None
+                default_gen_file = "/mnt/data/vanilla_baseline/pope_generations.jsonl"
+                print("ℹ️ Vanilla mode: generating with raw Qwen2.5-VL-3B-Instruct (no debiasing adapter).")
+            else:
+                # Debiased model: use the 1-epoch PPO checkpoint by default
+                checkpoint = resume_ckpt if resume_ckpt else "/mnt/data/output_ppo_debiased/checkpoint-ep1-end"
+                default_gen_file = f"{checkpoint}/generations.jsonl"
             if not gen_file:
-                gen_file = f"{checkpoint}/generations.jsonl"
-                print(f"ℹ️ No --gen-file provided. Running Generation phase first to create {gen_file}...")
+                gen_file = default_gen_file
+                print(f"ℹ️ No --gen-file provided. Running generation first → {gen_file}")
                 run_generation.remote(
-                    dataset="pope", 
-                    checkpoint_dir=checkpoint, 
-                    data_path=gen_data_path, 
+                    dataset="pope",
+                    checkpoint_dir=checkpoint,
+                    data_path=gen_data_path,
                     output_jsonl=gen_file
                 )
             if not gt_file:
