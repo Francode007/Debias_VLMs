@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--gt_files", type=str, required=True,
                     help="Path to ground truth POPE JSON file")
 parser.add_argument("--gen_files", type=str, required=True,
-                    help="Path to generated answers JSONL from Qwen2-VL")
+                    help="Path to generated answers JSONL from Qwen2.5-VL")
 args = parser.parse_args()
 
 # Load ground truth
@@ -94,7 +94,7 @@ unk_prop  = unknown / total_questions if total_questions > 0 else 0.0
 
 # ====================== Print Results ======================
 print("\n" + "="*60)
-print("POPE EVALUATION RESULTS - SB-Bench + Qwen2-VL")
+print("POPE EVALUATION RESULTS - SB-Bench + Qwen2.5-VL")
 print("="*60)
 print(f"Accuracy     : {accuracy:.4f} ({accuracy*100:.2f}%)")
 print(f"Precision    : {precision:.4f} ({precision*100:.2f}%)")
