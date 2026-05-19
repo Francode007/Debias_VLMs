@@ -15,13 +15,8 @@ from peft import LoraConfig, get_peft_model
 from torch.utils.data import DataLoader
 from transformers import AutoProcessor
 
-from modules.config import ScriptArguments
-from modules.custom_vlm_ppo_trainer import PPOVLMController
-from modules.device_manager import DeviceManager
-from modules.fast_rl import FastRLNode
-from modules.model_loader import ModelLoader
-from modules.rl_data_collator import RLDataCollatorWithPadding
-from modules.rl_dataset_builder import RLDatasetBuilder
+from modules.utils import ScriptArguments, DeviceManager, ModelLoader
+from modules.rl_components import PPOVLMController, FastRLNode, RLDataCollatorWithPadding, RLDatasetBuilder
 
 logger = logging.getLogger(__name__)
 

@@ -15,47 +15,63 @@ Debias_VLMs/
 ├── src/
 │   ├── run_modal.py                    # Main orchestrator (Modal cloud pipeline)
 │   └── modules/
-│       ├── config.py                   # ScriptArguments dataclass
-│       ├── device_manager.py           # Device detection & optimization
-│       ├── model_loader.py             # Model loading with fallbacks
-│       ├── model_architecture.py       # Custom forward for reward extraction
-│       ├── dataset_builder.py          # Dataset processing & formatting
-│       ├── data_collator.py            # Batch collation for reward training
-│       ├── reward_trainer.py           # Embedding extraction visualizer
-│       ├── score_head.py               # MultipleHead reward scoring module
-│       ├── fast_rl.py                  # FastRLNode (mirror descent)
-│       ├── caa_feedback.py             # Causality-Aware Alignment weights
-│       ├── custom_vlm_ppo_trainer.py   # PPOVLMController (decoupled PPO)
-│       ├── rl_data_collator.py         # RL-specific data collation
-│       ├── rl_dataset_builder.py       # RL dataset construction
-│       ├── data/                       # Data downloading
-│       │   ├── load_pope.py
-│       │   └── load_sb_bench.py
+│       ├── utils/                      # Shared utilities
+│       │   ├── config.py              # ScriptArguments dataclass
+│       │   ├── device_manager.py      # Device detection & optimization
+│       │   ├── model_loader.py        # Model loading with fallbacks
+│       │   ├── model_architecture.py  # Custom forward for reward extraction
+│       │   ├── dataset_builder.py     # Dataset processing & formatting
+│       │   ├── data_collator.py       # Batch collation for reward training
+│       │   └── reward_trainer.py      # Embedding extraction visualizer
+│       ├── rl_components/              # Core RL components
+│       │   ├── score_head.py          # MultipleHead reward scoring module
+│       │   ├── fast_rl.py             # FastRLNode (mirror descent)
+│       │   ├── caa_feedback.py        # Causality-Aware Alignment weights
+│       │   ├── custom_vlm_ppo_trainer.py  # PPOVLMController (decoupled PPO)
+│       │   ├── rl_data_collator.py    # RL-specific data collation
+│       │   └── rl_dataset_builder.py  # RL dataset construction
+│       ├── data/                       # Data downloading & adapters
+│       │   ├── load_pope.py           # POPE dataset downloader
+│       │   ├── load_sb_bench.py       # SB-Bench dataset downloader
+│       │   ├── registry.py            # Dataset adapter registry
+│       │   └── model_registry.py      # Model-family adapter registry
 │       ├── embeddings/                 # Phase 1: embedding extraction & DRM
-│       │   ├── extract.py              # VLM embedding extraction pipeline
-│       │   └── generate_drm_heads.py   # PCA → orthogonal reward heads
+│       │   ├── extract.py             # VLM embedding extraction pipeline
+│       │   └── generate_drm_heads.py  # PCA → orthogonal reward heads
 │       ├── inference/                  # Answer generation
-│       │   ├── generate_answers.py     # POPE answer generation
+│       │   ├── generate_answers.py    # POPE answer generation
 │       │   └── generate_sb_bench_answers.py
 │       ├── evaluation/                 # Evaluation & metrics
-│       │   ├── eval_pope.py            # POPE benchmark evaluation
-│       │   ├── eval_sb_bench.py        # SB-Bench accuracy evaluation
-│       │   ├── evaluate_drm_heads.py   # DRM head hypothesis evaluation
-│       │   ├── pope_evaluator.py       # POPE evaluator class
-│       │   ├── sb_bench_evaluator.py   # SB-Bench evaluator class
-│       │   └── registry.py             # Evaluator registry
+│       │   ├── eval_pope.py           # POPE benchmark evaluation
+│       │   ├── eval_sb_bench.py       # SB-Bench accuracy evaluation
+│       │   ├── evaluate_drm_heads.py  # DRM head hypothesis evaluation
+│       │   ├── pope_evaluator.py      # POPE evaluator class
+│       │   ├── sb_bench_evaluator.py  # SB-Bench evaluator class
+│       │   └── registry.py            # Evaluator registry
 │       └── training/                   # Phase 2+3: RL training
-│           ├── train_rl.py             # PPO training entrypoint
-│           ├── args.py                 # Training argument parsing
-│           ├── setup.py                # Accelerator & model wiring
-│           ├── ppo_loop.py             # Per-epoch PPO loop
-│           ├── checkpoint.py           # Checkpoint save/load
-│           └── drm_loader.py           # PCA component loading
+│           ├── train_rl.py            # PPO training entrypoint
+│           ├── args.py                # Training argument parsing
+│           ├── setup.py               # Accelerator & model wiring
+│           ├── ppo_loop.py            # Per-epoch PPO loop
+│           ├── checkpoint.py          # Checkpoint save/load
+│           └── drm_loader.py          # PCA component loading
 ├── scratch/                            # Development & debugging scripts
 ├── requirements.txt
 ├── .gitignore
 └── README.md
 ```
+
+## Testing
+
+Run the architecture sanity check to verify all imports and entrypoints resolve:
+
+```bash
+source debias_env/bin/activate
+python src/test_pipeline_sanity.py
+```
+
+This validates all 66 checks: module imports, class accessibility, data/model registries,
+script entrypoints (`--help`), and the Modal app definition.
 
 ## Quick Start
 

@@ -14,8 +14,8 @@ import pandas as pd
 from PIL import Image
 from datasets import Dataset
 from typing import Optional
-from .config import ScriptArguments
-from .datasets.registry import get_dataset
+from ..utils.config import ScriptArguments
+from ..data.registry import get_dataset
 
 logger = logging.getLogger(__name__)
 

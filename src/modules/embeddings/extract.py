@@ -22,15 +22,15 @@ import torch
 from transformers import AutoProcessor, HfArgumentParser, TrainingArguments
 
 # Import modular components
-from modules.config import ScriptArguments
-from modules.device_manager import DeviceManager
-from modules.model_loader import ModelLoader
-from modules.dataset_builder import DatasetBuilder
-from modules.model_architecture import create_custom_forward
-from modules.data_collator import RewardDataCollatorWithPadding
-from modules.reward_trainer import RewardVisualizer
-# NOTE: When running as a script, ensure `src/` is on sys.path or use:
-#   from ..config import ScriptArguments (etc.) when importing as a package.
+from modules.utils import (
+    ScriptArguments,
+    DeviceManager,
+    ModelLoader,
+    DatasetBuilder,
+    create_custom_forward,
+    RewardDataCollatorWithPadding,
+    RewardVisualizer,
+)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

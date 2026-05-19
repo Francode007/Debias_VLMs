@@ -16,8 +16,8 @@ from PIL import Image
 from datasets import Dataset, load_from_disk
 from typing import List, Optional
 from .config import ScriptArguments
-from .datasets.registry import get_dataset
-from .models.registry import get_model_wrapper
+from ..data.registry import get_dataset
+from ..data.model_registry import get_model_wrapper
 
 logger = logging.getLogger(__name__)
 

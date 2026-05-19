@@ -1,29 +1,29 @@
 """
 Modules Package
 
-This package contains modularized components for the reward model training
-and visualization pipeline for vision-language models.
+This package contains modularized components for the C-DeFR-L
+debiasing pipeline for vision-language models.
 
-Components:
-- config: Configuration and parameter definitions
-- device_manager: Device detection and optimization
-- model_loader: Model loading with fallback mechanisms
-- dataset_builder: Dataset processing and formatting
-- model_architecture: Custom forward functions for reward models
-- data_collator: Batch processing and collation
-- reward_trainer: Custom trainer with visualization capabilities
+Subpackages:
+- utils: Shared utilities (config, device, model loading, data processing)
+- rl_components: Core RL (Fast-RL, CAA, PPO controller, RL data handling)
+- data: Dataset downloading (SB-Bench, POPE)
+- embeddings: Phase 1 embedding extraction and DRM head generation
+- inference: Answer generation for benchmarks
+- evaluation: Evaluation scripts and evaluator classes
+- training: Phase 2+3 PPO RL training pipeline
 """
 
-from .config import ScriptArguments
-from .device_manager import DeviceManager
-from .model_loader import ModelLoader
-from .dataset_builder import DatasetBuilder
-from .model_architecture import create_custom_forward
-from .data_collator import RewardDataCollatorWithPadding
-from .reward_trainer import RewardVisualizer
-from .score_head import MultipleHead
-from .fast_rl import FastRLNode
-from .caa_feedback import compute_caa_weights
+from .utils import (
+    ScriptArguments,
+    DeviceManager,
+    ModelLoader,
+    DatasetBuilder,
+    create_custom_forward,
+    RewardDataCollatorWithPadding,
+    RewardVisualizer,
+)
+from .rl_components import FastRLNode, compute_caa_weight, PPOVLMController, MultipleHead
 
 __all__ = [
     'ScriptArguments',
@@ -35,5 +35,6 @@ __all__ = [
     'RewardVisualizer',
     'MultipleHead',
     'FastRLNode',
-    'compute_caa_weights',
+    'compute_caa_weight',
+    'PPOVLMController',
 ]

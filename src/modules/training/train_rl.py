@@ -29,7 +29,7 @@ warnings.filterwarnings("ignore", message=".*Detected kernel version.*")
 
 import torch
 
-from modules.fast_rl import FastRLNode
+from modules.rl_components import FastRLNode
 from modules.training.args import parse_training_args
 from modules.training.checkpoint import load_checkpoint, save_checkpoint, save_final_model
 from modules.training.drm_loader import load_pca_components
