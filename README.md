@@ -128,6 +128,43 @@ python -m modules.training.train_rl \
   --num_heads 100 --fast_rl_strategy exponentiated
 ```
 
+## GPU Selection
+
+**Recommended: H100** (`gpu="H100"` in Modal)
+
+| GPU | Rate | Est. time/epoch | Cost/epoch (incl. CPU+RAM) |
+|-----|------|-----------------|---------------------------|
+| A100-80GB | $2.50/hr | ~3.23 hrs | ~$12.60 |
+| H100 | $3.95/hr | ~1.90 hrs | ~$10.17 |
+
+H100 is cheaper overall due to ~1.7× throughput improvement offsetting the higher hourly rate.
+Modal may auto-upgrade H100 → H200 (same price, 141 GB HBM3e), giving further headroom.
+
+**Current training state**: Checkpoint at epoch 1. Target: 5 epochs (4 remaining).
+
+## In-Domain Train/Test Split
+
+When training and evaluating on the **same dataset** (in-domain), Phase 1 must use
+an 80/20 split to avoid data leakage:
+
+| Split | Proportion | Used In |
+|-------|-----------|---------|
+| Train | 80% | Phase 1 embedding extraction + DRM head generation + PPO training |
+| Test | 20% | Evaluation only (held-out for measuring debiasing effectiveness) |
+
+**Implementation notes:**
+- The split is applied *before* embedding extraction (Phase 1a/1b) so that test
+  samples never influence the PCA reward heads.
+- Use a fixed random seed for reproducibility (`seed=42`).
+- When evaluating on a *different* dataset (e.g., train on SB-Bench, eval on POPE),
+  the full dataset can be used for training — the split only applies to in-domain evaluation.
+- The split indices should be persisted to disk so that evaluation can load the
+  exact same 20% test partition.
+
+**TODO**: Implement the split in `modules/embeddings/extract.py` and wire the test
+indices through to the evaluation scripts. This will be done when updating the
+debiasing methodology or introducing a new dataset.
+
 ## Pipeline Overview
 
 ```

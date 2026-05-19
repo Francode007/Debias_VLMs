@@ -15,6 +15,7 @@ from PIL import Image
 from datasets import Dataset
 from typing import Optional
 from ..utils.config import ScriptArguments
+from ..utils.split import get_or_create_split
 from ..data.registry import get_dataset
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,16 @@ class RLDatasetBuilder:
         
         if size is not None:
             ds = ds.select(range(0, min(size, len(ds))))
+        
+        # --- Apply train/test split (RL training always uses train split) ---
+        split_mode = getattr(self.script_args, 'split', 'all')
+        if split_mode in ('train', 'test'):
+            split_path = getattr(self.script_args, 'split_indices_path', None)
+            split_info = get_or_create_split(data_path, split_path)
+            selected_indices = split_info['train_indices'] if split_mode == 'train' else split_info['test_indices']
+            valid = [i for i in selected_indices if i < len(ds)]
+            ds = ds.select(valid)
+            logger.info(f"Applied '{split_mode}' split: {len(ds)} samples for RL generation")
         
         # We don't expand into 2 pairs per example. We just need the unique prompt contexts.
         logger.info(f"Loaded {len(ds)} unique prompts for PPO generation.")

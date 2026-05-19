@@ -24,12 +24,15 @@ app = modal.App(name=APP_NAME)
 
 
 # ─── Helper ───────────────────────────────────────────────────────────────────
+SPLIT_INDICES_PATH = "/mnt/data/split_indices.json"
+
 def _setup_env():
     """Common environment setup for all functions."""
     os.environ["HF_HOME"] = "/mnt/data/huggingface"
     os.environ["DATA_PATH"] = "/mnt/data/sb_bench_data"
     os.environ["POPE_DATA_PATH"] = "/mnt/data/pope_data"
     os.environ["OUTPUT_PATH"] = "/mnt/data/embeddings_output"
+    os.environ["SPLIT_INDICES_PATH"] = SPLIT_INDICES_PATH
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     os.environ["ACCELERATE_LOG_LEVEL"] = "ERROR"
     os.chdir("/root/debias-vlms/src")
@@ -56,6 +59,8 @@ def run_preprocess(dataset: str = "sb_bench", model_family: str = "qwen"):
         "--model_family", model_family,
         "--data_path", os.environ["DATA_PATH"],
         "--max_length", "2048",
+        "--split", "train",
+        "--split_indices_path", SPLIT_INDICES_PATH,
     ], check=True)
     volume.commit()
     print("✅ Preprocessing complete. Chunks cached on volume.")
@@ -84,7 +89,9 @@ def run_inference(dataset: str = "sb_bench", model_family: str = "qwen"):
         "--cls_embs_path", os.environ["OUTPUT_PATH"],
         "--batch_size", "16",
         "--max_length", "2048",
-        "--dataloader_num_workers", "6"
+        "--dataloader_num_workers", "6",
+        "--split", "train",
+        "--split_indices_path", SPLIT_INDICES_PATH,
     ], check=True)
     volume.commit()
     print("✅ Embedding extraction complete.")
@@ -108,7 +115,9 @@ def run_drm_generation():
         "python", "-m", "modules.embeddings.generate_drm_heads",
         "--input_dir", os.environ["OUTPUT_PATH"],
         "--output_dir", "/mnt/data/generated_heads",
-        "--n_components", "50"
+        "--n_components", "50",
+        "--split", "train",
+        "--split_indices_path", SPLIT_INDICES_PATH,
     ], check=True)
     volume.commit()
     print("✅ DRM heads generated.")
@@ -141,7 +150,9 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--max_length", "2048",
         "--epochs", str(epochs),
         "--data_path", os.environ["DATA_PATH"],
-        "--output_dir", output_dir
+        "--output_dir", output_dir,
+        "--split", "train",
+        "--split_indices_path", SPLIT_INDICES_PATH,
     ]
     if resume_from:
         cmd.extend(["--resume_from_checkpoint", resume_from])
@@ -174,6 +185,17 @@ def run_setup():
         subprocess.run(["python", "-m", "modules.data.load_pope"], check=True)
     else:
         print("✅ POPE Data already exists.")
+    
+    # Generate train/test split (80/20) if not already present
+    if not os.path.exists(SPLIT_INDICES_PATH):
+        print("📊 Generating 80/20 train/test split...")
+        subprocess.run([
+            "python", "-c",
+            f"from modules.utils.split import generate_split; generate_split('{os.environ['DATA_PATH']}', '{SPLIT_INDICES_PATH}')"
+        ], check=True)
+    else:
+        print("✅ Split indices already exist.")
+    
     print("📥 Downloading Model: Qwen/Qwen2.5-VL-3B-Instruct")
     subprocess.run(["hf", "download", "Qwen/Qwen2.5-VL-3B-Instruct"], check=True)
     volume.commit()

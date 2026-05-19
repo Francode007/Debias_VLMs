@@ -16,6 +16,7 @@ from PIL import Image
 from datasets import Dataset, load_from_disk
 from typing import List, Optional
 from .config import ScriptArguments
+from .split import get_or_create_split
 from ..data.registry import get_dataset
 from ..data.model_registry import get_model_wrapper
 
@@ -157,15 +158,27 @@ class DatasetBuilder:
         ds = ds.add_column("orig_index", new_column)
         logger.info(f"Original dataset length: {len(ds)}")
         
+        # --- Apply train/test split if requested ---
+        split_mode = getattr(self.script_args, 'split', 'all')
+        if split_mode in ('train', 'test'):
+            split_path = getattr(self.script_args, 'split_indices_path', None)
+            split_info = get_or_create_split(data_path, split_path)
+            selected_indices = split_info['train_indices'] if split_mode == 'train' else split_info['test_indices']
+            # Filter to indices that exist in current dataset (handles size limits)
+            valid = [i for i in selected_indices if i < len(ds)]
+            ds = ds.select(valid)
+            logger.info(f"Applied '{split_mode}' split: {len(ds)} samples (from {len(selected_indices)} indices)")
+        
         # Expand to 2 preference pairs per example (chosen vs rejected_1, chosen vs rejected_2)
         expanded_rows = []
         for i in range(len(ds)):
             row = ds[i]
             row_dict = {k: row[k] for k in row.keys()}
+            orig_idx = row_dict["orig_index"]
             for pair_idx in range(2):
                 new_row = dict(row_dict)
                 new_row["pair_idx"] = pair_idx
-                new_row["data_index"] = i * 2 + pair_idx  # unique global pair index
+                new_row["data_index"] = orig_idx * 2 + pair_idx  # unique global pair index based on orig position
                 expanded_rows.append(new_row)
         ds = Dataset.from_list(expanded_rows)
         logger.info(f"Expanded to {len(ds)} preference pairs (2 per example)")
@@ -180,7 +193,7 @@ class DatasetBuilder:
         num_chunks = (total + chunk_size - 1) // chunk_size
         
         cache_key = hashlib.md5(
-            f"{data_path}_{total}_{self.script_args.max_length}_{self.script_args.use_smallset}".encode()
+            f"{data_path}_{total}_{self.script_args.max_length}_{self.script_args.use_smallset}_{split_mode}".encode()
         ).hexdigest()[:12]
         chunks_dir = os.path.join(os.path.dirname(data_path), f"chunks_{cache_key}")
         os.makedirs(chunks_dir, exist_ok=True)

@@ -9,6 +9,7 @@ from .model_architecture import create_custom_forward
 from .dataset_builder import DatasetBuilder
 from .data_collator import RewardDataCollatorWithPadding
 from .reward_trainer import RewardVisualizer
+from .split import get_or_create_split, generate_split, load_split
 
 __all__ = [
     "ScriptArguments",
@@ -18,4 +19,7 @@ __all__ = [
     "DatasetBuilder",
     "RewardDataCollatorWithPadding",
     "RewardVisualizer",
+    "get_or_create_split",
+    "generate_split",
+    "load_split",
 ]

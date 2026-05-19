@@ -60,6 +60,27 @@ def generate_orthogonal_heads(args):
         print(f"No embedding files found in {input_dir}. Run cal_emb_modular.py first.")
         return
 
+    # --- Filter to split indices if requested ---
+    split_mode = getattr(args, "split", "all")
+    split_indices_path = getattr(args, "split_indices_path", None)
+    if split_mode in ("train", "test") and split_indices_path:
+        with open(split_indices_path, "r") as f:
+            split_info = json.load(f)
+        orig_indices = set(split_info["train_indices"] if split_mode == "train" else split_info["test_indices"])
+        # data_index = orig_index * 2 + pair_idx, so valid data_indices are {idx*2, idx*2+1}
+        valid_data_indices = set()
+        for idx in orig_indices:
+            valid_data_indices.add(idx * 2)
+            valid_data_indices.add(idx * 2 + 1)
+        
+        import re
+        def _get_data_index(path):
+            m = re.search(r"emb_(\d+)\.npy$", path)
+            return int(m.group(1)) if m else -1
+        
+        emb_files = [f for f in emb_files if _get_data_index(f) in valid_data_indices]
+        print(f"Filtered to {len(emb_files)} embedding files for '{split_mode}' split")
+
     print(f"Loading {len(emb_files)} embedding files (parallel I/O)...")
     
     def _load_one(path):
@@ -172,5 +193,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_components", type=int, default=100, help="Number of PCA components")
     parser.add_argument("--case_name", type=str, default="sb_bench", help="Prefix for .pth filenames")
     parser.add_argument("--full_composed", action="store_true", help="Use all dimensions (k=hidden_dim)")
+    parser.add_argument("--split_indices_path", type=str, default=None, help="Path to split_indices.json for filtering to train split")
+    parser.add_argument("--split", type=str, default="all", choices=["train", "test", "all"], help="Which split to use (default: all)")
     args = parser.parse_args()
     generate_orthogonal_heads(args)

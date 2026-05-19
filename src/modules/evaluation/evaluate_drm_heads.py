@@ -105,10 +105,27 @@ def main():
     parser.add_argument("--num_heads", type=int, default=None, help="Use first N heads (default: all)")
     parser.add_argument("--batch_size", type=int, default=1024, help="Batch size for evaluation (default: 1024)")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--split_indices_path", type=str, default=None, help="Path to split_indices.json for filtering to test split")
+    parser.add_argument("--split", type=str, default="all", choices=["train", "test", "all"], help="Which split to evaluate on (default: all)")
     args = parser.parse_args()
 
     device = torch.device(args.device)
     embs, data_indices = load_embeddings(args.emb_dir)
+    
+    # --- Filter to split indices if requested ---
+    if args.split in ("train", "test") and args.split_indices_path:
+        with open(args.split_indices_path, "r") as f:
+            split_info = json.load(f)
+        orig_indices = set(split_info["train_indices"] if args.split == "train" else split_info["test_indices"])
+        valid_data_indices = set()
+        for idx in orig_indices:
+            valid_data_indices.add(idx * 2)
+            valid_data_indices.add(idx * 2 + 1)
+        mask = [i for i, di in enumerate(data_indices) if di in valid_data_indices]
+        embs = embs[mask]
+        data_indices = [data_indices[i] for i in mask]
+        print(f"Filtered to {len(data_indices)} embeddings for '{args.split}' split")
+    
     n_samples, _, hidden_size = embs.shape
     max_idx = max(data_indices) if data_indices else 0
     categories = load_categories(args.data_path, max_idx)

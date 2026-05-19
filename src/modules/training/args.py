@@ -129,4 +129,19 @@ def parse_training_args() -> argparse.Namespace:
         help="Path to a checkpoint directory to resume training from",
     )
 
+    # Train/test split arguments
+    parser.add_argument(
+        "--split",
+        type=str,
+        default="all",
+        choices=["train", "test", "all"],
+        help="Which data split to use: 'train' (80%%), 'test' (20%%), or 'all'",
+    )
+    parser.add_argument(
+        "--split_indices_path",
+        type=str,
+        default=None,
+        help="Path to split_indices.json (generated once, reused across phases)",
+    )
+
     return parser.parse_args()

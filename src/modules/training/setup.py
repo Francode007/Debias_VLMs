@@ -141,6 +141,8 @@ def build_dataloader(
         use_smallset=args.use_smallset,
         dataset_name=args.dataset_name,
         model_family=args.model_family,
+        split=getattr(args, 'split', 'all'),
+        split_indices_path=getattr(args, 'split_indices_path', None),
     )
     dataset_builder = RLDatasetBuilder(script_cfg)
     train_dataset = dataset_builder.build_dataset(

@@ -185,3 +185,13 @@ class ScriptArguments:
         default=False,
         metadata={"help": "Only run dataset preprocessing (no model loading or inference). For cost-efficient CPU-only runs."}
     )
+    split: Optional[str] = field(
+        default="all",
+        metadata={"help": "Which split to use: 'train' (80%%), 'test' (20%%), or 'all' (no split). "
+                  "For in-domain evaluation, Phase 1 and training use 'train'; evaluation uses 'test'."}
+    )
+    split_indices_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to split_indices.json. If None, auto-detected next to data_path. "
+                  "Generated on first use with seed=42."}
+    )
