@@ -21,6 +21,9 @@ from .dataset_builder import DatasetBuilder
 from .model_architecture import create_custom_forward
 from .data_collator import RewardDataCollatorWithPadding
 from .reward_trainer import RewardVisualizer
+from .score_head import MultipleHead
+from .fast_rl import FastRLNode
+from .caa_feedback import compute_caa_weights
 
 __all__ = [
     'ScriptArguments',
@@ -29,5 +32,8 @@ __all__ = [
     'DatasetBuilder',
     'create_custom_forward',
     'RewardDataCollatorWithPadding',
-    'RewardVisualizer'
+    'RewardVisualizer',
+    'MultipleHead',
+    'FastRLNode',
+    'compute_caa_weights',
 ]

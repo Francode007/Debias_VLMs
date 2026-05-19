@@ -14,7 +14,7 @@ vlm_image = (
     .pip_install("packaging", "ninja", "wheel")
     .pip_install_from_requirements("requirements.txt")
     .pip_install("https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.6/flash_attn-2.5.6%2Bcu122torch2.1cxx11abiFALSE-cp310-cp310-linux_x86_64.whl")
-    .add_local_dir(".", remote_path="/root/debias-vlms", ignore=[".venv", ".git", "debias_env", "models_cache", "sb_bench_data", "__pycache__"])
+    .add_local_dir(".", remote_path="/root/debias-vlms", ignore=[".venv", ".git", "debias_env", "models_cache", "sb_bench_data", "scratch", "__pycache__"])
 )
 
 # 3. Persistent Storage
@@ -32,7 +32,7 @@ def _setup_env():
     os.environ["OUTPUT_PATH"] = "/mnt/data/embeddings_output"
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     os.environ["ACCELERATE_LOG_LEVEL"] = "ERROR"
-    os.chdir("/root/debias-vlms")
+    os.chdir("/root/debias-vlms/src")
 
 
 # ─── Phase 1a: Dataset Preprocessing (CPU only, no GPU) ──────────────────────
@@ -50,7 +50,7 @@ def run_preprocess(dataset: str = "sb_bench", model_family: str = "qwen"):
     _setup_env()
     print(f"📦 Phase 1a: Dataset Preprocessing (CPU only) for {dataset}...")
     subprocess.run([
-        "python", "cal_emb_modular.py",
+        "python", "-m", "modules.embeddings.extract",
         "--preprocess_only",
         "--dataset_name", dataset,
         "--model_family", model_family,
@@ -76,7 +76,7 @@ def run_inference(dataset: str = "sb_bench", model_family: str = "qwen"):
     _setup_env()
     print(f"🚀 Phase 1b: Embedding Extraction (A100-80GB) for {dataset}...")
     subprocess.run([
-        "python", "cal_emb_modular.py",
+        "python", "-m", "modules.embeddings.extract",
         "--dataset_name", dataset,
         "--model_family", model_family,
         "--device", "cuda",
@@ -105,7 +105,7 @@ def run_drm_generation():
     _setup_env()
     print("🧬 Phase 2: DRM Head Generation (CPU only)...")
     subprocess.run([
-        "python", "generate_drm_heads.py",
+        "python", "-m", "modules.embeddings.generate_drm_heads",
         "--input_dir", os.environ["OUTPUT_PATH"],
         "--output_dir", "/mnt/data/generated_heads",
         "--n_components", "50"
@@ -129,7 +129,7 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
     cmd = [
-        "python", "train_rl.py",
+        "python", "-m", "modules.training.train_rl",
         "--dataset_name", dataset,
         "--model_family", model_family,
         "--policy_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
@@ -165,13 +165,13 @@ def run_setup():
     _setup_env()
     print("📥 Setup: Downloading data and models...")
     if not os.path.exists(os.environ["DATA_PATH"]):
-        subprocess.run(["python", "load_sb_bench.py"], check=True)
+        subprocess.run(["python", "-m", "modules.data.load_sb_bench"], check=True)
     else:
         print("✅ SB-Bench Data already exists.")
         
     pope_jsonl = os.path.join(os.environ["POPE_DATA_PATH"], "pope_data.jsonl")
     if not os.path.exists(os.environ["POPE_DATA_PATH"]) or not os.path.exists(pope_jsonl):
-        subprocess.run(["python", "load_pope.py"], check=True)
+        subprocess.run(["python", "-m", "modules.data.load_pope"], check=True)
     else:
         print("✅ POPE Data already exists.")
     print("📥 Downloading Model: Qwen/Qwen2.5-VL-3B-Instruct")
@@ -196,7 +196,7 @@ def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jso
     
     if dataset.lower() == "pope":
         cmd = [
-            "python", "generate_answers.py",
+            "python", "-m", "modules.inference.generate_answers",
             "--data_path", data_path,
             "--output_jsonl", output_jsonl,
             "--batch_size", "16"
@@ -209,7 +209,7 @@ def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jso
 
     elif dataset.lower() == "sb_bench":
         cmd = [
-            "python", "generate_sb_bench_answers.py",
+            "python", "-m", "modules.inference.generate_sb_bench_answers",
             "--data_path", data_path,
             "--output_jsonl", output_jsonl,
             "--batch_size", "8"
@@ -247,7 +247,7 @@ def run_evaluation(dataset: str, gt_file: str, gen_file: str):
             return
         print(f"Evaluating POPE using GT: {gt_file} and Gens: {gen_file}")
         subprocess.run([
-            "python", "eval_pope.py",
+            "python", "-m", "modules.evaluation.eval_pope",
             "--gt_files", gt_file,
             "--gen_files", gen_file
         ], check=True)
@@ -258,7 +258,7 @@ def run_evaluation(dataset: str, gt_file: str, gen_file: str):
             return
         print(f"Evaluating SB-Bench generations: {gen_file}")
         subprocess.run([
-            "python", "eval_sb_bench.py",
+            "python", "-m", "modules.evaluation.eval_sb_bench",
             "--gen_file", gen_file
         ], check=True)
 

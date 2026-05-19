@@ -37,7 +37,7 @@ import json
 import time
 
 from tqdm import tqdm
-from score_head import MultipleHead
+from modules.score_head import MultipleHead
 
 
 # SB-Bench category names (9 bias types)
