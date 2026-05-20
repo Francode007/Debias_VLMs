@@ -135,12 +135,16 @@ def run_drm_generation():
 )
 def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debiased", resume_from: str = None, dataset: str = "sb_bench", model_family: str = "qwen",
                  kl_beta: float = 0.1, ppo_clip_range: float = 0.2, learning_rate: float = 1e-5,
-                 lora_r: int = 16, lora_alpha: int = 32, max_train_samples: int = None, eta: float = 0.01):
+                 lora_r: int = 16, lora_alpha: int = 32, max_train_samples: int = None, eta: float = 0.01,
+                 num_heads: int = 9, tau: float = 1.0, lambda_causal: float = 0.5,
+                 delta_margin: float = 1.0, lambda_dispersive: float = 0.01):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
     print(f"   Hyperparams: kl_beta={kl_beta}, clip={ppo_clip_range}, lr={learning_rate}, "
-          f"lora_r={lora_r}, lora_alpha={lora_alpha}, max_samples={max_train_samples}, eta={eta}")
+          f"lora_r={lora_r}, lora_alpha={lora_alpha}, max_samples={max_train_samples}, "
+          f"num_heads={num_heads}, tau={tau}, lambda_causal={lambda_causal}, "
+          f"delta_margin={delta_margin}, lambda_dispersive={lambda_dispersive}")
     cmd = [
         "python", "-m", "modules.training.train_rl",
         "--dataset_name", dataset,
@@ -148,7 +152,7 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--policy_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
         "--extractor_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
         "--reward_heads_dir", "/mnt/data/generated_heads/sb_bench-PCA-component",
-        "--num_heads", "100",
+        "--num_heads", str(num_heads),
         "--per_device_train_batch_size", "12",
         "--gradient_accumulation_steps", "4",
         "--max_length", "2048",
@@ -163,6 +167,10 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--lora_r", str(lora_r),
         "--lora_alpha", str(lora_alpha),
         "--eta", str(eta),
+        "--tau", str(tau),
+        "--lambda_causal", str(lambda_causal),
+        "--delta_margin", str(delta_margin),
+        "--lambda_dispersive", str(lambda_dispersive),
     ]
     if max_train_samples:
         cmd.extend(["--max_train_samples", str(max_train_samples)])
@@ -304,7 +312,9 @@ def run_evaluation(dataset: str, gt_file: str, gen_file: str):
 @app.local_entrypoint()
 def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = "", dataset: str = "sb_bench", model_family: str = "qwen", gt_file: str = "", gen_file: str = "", vanilla: bool = False,
          kl_beta: float = 0.1, ppo_clip_range: float = 0.2, learning_rate: float = 1e-5,
-         lora_r: int = 16, lora_alpha: int = 32, max_train_samples: int = 0, eta: float = 0.01):
+         lora_r: int = 16, lora_alpha: int = 32, max_train_samples: int = 0, eta: float = 0.01,
+         num_heads: int = 9, tau: float = 1.0, lambda_causal: float = 0.5,
+         delta_margin: float = 1.0, lambda_dispersive: float = 0.01):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -342,6 +352,8 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
         kl_beta=kl_beta, ppo_clip_range=ppo_clip_range, learning_rate=learning_rate,
         lora_r=lora_r, lora_alpha=lora_alpha, eta=eta,
         max_train_samples=max_train_samples if max_train_samples > 0 else None,
+        num_heads=num_heads, tau=tau, lambda_causal=lambda_causal,
+        delta_margin=delta_margin, lambda_dispersive=lambda_dispersive,
     )
     
     if phase in ["all", "train"]:

@@ -2,104 +2,81 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class FastRLNode:
     """
-    Fast-RL Node that dynamically balances Phase 1 multi-dimensional 
-    orthogonal rewards during PPO training.
+    Fast-RL Node with running z-score normalization and entropy-regularized
+    deficit-based simplex updates. Prevents one-hot collapse and ensures
+    KL penalty remains meaningful relative to normalized reward scales.
     """
-    def __init__(self, num_heads: int, strategy: str = "exponentiated", eta: float = 0.01, device: str = "cpu"):
+    def __init__(self, num_heads: int, tau: float = 1.0, ema_decay: float = 0.99, device: str = "cpu"):
         """
         Args:
-            num_heads: The number of orthogonal reward heads (K).
-            strategy: "exponentiated", "projected", or "adam".
-            eta: Learning rate for the Fast-RL update.
+            num_heads: Number of orthogonal reward heads (K).
+            tau: Temperature for entropy-regularized softmax (prevents collapse).
+                 Higher = more uniform, lower = more focused on worst heads.
+            ema_decay: Exponential moving average decay for running stats.
             device: Tensor device.
         """
         self.num_heads = num_heads
-        self.strategy = strategy.lower()
-        self.eta = eta
+        self.tau = tau
+        self.ema_decay = ema_decay
         self.device = device
-        
-        # Initialize Uniform Weights
+
+        # Uniform initial weights on the simplex
         self.alpha = torch.ones(num_heads, device=device, dtype=torch.float32) / num_heads
-        
-        if self.strategy == "adam":
-            # For Adam-style, keep logits and momentum buffers over those logits
-            self.logits = torch.zeros(num_heads, device=device, dtype=torch.float32)
-            self.m = torch.zeros_like(self.logits)
-            self.v = torch.zeros_like(self.logits)
-            self.beta1 = 0.9
-            self.beta2 = 0.999
-            self.epsilon = 1e-8
-            self.t = 0
-            # Alpha is just softmax(logits), initially uniform since logits=0.
+
+        # Running statistics for z-score normalization (per head)
+        self.running_mean = torch.zeros(num_heads, device=device, dtype=torch.float32)
+        self.running_var = torch.ones(num_heads, device=device, dtype=torch.float32)
+        self.initialized = False
+
+    def _update_running_stats(self, r_k_mean: torch.Tensor):
+        """Update running mean/variance via EMA."""
+        if not self.initialized:
+            self.running_mean = r_k_mean.clone()
+            self.running_var = torch.ones_like(r_k_mean)
+            self.initialized = True
+        else:
+            self.running_mean = self.ema_decay * self.running_mean + (1 - self.ema_decay) * r_k_mean
+            # Variance from squared deviation of batch mean from running mean
+            self.running_var = self.ema_decay * self.running_var + (1 - self.ema_decay) * (r_k_mean - self.running_mean) ** 2
+
+    def normalize(self, rewards: torch.Tensor) -> torch.Tensor:
+        """Z-score normalize rewards using running statistics. Shape: (batch, K) -> (batch, K)."""
+        std = torch.sqrt(self.running_var + 1e-8)
+        return (rewards - self.running_mean.unsqueeze(0)) / std.unsqueeze(0)
 
     def update(self, rewards_curr: torch.Tensor) -> torch.Tensor:
         """
-        Update the weights alpha based on the current policy rewards matrix.
-        
+        Update alpha via deficit-based entropy-regularized softmax,
+        then compute composite reward from normalized scores.
+
         Args:
-            rewards_curr: Tensor of shape (batch_size, num_heads) - The rewards r_k
+            rewards_curr: (batch_size, num_heads) raw reward projections.
         Returns:
-            composite_reward: Tensor of shape (batch_size,) - The weighted sum R_curr
+            composite_reward: (batch_size,) weighted normalized reward.
         """
-        batch_size = rewards_curr.shape[0]
-        # Ensure float32 for numerical stability (rewards may arrive in bf16)
         rewards_curr = rewards_curr.float()
-        # Average the rewards across the batch to get the expected gradient performance
-        r_k_mean = rewards_curr.mean(dim=0)  # Shape (num_heads,)
-        
-        # 1. Update Strategy
-        if self.strategy == "exponentiated":
-            # Multiplicative Weights (Exponentiated Gradient) on Simplex
-            # alpha(t+1) propto alpha(t) * exp(eta * r)
-            # Implemented safely in log space to avoid overflow, then softmax.
-            log_alpha = torch.log(self.alpha + 1e-12)
-            self.alpha = F.softmax(log_alpha + self.eta * r_k_mean, dim=-1)
+        r_k_mean = rewards_curr.mean(dim=0)  # (num_heads,)
 
-        elif self.strategy == "projected":
-            # Projected Gradient Ascent on the probability simplex
-            new_alpha = self.alpha + self.eta * r_k_mean
-            self.alpha = self._project_simplex(new_alpha)
-            
-        elif self.strategy == "adam":
-            # Adam-style update on Logits, then map through softmax.
-            # Here, the 'gradient' to ascend is r_k_mean.
-            self.t += 1
-            grad = -r_k_mean  # Adam minimizes, we want to maximize r_k -> substitute -r_k
-            
-            self.m = self.beta1 * self.m + (1 - self.beta1) * grad
-            self.v = self.beta2 * self.v + (1 - self.beta2) * (grad ** 2)
-            
-            m_hat = self.m / (1 - self.beta1 ** self.t)
-            v_hat = self.v / (1 - self.beta2 ** self.t)
-            
-            self.logits = self.logits - self.eta * m_hat / (torch.sqrt(v_hat) + self.epsilon)
-            self.alpha = F.softmax(self.logits, dim=-1)
-        else:
-            raise ValueError(f"Unknown Fast-RL strategy: {self.strategy}")
-            
-        # Ensure it's detached from graph for the RL loop and properly typed
-        self.alpha = self.alpha.detach()
-        
-        # 2. Composite Reward Calculation
-        # rewards_curr: (Batch, K)
-        # alpha: (K,)
-        # composite_reward: (Batch,)
-        composite_reward = torch.matmul(rewards_curr, self.alpha)
-        
+        # Update running statistics
+        self._update_running_stats(r_k_mean)
+
+        # Z-score normalize the batch rewards
+        rewards_norm = self.normalize(rewards_curr)  # (batch, K)
+
+        # Deficit-based alpha update:
+        # Focus on heads that are UNDERPERFORMING (below zero after normalization).
+        # deficit_k = max(0, -r_k_normalized_mean) — higher deficit = more weight needed
+        r_norm_mean = rewards_norm.mean(dim=0)  # (K,)
+        deficit = torch.clamp(-r_norm_mean, min=0.0)
+
+        # Entropy-regularized softmax with temperature tau
+        # High tau → uniform, low tau → focused on worst-performing heads
+        self.alpha = F.softmax(deficit / self.tau, dim=-1).detach()
+
+        # Composite reward from NORMALIZED rewards (centered ~0, std ~1)
+        composite_reward = torch.matmul(rewards_norm, self.alpha)
+
         return composite_reward
-
-    def _project_simplex(self, v: torch.Tensor) -> torch.Tensor:
-        """
-        Projects a vector 'v' onto the probability simplex: sum(x) = 1, x >= 0.
-        O(N log N) projection algorithm.
-        """
-        v_sorted, _ = torch.sort(v, descending=True)
-        cssv = torch.cumsum(v_sorted, dim=0) - 1.0
-        indices = torch.arange(1, len(v) + 1, device=v.device, dtype=v.dtype)
-        cond = v_sorted - cssv / indices > 0
-        rho = indices[cond][-1].int().item()
-        theta = cssv[rho - 1] / float(rho)
-        w = torch.clamp(v - theta, min=0.0)
-        return w

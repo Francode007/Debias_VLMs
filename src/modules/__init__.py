@@ -23,7 +23,7 @@ from .utils import (
     RewardDataCollatorWithPadding,
     RewardVisualizer,
 )
-from .rl_components import FastRLNode, compute_caa_weight, PPOVLMController, MultipleHead
+from .rl_components import FastRLNode, compute_causal_reward_penalty, compute_dispersive_loss, PPOVLMController, MultipleHead
 
 __all__ = [
     'ScriptArguments',
@@ -35,6 +35,7 @@ __all__ = [
     'RewardVisualizer',
     'MultipleHead',
     'FastRLNode',
-    'compute_caa_weight',
+    'compute_causal_reward_penalty',
+    'compute_dispersive_loss',
     'PPOVLMController',
 ]

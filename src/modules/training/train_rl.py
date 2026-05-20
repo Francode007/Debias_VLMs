@@ -73,8 +73,7 @@ def main() -> None:
     # ── 5. Fast-RL node ───────────────────────────────────────────────────────
     fast_rl_node = FastRLNode(
         num_heads=args.num_heads,
-        strategy=args.fast_rl_strategy,
-        eta=args.eta,
+        tau=getattr(args, 'tau', 1.0),
         device=accelerator.device,
     )
 

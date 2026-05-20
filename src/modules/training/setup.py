@@ -101,7 +101,7 @@ def build_ppo_controller(
         reward_heads_weight:  (K, hidden_dim) reward head tensor.
         accelerator:          Active Accelerator.
         fast_rl_node:         Instantiated FastRLNode.
-        args:                 Parsed training arguments (for kl_beta).
+        args:                 Parsed training arguments.
 
     Returns:
         Configured PPOVLMController.
@@ -113,6 +113,9 @@ def build_ppo_controller(
         fast_rl_node=fast_rl_node,
         kl_beta=args.kl_beta,
         ppo_clip_range=getattr(args, 'ppo_clip_range', 0.2),
+        lambda_causal=getattr(args, 'lambda_causal', 0.5),
+        delta_margin=getattr(args, 'delta_margin', 1.0),
+        lambda_dispersive=getattr(args, 'lambda_dispersive', 0.01),
     )
 
 

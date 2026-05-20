@@ -61,9 +61,14 @@ def save_checkpoint(
     unwrapped = accelerator.unwrap_model(active_policy)
     unwrapped.save_pretrained(checkpoint_path)
 
-    # Fast-RL alpha vector
+    # Fast-RL state (alpha + running normalization stats)
     with open(os.path.join(checkpoint_path, "fast_rl_state.json"), "w") as f:
-        json.dump({"alpha": fast_rl_node.alpha.detach().cpu().tolist()}, f)
+        json.dump({
+            "alpha": fast_rl_node.alpha.detach().cpu().tolist(),
+            "running_mean": fast_rl_node.running_mean.detach().cpu().tolist(),
+            "running_var": fast_rl_node.running_var.detach().cpu().tolist(),
+            "initialized": fast_rl_node.initialized,
+        }, f)
 
     # Value head
     torch.save(
@@ -151,7 +156,7 @@ def load_checkpoint(
         )
         logger.info("Restored value head")
 
-    # --- Fast-RL alpha ---
+    # --- Fast-RL state ---
     frl_path = os.path.join(ckpt_dir, "fast_rl_state.json")
     if os.path.exists(frl_path):
         with open(frl_path) as f:
@@ -159,7 +164,15 @@ def load_checkpoint(
         fast_rl_node.alpha = torch.tensor(
             frl_state["alpha"], device=accelerator.device
         )
-        logger.info("Restored Fast-RL alpha state")
+        if "running_mean" in frl_state:
+            fast_rl_node.running_mean = torch.tensor(
+                frl_state["running_mean"], device=accelerator.device
+            )
+            fast_rl_node.running_var = torch.tensor(
+                frl_state["running_var"], device=accelerator.device
+            )
+            fast_rl_node.initialized = frl_state.get("initialized", True)
+        logger.info("Restored Fast-RL state")
 
     # --- Optimizer states ---
     opt_policy_path = os.path.join(ckpt_dir, "optimizer_policy.pth")

@@ -1,50 +1,79 @@
 import torch
 
-def compute_caa_weight(rewards_init: torch.Tensor, rewards_curr: torch.Tensor, epsilon: float = 1e-8) -> torch.Tensor:
+
+def compute_causal_reward_penalty(
+    e_init: torch.Tensor,
+    e_curr: torch.Tensor,
+    lambda_causal: float = 0.5,
+    delta_margin: float = 1.0,
+) -> torch.Tensor:
     """
-    Phase 3: Causality-Aware Alignment (CAA).
-    Calculate an instrumented causal scalar weight for each sample in the PPO batch.
-    
-    The function calculates the orthogonal deviation of the active policy from the 
-    reference policy inside the phase 1 feature space.
-    
+    Compute a causal alignment penalty to be ADDED to the reward signal
+    (not used as a loss multiplier).
+
+    Penalizes embedding drift beyond a tolerance margin, integrated into the
+    reward function so that GAE naturally absorbs the signal without violating
+    PPO trust region geometry.
+
+    Formula:
+        penalty_i = -lambda_causal * max(0, ||e_curr_i - e_init_i||_2 - delta_margin)
+
     Args:
-        rewards_init: Tensor of shape (batch_size, num_heads) - r_init^(k) 
-                      computed using the frozen base reference policy.
-        rewards_curr: Tensor of shape (batch_size, num_heads) - r_curr^(k)
-                      computed using the active training PPO policy.
-        epsilon: Small scalar to avoid division by zero during Min-Max normalization.
-        
+        e_init: (batch_size, hidden_dim) — reference policy embeddings.
+        e_curr: (batch_size, hidden_dim) — active policy embeddings.
+        lambda_causal: Strength of the causal deviation penalty.
+        delta_margin: Tolerance margin — small embedding shifts are not penalized.
+
     Returns:
-        w_hat: Tensor of shape (batch_size,) 
-               The min-max normalized L2 norm of the causal differences.
+        causal_penalty: (batch_size,) — negative penalty to add to reward.
+            Zero when drift is within margin; increasingly negative beyond it.
     """
-    
-    # 1. Delta rewards (Absolute causal difference across all axes)
-    # Shape: (batch_size, num_heads)
-    delta_r_vec = torch.abs(rewards_init - rewards_curr)
-    
-    # 2. L2 Norm per sample
-    # Shape: (batch_size,)
-    w_feedback = torch.linalg.norm(delta_r_vec, ord=2, dim=-1)
-    
-    # 3. Batch-wise Min-Max Normalization
-    # Note: If batch size is 1, min == max, w_hat will be completely flat/zeroed out.
-    # We should handle it properly if w_max == w_min. 
-    w_min = torch.min(w_feedback)
-    w_max = torch.max(w_feedback)
-    
-    w_hat = (w_feedback - w_min) / (w_max - w_min + epsilon)
-    
-    # If the batch difference min/max are virtually identical, default w_hat to 1.0
-    # to prevent erasing the loss.
-    if torch.allclose(w_min, w_max, atol=1e-6):
-        w_hat = torch.ones_like(w_feedback)
-    
-    # Apply baseline floor: map [0,1] -> [0.1, 1.0] so every sample contributes
-    # at least 10% of its gradient. Without this, min-max normalization crushes
-    # most samples to ~0 when the policy is close to the reference (early training),
-    # effectively reducing the batch to a single outlier sample.
-    w_hat = 0.1 + 0.9 * w_hat
-        
-    return w_hat.detach()
+    # L2 distance in embedding space
+    drift = torch.linalg.norm(e_curr - e_init, ord=2, dim=-1)  # (batch,)
+
+    # Hinge penalty: only activate beyond margin
+    excess_drift = torch.clamp(drift - delta_margin, min=0.0)
+
+    # Return as negative reward contribution
+    causal_penalty = -lambda_causal * excess_drift
+
+    return causal_penalty.detach()
+
+
+def compute_dispersive_loss(hidden_states: torch.Tensor, sigma: float = 1.0) -> torch.Tensor:
+    """
+    Dispersive regularization loss that prevents representation collapse by
+    penalizing pairwise proximity of embeddings in the batch.
+
+    Formula:
+        L_disp = -1/(B*(B-1)) * sum_{i!=j} log(||h_i - h_j||_2 + epsilon)
+
+    This forces embeddings of different inputs to remain spread apart,
+    preserving full-rank representational capacity.
+
+    Args:
+        hidden_states: (batch_size, hidden_dim) — penultimate layer embeddings.
+        sigma: Scale parameter (unused in log formulation, kept for API stability).
+
+    Returns:
+        Scalar dispersive loss (to be minimized — drives embeddings apart).
+    """
+    batch_size = hidden_states.shape[0]
+    if batch_size < 2:
+        return torch.tensor(0.0, device=hidden_states.device, dtype=hidden_states.dtype)
+
+    # Pairwise L2 distances: (B, B)
+    diffs = hidden_states.unsqueeze(0) - hidden_states.unsqueeze(1)  # (B, B, D)
+    dists = torch.linalg.norm(diffs, ord=2, dim=-1)  # (B, B)
+
+    # Exclude diagonal (self-pairs)
+    mask = ~torch.eye(batch_size, device=hidden_states.device, dtype=torch.bool)
+    pairwise_dists = dists[mask]  # (B*(B-1),)
+
+    # Log-distance repulsion: minimize this → push embeddings apart
+    log_dists = torch.log(pairwise_dists + 1e-8)
+
+    # Negative mean log-distance: lower distance → higher loss
+    dispersive_loss = -log_dists.mean()
+
+    return dispersive_loss

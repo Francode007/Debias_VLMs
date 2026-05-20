@@ -7,7 +7,7 @@ from transformers import PreTrainedModel
 import logging
 
 from .fast_rl import FastRLNode
-from .caa_feedback import compute_caa_weight
+from .caa_feedback import compute_causal_reward_penalty, compute_dispersive_loss
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +26,21 @@ class PPOVLMController:
         ppo_clip_range: float = 0.2,
         gamma: float = 1.0,
         lam: float = 0.95,
-        vf_coef: float = 0.1
+        vf_coef: float = 0.1,
+        lambda_causal: float = 0.5,
+        delta_margin: float = 1.0,
+        lambda_dispersive: float = 0.01,
     ):
         """
         Args:
             active_policy: The 3B model (with LoRA attached and active).
                            We assume disabling the LoRA adapter yields the reference policy.
-            reward_heads_weight: Tensor of shape (K, hidden_size) of the 100 PCA orthogonal directions.
+            reward_heads_weight: Tensor of shape (K, hidden_size) of the PCA orthogonal directions.
             accelerator: Hugging Face Accelerate instance.
             fast_rl_node: Instance of FastRLNode for dynamic mirror descent updates.
+            lambda_causal: Causal deviation penalty strength (in reward).
+            delta_margin: Tolerance margin for embedding drift before penalty activates.
+            lambda_dispersive: Weight of dispersive regularization loss.
         """
         self.policy = active_policy
         
@@ -54,6 +60,9 @@ class PPOVLMController:
         self.gamma = gamma
         self.lam = lam
         self.vf_coef = vf_coef
+        self.lambda_causal = lambda_causal
+        self.delta_margin = delta_margin
+        self.lambda_dispersive = lambda_dispersive
         
         self.reward_heads_weight = reward_heads_weight.to(accelerator.device, dtype=torch.bfloat16)
 
@@ -292,16 +301,20 @@ class PPOVLMController:
         e_curr = e_curr.to(self.reward_heads_weight.dtype)
         e_init = e_init.to(self.reward_heads_weight.dtype)
         r_curr_k = torch.matmul(e_curr, self.reward_heads_weight.T)
-        r_init_k = torch.matmul(e_init, self.reward_heads_weight.T)
         
-        # 7. Phase 3 - CAA Feedback Weight
-        w_hat = compute_caa_weight(r_init_k, r_curr_k)
+        # 7. Phase 2 - Fast-RL Dynamic Balancing (with z-score normalization)
+        R_task = self.fast_rl.update(r_curr_k)
         
-        # 8. Phase 2 - Fast-RL Dynamic Balancing
-        R_curr = self.fast_rl.update(r_curr_k)
+        # 8. Causal penalty as REWARD ADDITIVE (not loss multiplier!)
+        # Penalizes embedding drift beyond margin — absorbed natively by GAE
+        causal_penalty = compute_causal_reward_penalty(
+            e_init.float(), e_curr.float(),
+            lambda_causal=self.lambda_causal,
+            delta_margin=self.delta_margin,
+        )
         
-        # 9. KL Regularization
-        R_final = R_curr - self.kl_beta * seq_kl
+        # 9. Final reward: task reward + causal penalty - KL divergence
+        R_final = R_task + causal_penalty - self.kl_beta * seq_kl
         
         # 10. Loss Optimization (GAE via R_final)
         # Align values with loss_mask: values has shape (batch, seq_len) but
@@ -311,7 +324,7 @@ class PPOVLMController:
         advantages, returns = self.compute_gae(R_final.detach(), curr_values_aligned.detach(), loss_mask)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
-        # PPO Surrogate Loss
+        # PPO Surrogate Loss (UNSCALED — trust region preserved)
         ratio = torch.exp(curr_logprobs - init_logprobs.detach())
         pg_loss1 = -advantages * ratio
         pg_loss2 = -advantages * torch.clamp(ratio, 1.0 - self.ppo_clip_range, 1.0 + self.ppo_clip_range)
@@ -320,15 +333,19 @@ class PPOVLMController:
         seq_pg_loss = torch.max(pg_loss1, pg_loss2) * loss_mask
         seq_pg_loss = seq_pg_loss.sum(dim=1) / loss_mask.sum(dim=1)
         
-        # Apply Causal Feedback Weight! \hat{w} * L_PPO
-        scaled_pg_loss = (w_hat * seq_pg_loss).mean()
+        # Unscaled PPO loss (NO w_hat multiplication)
+        pg_loss = seq_pg_loss.mean()
         
         # Value Loss
         v_loss = 0.5 * ((curr_values_aligned - returns) ** 2) * loss_mask
         v_loss = v_loss.sum(dim=1) / loss_mask.sum(dim=1)
         v_loss = v_loss.mean()
         
-        loss = scaled_pg_loss + self.vf_coef * v_loss
+        # Dispersive regularization (anti-collapse)
+        dispersive_loss = compute_dispersive_loss(e_curr.float())
+        
+        # Total loss: L_PPO + vf_coef * L_V + lambda_D * L_disp
+        loss = pg_loss + self.vf_coef * v_loss + self.lambda_dispersive * dispersive_loss
         
         # Backprop
         self.accelerator.backward(loss)
@@ -340,9 +357,11 @@ class PPOVLMController:
         
         return {
             "loss": loss.item(),
-            "pg_loss": scaled_pg_loss.item(),
+            "pg_loss": pg_loss.item(),
             "v_loss": v_loss.item(),
-            "reward": R_curr.mean().item(),
+            "dispersive_loss": dispersive_loss.item(),
+            "causal_penalty": causal_penalty.mean().item(),
+            "reward": R_task.mean().item(),
+            "reward_final": R_final.mean().item(),
             "kl": seq_kl.mean().item(),
-            "w_hat_mean": w_hat.mean().item()
         }

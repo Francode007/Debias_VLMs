@@ -47,8 +47,8 @@ def parse_training_args() -> argparse.Namespace:
     parser.add_argument(
         "--num_heads",
         type=int,
-        default=100,
-        help="Number of PCA components (DRM heads) to load",
+        default=9,
+        help="Number of PCA components (DRM heads) to load (9 = one per SB-Bench bias category)",
     )
 
     # Fast-RL arguments
@@ -57,13 +57,19 @@ def parse_training_args() -> argparse.Namespace:
         type=str,
         default="exponentiated",
         choices=["exponentiated", "projected", "adam"],
-        help="Mirror Descent update strategy for Fast-RL",
+        help="(Deprecated) Mirror Descent strategy — now uses deficit-based update",
     )
     parser.add_argument(
         "--eta",
         type=float,
         default=0.01,
-        help="Learning rate for the Fast-RL node",
+        help="(Deprecated) Legacy Fast-RL learning rate — replaced by tau",
+    )
+    parser.add_argument(
+        "--tau",
+        type=float,
+        default=1.0,
+        help="Fast-RL entropy temperature (prevents simplex collapse). Higher=more uniform, lower=more focused.",
     )
     parser.add_argument(
         "--kl_beta",
@@ -82,6 +88,24 @@ def parse_training_args() -> argparse.Namespace:
         type=float,
         default=1e-5,
         help="Learning rate for policy and value optimizers",
+    )
+    parser.add_argument(
+        "--lambda_causal",
+        type=float,
+        default=0.5,
+        help="Causal deviation penalty strength (in reward signal)",
+    )
+    parser.add_argument(
+        "--delta_margin",
+        type=float,
+        default=1.0,
+        help="Tolerance margin for embedding drift before causal penalty activates",
+    )
+    parser.add_argument(
+        "--lambda_dispersive",
+        type=float,
+        default=0.01,
+        help="Dispersive regularization loss weight (anti-collapse)",
     )
     parser.add_argument(
         "--lora_r",

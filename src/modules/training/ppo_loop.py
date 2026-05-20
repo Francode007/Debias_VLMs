@@ -97,7 +97,8 @@ def run_ppo_loop(
                     {
                         "loss": f"{metrics['loss']:.4f}",
                         "reward": f"{metrics['reward']:.4f}",
-                        "w_hat": f"{metrics['w_hat_mean']:.4f}",
+                        "causal": f"{metrics['causal_penalty']:.4f}",
+                        "disp": f"{metrics['dispersive_loss']:.4f}",
                         "gpu_mem_gb": (
                             f"{torch.cuda.max_memory_allocated() / (1024 ** 3):.2f}"
                         ),
