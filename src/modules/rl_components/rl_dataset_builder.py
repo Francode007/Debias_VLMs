@@ -90,7 +90,7 @@ class RLDatasetBuilder:
         num_chunks = (total + chunk_size - 1) // chunk_size
         
         cache_key = hashlib.md5(
-            f"{data_path}_{total}_{self.script_args.max_length}_rl".encode()
+            f"{data_path}_{total}_{self.script_args.max_length}_rl_v2".encode()
         ).hexdigest()[:12]
         chunks_dir = os.path.join(os.path.dirname(data_path), f"rl_chunks_{cache_key}")
         os.makedirs(chunks_dir, exist_ok=True)
