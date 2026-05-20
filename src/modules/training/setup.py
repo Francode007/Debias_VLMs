@@ -64,9 +64,12 @@ def build_policy_model(args, accelerator: Accelerator) -> Tuple:
 
     policy_base, _ = loader.load_model_and_processor()
 
+    lora_r = getattr(args, 'lora_r', 16)
+    lora_alpha = getattr(args, 'lora_alpha', 32)
+    logger.info(f"LoRA config: r={lora_r}, alpha={lora_alpha}")
     lora_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
+        r=lora_r,
+        lora_alpha=lora_alpha,
         target_modules=[
             "q_proj", "k_proj", "v_proj", "o_proj",
             "gate_proj", "up_proj", "down_proj",
@@ -109,6 +112,7 @@ def build_ppo_controller(
         accelerator=accelerator,
         fast_rl_node=fast_rl_node,
         kl_beta=args.kl_beta,
+        ppo_clip_range=getattr(args, 'ppo_clip_range', 0.2),
     )
 
 
@@ -148,6 +152,13 @@ def build_dataloader(
     train_dataset = dataset_builder.build_dataset(
         data_path=args.data_path, processor=processor
     )
+
+    # Limit training samples if requested (for experiments)
+    max_samples = getattr(args, 'max_train_samples', None)
+    if max_samples and max_samples < len(train_dataset):
+        logger.info(f"Limiting training set: {len(train_dataset)} → {max_samples} samples")
+        train_dataset = train_dataset.select(range(max_samples))
+
     collator = RLDataCollatorWithPadding(processor=processor)
 
     num_cpus = multiprocessing.cpu_count()

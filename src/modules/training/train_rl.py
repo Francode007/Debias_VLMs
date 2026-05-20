@@ -84,11 +84,13 @@ def main() -> None:
     )
 
     # ── 7. Optimizers ─────────────────────────────────────────────────────────
+    lr = getattr(args, 'learning_rate', 1e-5)
+    logger.info(f"Optimizer LR: {lr}")
     optimizer_policy = torch.optim.AdamW(
-        filter(lambda p: p.requires_grad, active_policy.parameters()), lr=1e-5
+        filter(lambda p: p.requires_grad, active_policy.parameters()), lr=lr
     )
     optimizer_value = torch.optim.AdamW(
-        ppo_controller.value_head.parameters(), lr=1e-5
+        ppo_controller.value_head.parameters(), lr=lr
     )
 
     # ── 8. Dataset + DataLoader ───────────────────────────────────────────────

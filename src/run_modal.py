@@ -133,10 +133,14 @@ def run_drm_generation():
     timeout=43200,            # 12 hours
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
-def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debiased", resume_from: str = None, dataset: str = "sb_bench", model_family: str = "qwen"):
+def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debiased", resume_from: str = None, dataset: str = "sb_bench", model_family: str = "qwen",
+                 kl_beta: float = 0.1, ppo_clip_range: float = 0.2, learning_rate: float = 1e-5,
+                 lora_r: int = 16, lora_alpha: int = 32, max_train_samples: int = None, eta: float = 0.01):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
+    print(f"   Hyperparams: kl_beta={kl_beta}, clip={ppo_clip_range}, lr={learning_rate}, "
+          f"lora_r={lora_r}, lora_alpha={lora_alpha}, max_samples={max_train_samples}, eta={eta}")
     cmd = [
         "python", "-m", "modules.training.train_rl",
         "--dataset_name", dataset,
@@ -153,7 +157,15 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--output_dir", output_dir,
         "--split", "train",
         "--split_indices_path", SPLIT_INDICES_PATH,
+        "--kl_beta", str(kl_beta),
+        "--ppo_clip_range", str(ppo_clip_range),
+        "--learning_rate", str(learning_rate),
+        "--lora_r", str(lora_r),
+        "--lora_alpha", str(lora_alpha),
+        "--eta", str(eta),
     ]
+    if max_train_samples:
+        cmd.extend(["--max_train_samples", str(max_train_samples)])
     if resume_from:
         cmd.extend(["--resume_from_checkpoint", resume_from])
     subprocess.run(cmd, check=True)
@@ -290,7 +302,9 @@ def run_evaluation(dataset: str, gt_file: str, gen_file: str):
 
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────
 @app.local_entrypoint()
-def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = "", dataset: str = "sb_bench", model_family: str = "qwen", gt_file: str = "", gen_file: str = "", vanilla: bool = False):
+def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = "", dataset: str = "sb_bench", model_family: str = "qwen", gt_file: str = "", gen_file: str = "", vanilla: bool = False,
+         kl_beta: float = 0.1, ppo_clip_range: float = 0.2, learning_rate: float = 1e-5,
+         lora_r: int = 16, lora_alpha: int = 32, max_train_samples: int = 0, eta: float = 0.01):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -324,16 +338,21 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
         run_drm_generation.remote()
     
     resume_ckpt = resume if resume else None
+    train_kwargs = dict(
+        kl_beta=kl_beta, ppo_clip_range=ppo_clip_range, learning_rate=learning_rate,
+        lora_r=lora_r, lora_alpha=lora_alpha, eta=eta,
+        max_train_samples=max_train_samples if max_train_samples > 0 else None,
+    )
     
     if phase in ["all", "train"]:
         train_out = output_dir if output_dir else "/mnt/data/output_ppo_debiased"
-        run_training.remote(epochs=epochs, output_dir=train_out, resume_from=resume_ckpt, dataset=dataset, model_family=model_family)
+        run_training.remote(epochs=epochs, output_dir=train_out, resume_from=resume_ckpt, dataset=dataset, model_family=model_family, **train_kwargs)
     
     if phase == "train5":
-        run_training.remote(epochs=5, output_dir="/mnt/data/output_ppo_debiased_5ep", resume_from=resume_ckpt, dataset=dataset, model_family=model_family)
+        run_training.remote(epochs=5, output_dir="/mnt/data/output_ppo_debiased_5ep", resume_from=resume_ckpt, dataset=dataset, model_family=model_family, **train_kwargs)
     
     if phase == "train10":
-        run_training.remote(epochs=10, output_dir="/mnt/data/output_ppo_debiased_10ep", resume_from=resume_ckpt, dataset=dataset, model_family=model_family)
+        run_training.remote(epochs=10, output_dir="/mnt/data/output_ppo_debiased_10ep", resume_from=resume_ckpt, dataset=dataset, model_family=model_family, **train_kwargs)
 
     if phase == "evaluation":
         if dataset.lower() == "pope":

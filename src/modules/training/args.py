@@ -71,6 +71,36 @@ def parse_training_args() -> argparse.Namespace:
         default=0.1,
         help="KL divergence penalty coefficient",
     )
+    parser.add_argument(
+        "--ppo_clip_range",
+        type=float,
+        default=0.2,
+        help="PPO surrogate clipping range",
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=1e-5,
+        help="Learning rate for policy and value optimizers",
+    )
+    parser.add_argument(
+        "--lora_r",
+        type=int,
+        default=16,
+        help="LoRA rank (r parameter)",
+    )
+    parser.add_argument(
+        "--lora_alpha",
+        type=int,
+        default=32,
+        help="LoRA alpha scaling factor",
+    )
+    parser.add_argument(
+        "--max_train_samples",
+        type=int,
+        default=None,
+        help="Limit training to this many samples (for experiments)",
+    )
 
     # Dataset arguments
     parser.add_argument(
