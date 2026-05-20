@@ -31,13 +31,17 @@ class SBBenchAdapter(BaseDatasetAdapter):
     ]
 
     def extract_image_bytes(self, example: dict) -> Optional[bytes]:
+        # Handle nested dict (file_name: {bytes: ...})
         img_field = example.get("file_name") or example.get("image")
-        if img_field is None:
-            return None
-        if isinstance(img_field, dict) and "bytes" in img_field:
-            return img_field["bytes"]
-        if isinstance(img_field, bytes):
-            return img_field
+        if img_field is not None:
+            if isinstance(img_field, dict) and "bytes" in img_field:
+                return img_field["bytes"]
+            if isinstance(img_field, bytes):
+                return img_field
+        # Handle flattened parquet columns (file_name.bytes)
+        flat_bytes = example.get("file_name.bytes")
+        if flat_bytes is not None:
+            return flat_bytes
         return None
 
     def get_chosen_rejected(self, example: dict) -> Tuple[str, str]:
