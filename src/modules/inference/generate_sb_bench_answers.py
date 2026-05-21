@@ -49,6 +49,10 @@ def parse_args():
                         help="Path to save generated outputs")
     parser.add_argument("--batch_size", type=int, default=8,
                         help="Inference batch size (lower than POPE — prompts are longer)")
+    parser.add_argument("--split", type=str, default="all", choices=["train", "test", "all"],
+                        help="Which split to evaluate on (default: all)")
+    parser.add_argument("--split_indices_path", type=str, default=None,
+                        help="Path to split_indices.json for filtering")
     return parser.parse_args()
 
 
@@ -97,6 +101,14 @@ def main():
     print(f"Loading Dataset: {args.data_path}")
     ds = load_dataset("parquet", data_files={"test": args.data_path})["test"]
     print(f"  Total examples: {len(ds)}")
+
+    # Filter to train/test split if requested
+    if args.split in ("train", "test") and args.split_indices_path:
+        with open(args.split_indices_path, "r") as f:
+            split_info = json.load(f)
+        indices = split_info["train_indices"] if args.split == "train" else split_info["test_indices"]
+        ds = ds.select(indices)
+        print(f"  Filtered to '{args.split}' split: {len(ds)} examples")
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output_jsonl)), exist_ok=True)
     results = []

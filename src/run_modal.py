@@ -254,7 +254,9 @@ def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jso
             "python", "-m", "modules.inference.generate_sb_bench_answers",
             "--data_path", data_path,
             "--output_jsonl", output_jsonl,
-            "--batch_size", "8"
+            "--batch_size", "8",
+            "--split", "test",
+            "--split_indices_path", SPLIT_INDICES_PATH,
         ]
         if checkpoint_dir:
             cmd += ["--checkpoint_dir", checkpoint_dir]
