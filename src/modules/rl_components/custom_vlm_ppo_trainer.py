@@ -251,7 +251,7 @@ class PPOVLMController:
         alpha = self.fast_rl.alpha  # (K,) — current head weights
         
         # Dense task reward: weighted sum across heads at each token
-        r_task_dense = torch.matmul(r_token_k, alpha)  # (B, T)
+        r_task_dense = torch.matmul(r_token_k, alpha.to(r_token_k.dtype))  # (B, T)
         
         # 5. LOGIT-GROUNDED REWARD (Phase 2 — prevents null-space hacking)
         # Measures actual shift in token probability — grounds reward in discrete behavior
