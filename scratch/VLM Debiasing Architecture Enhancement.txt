@@ -1,0 +1,719 @@
+Mathematical Foundations of 
+Representation Collapse in 
+Vision-Language Reinforcement 
+Learning: A Critical Diagnostic of the 
+C-DeFR-L Architecture 
+The alignment of compact, parameter-efficient Vision-Language Models (VLMs) against deeply 
+ingrained sociodemographic biases represents one of the most mathematically demanding 
+challenges in contemporary machine learning. The theoretical difficulty of this task is 
+compounded significantly when models are evaluated against rigorous, visually grounded, and 
+highly intersectional benchmarks. The SB-Bench dataset, specifically, epitomizes this rigorous 
+evaluation paradigm, comprising 14,578 meticulously curated, non-synthetic visual samples 
+explicitly designed to assess stereotype biases across nine major social categories and 54 
+fine-grained sub-categories.1 By isolating visual biases from textual biases and emphasizing the 
+distribution shifts inherent in real-world pixels compared to synthetic generations, SB-Bench 
+exposes the brittleness of traditional alignment methodologies.3 When traditional 
+Reinforcement Learning from Human Feedback (RLHF) paradigms are applied to smaller 
+architectures, such as the 3-Billion parameter models utilizing LoRA adapters, they frequently 
+exhibit catastrophic behavioral degradation. 
+The introduction of the Causal Decomposed and Fair Reward Learning (C-DeFR-L) pipeline 
+represented a conceptually ambitious attempt to resolve these inefficiencies by decomposing 
+monolithic reward models into orthogonal preference dimensions and applying dynamically 
+weighted Proximal Policy Optimization (PPO).5 The explicit goal was to mitigate high VRAM 
+overhead while gaining fine-grained control over orthogonal dimensions of bias, such as age, 
+gender, and physical appearance.5 However, the empirical collapse of the C-DeFR-L 
+architecture, characterized by a complete failure to register any visible debiasing 
+improvements on the SB-Bench dataset, necessitates a profound and rigorous mathematical 
+diagnostic. 
+An exhaustive review of the architecture's mathematical formulations reveals that the failure is 
+neither superficial nor a consequence of inadequate hyperparameter tuning or insufficient data 
+scale. Rather, the collapse is the deterministic result of deep theoretical contradictions within 
+the pipeline’s core mechanics. Specifically, the framework suffers from fundamental linear 
+algebraic flaws in its representational extraction phase, optimization degeneracies in its 
+simplex-based reward balancing, and catastrophic violations of policy gradient trust regions 
+during its causality-aware alignment phase. This report systematically deconstructs these 
+mathematical anomalies, analyzing the specific equations responsible for the collapse, and 
+
+
+prescribes a mathematically grounded, highly targeted remediation strategy drawing upon 
+state-of-the-art token-level alignment and representation-preserving techniques to rescue the 
+architecture and enable functional debiasing for compact VLMs. 
+1. The Geometry of Latent Misalignment: 
+Deconstructing the Representational Extraction Phase 
+The first phase of the C-DeFR-L pipeline attempts to decompose the base VLM’s latent space 
+into a discrete number of 
+ orthogonal reward dimensions. The methodology relies on 
+utilizing Principal Component Analysis (PCA) applied to the differences between chosen and 
+rejected stereotype preference representations, which are captured as hidden states from the 
+penultimate layer of the network.5 While conceptually elegant in a strictly linear, 
+low-dimensional environment, the application of variance-maximizing algorithms in the 
+high-dimensional, autoregressive latent space of a Vision-Language Model is mathematically 
+misaligned with the objective of extracting pure, semantic bias vectors. 
+1.1 The Variance-Bias Confounding in Principal Component Analysis 
+The C-DeFR-L architecture explicitly extracts representation vectors 
+ and 
+ at the final token position, such as the <EOS> token or the final 
+non-padding token.5 For a compact model, the hidden dimension typically resides around 
+. The pipeline constructs a difference matrix 
+ where 
+, zero-centers this matrix to 
+, and subsequently 
+computes the principal components 
+ using Singular Value Decomposition or 
+eigendecomposition of the empirical covariance matrix.5 
+Mathematically, Principal Component Analysis solves for the eigenvectors of the empirical 
+covariance matrix 
+. The objective function of PCA is strictly to maximize 
+variance across the dataset: 
+ 
+The fatal mathematical flaw in this formulation lies in the fundamental properties of 
+Transformer-based latent spaces when conditioned on multimodal inputs. In large language 
+and vision-language models, the directions of maximum variance in the embedding space are 
+almost exclusively dominated by structural, syntactical, lexical, and basic cross-modal attention 
+features. These dominant eigenvectors typically encode sequence length, punctuation 
+distribution, token frequency, and the raw visual complexity of the image input, rather than 
+
+
+encoding nuanced, abstract semantic concepts like sociodemographic bias. 
+When analyzing real-world images sourced from the SB-Bench dataset—which inherently 
+contain complex, non-synthetic backgrounds, varied lighting conditions, and dense visual 
+contexts 2—the variance introduced by the visual and structural complexity vastly outweighs 
+the variance introduced by a purely semantic shift between a stereotypical label and a 
+non-stereotypical label. For instance, the transition from identifying a subject as a "nurse" to a 
+"doctor" induces a subtle shift in the semantic subspace, but this shift accounts for a fraction of 
+a percent of the total latent variance compared to the cross-attention features aligning the text 
+with the image's background pixels. 
+Consequently, the top 
+ principal components extracted by the C-DeFR-L pipeline are highly 
+likely to represent arbitrary syntactical artifacts or dominant visual attention distributions rather 
+than pure, orthogonal dimensions of social bias (e.g., gender, race, disability). When the 
+pipeline subsequently registers the positive (
+) and negated (
+) directions as linear 
+reward heads 5, it is effectively instructing the PPO controller to optimize the generated text for 
+structural token artifacts or specific sequence lengths, rather than guiding the model toward 
+fairness. The reward signal is mathematically decoupled from the intended debiasing objective. 
+1.2 The Bottleneck of Final Token Extraction and Sequence 
+Homogenization 
+Furthermore, the architectural decision to extract the hidden states 
+ solely at the final 
+sequence position fundamentally misapprehends the autoregressive nature of causal language 
+modeling. In a VLM, the manifestation of a stereotype occurs at the specific token position 
+where that concept is generated, frequently referred to in recent literature as the "concept 
+token".6 By the time the generation reaches the <EOS> token, the representation has been 
+heavily homogenized through successive layers of causal self-attention. The final token 
+embedding serves as a highly compressed, holistic summary of the entire generated sequence, 
+making it exceedingly difficult to linearly separate fine-grained bias perturbations from the 
+overwhelming macro-context of the sentence. 
+Recent advancements in VLM debiasing explicitly demonstrate that successful bias mitigation 
+must operate at the token level, specifically targeting the latent boundary of concept tokens 
+capturing invariant features, rather than relying on sequence-level summaries.6 The UMAD 
+framework, for example, successfully leverages gradient-based interpretation to extract 
+token-level bias insights 8, proving that bias is temporally localized within the generation 
+trajectory. Relying on the final sequence token guarantees that the PCA algorithm operates on 
+a blurred, low-resolution projection of the actual bias shift, leading to overlapping, heavily 
+entangled reward heads that provide conflicting optimization signals to the reinforcement 
+learning controller. 
+1.3 Mathematical Remediation: Latent Boundary Probing via Support 
+
+
+Vector Normals 
+To successfully resolve the representational extraction failure, the pipeline must abandon 
+unsupervised variance maximization in favor of supervised, concept-specific boundary 
+approximation. Borrowing extensively from the Eliciting Latent Knowledge (ELK) framework and 
+recent latent space steering methodologies, it is established that the representation space of a 
+VLM inherently contains an implicit safety and fairness decision boundary that cleanly 
+separates optimal and non-optimal responses.9 Methods such as BEND-VLM highlight the 
+necessity of projecting embeddings orthogonally to protected attributes, proving that targeted 
+dimensional steering is vastly superior to variance analysis.12 
+Instead of extracting principal components, the C-DeFR-L pipeline must compute specific 
+Truthfulness Separator Vectors or Bias Decision Boundaries for each category defined in the 
+SB-Bench dataset.13 Given the paired chosen/rejected dataset, the optimal reward direction 
+ is not the one that maximizes global variance, but rather the normal vector to the 
+hyperplane that maximally separates the chosen representations from the rejected 
+representations for a strictly defined demographic category. 
+This requires computing the Mass-Mean shift or training a linear Support Vector Machine (SVM) 
+specifically constrained to each bias category 
+.5 Let us define a specific subset of preference 
+pairs for a single category 
+ (e.g., Physical Appearance). The optimal, mathematically 
+pure reward direction 
+ is defined by the following constrained optimization problem: 
+ 
+where 
+ denotes the chosen versus rejected sample, and 
+ represents the 
+regularization parameter controlling the margin hardness. The resulting optimized vector 
+ is 
+geometrically orthogonal to the decision boundary 14, ensuring that any subsequent linear 
+projection 
+ strictly and exclusively measures the semantic shift along 
+the axis of that specific sociodemographic bias. By enforcing a maximum margin classifier, the 
+boundary normal becomes entirely immune to the orthogonal structural and visual variances 
+that heavily corrupt the PCA approach. 
+Architectural Component 
+C-DeFR-L Original 
+Implementation (PCA) 
+Proposed Remediation 
+(Boundary Probing) 
+
+
+Optimization Objective 
+ 
+(Unsupervised Variance) 
+ s.t. constraints 
+(Supervised Separability) 
+Susceptibility to Sequence 
+Variance 
+Extremely High (Length and 
+syntax dominate) 
+Low (Orthogonal variance is 
+mathematically ignored) 
+Semantic Purity of 
+Extracted Vector 
+Low (Entangled with visual 
+attention artifacts) 
+High (Strictly aligns with the 
+targeted bias category label) 
+Reward Head 
+Interpretability 
+Ambiguous (
+ arbitrary, 
+unlabeled directions) 
+Explicit (
+ vectors map 
+perfectly to SB-Bench 
+domains) 
+By transitioning to explicitly mapped, boundary-orthogonal vectors, Phase 1 of the pipeline will 
+deliver clean, interpretable, and mathematically rigorous reward scalars to the downstream 
+Fast-RL controller, establishing the necessary foundation for stable multi-dimensional 
+alignment. 
+2. Degeneracies in Multi-Dimensional Reward 
+Balancing: Deconstructing the Fast-RL Phase 
+Phase 2 of the C-DeFR-L architecture introduces a dedicated "Fast-RL" optimization node 
+designed to dynamically balance the 
+ extracted reward heads into a single scalar reward 
+signal for the PPO framework: 
+. To achieve this, the system updates 
+the weighting vector 
+ using strategies deeply rooted in online learning, specifically 
+Exponentiated Gradient Descent (also known as the Multiplicative Weights Update algorithm) 
+and Projected Gradient Ascent.5 
+2.1 The Inevitability of Simplex Collapse via Replicator Dynamics 
+The Exponentiated Gradient formulation implemented in the architecture projects the weights 
+onto a 
+-dimensional probability simplex 
+ 
+
+
+using a log-space update rule: 
+ 
+ 
+where 
+ is the batch-averaged expected return across head 
+.5 
+This update rule is mathematically equivalent to the discrete-time replicator dynamics 
+prominently utilized in evolutionary game theory. While the Softmax operation strictly 
+guarantees that the weight vector 
+ remains situated on the probability simplex 
+, this 
+specific dynamic is highly prone to a phenomenon known as "winner-takes-all" or simplex 
+collapse when exposed to unscaled, non-stationary, and unbounded reward signals. 
+Because the reward heads 
+ in the original pipeline are derived from unnormalized linear 
+projections in Phase 1 (
+), their absolute magnitudes are arbitrary and 
+heavily dependent on the spectral norm of the specific PCA vector. If one specific 
+direction—for example, 
+, which as established earlier may accidentally correlate heavily 
+with a prevalent non-bias feature like sequence length or image brightness—consistently yields 
+a marginally higher expected return 
+, the multiplicative update rule will exponentially amplify 
+the corresponding weight 
+. Over successive PPO epochs, as the time step 
+, the 
+weight vector converges exponentially fast to a degenerate, one-hot vector residing at a vertex 
+of the simplex: 
+ 
+Once the vector 
+ collapses into a one-hot distribution, the entire theoretical premise of 
+multi-dimensional reward balancing is irrevocably destroyed. The VLM is subsequently 
+optimized exclusively against a single, potentially noisy reward head, completely abandoning all 
+other orthogonal dimensions of bias. This mathematical inevitability perfectly explains why the 
+C-DeFR-L pipeline failed to register broad, visible improvements across the highly diverse 54 
+sub-categories of the SB-Bench dataset.4 The optimization landscape mathematically forces 
+the Fast-RL algorithm to focus on a single dominant artifact, severely crippling the model's 
+ability to generalize fairness across intersectional sociodemographic categories. 
+2.2 Momentum Logit Scaling and the Absence of Entropy 
+
+
+Regularization 
+The alternative optimization strategy provided within the pipeline, designated as "Adam-style 
+Logit Scaling," attempts to mitigate volatility by tracking first and second-order momentum 
+over unconstrained logits 
+, which are subsequently mapped to the simplex via 
+Softmax.5 While the inclusion of momentum temporarily dampens the immediate volatility of 
+the gradients, it does not prevent the fundamental asymptotic convergence to a one-hot state. 
+The Softmax function, when fed progressively diverging logits—because 
+ 
+accumulates infinitely over time—will inevitably saturate, driving the smaller logits to absolute 
+zero in probability space. 
+To maintain a truly balanced, multi-dimensional reward profile capable of addressing the 
+extensive breadth of SB-Bench, the optimization of 
+ cannot rely on naive expected return 
+maximization. It must be reframed as a constrained Pareto optimization problem, ensuring that 
+no single reward dimension is continuously optimized at the catastrophic expense of the 
+remaining dimensions. 
+2.3 Mathematical Remediation: Entropy-Regularized Nash Bargaining 
+To mathematically prevent simplex collapse and guarantee sustained attention across all 
+ 
+bias dimensions, the system must introduce a strict regularizer that penalizes arbitrary 
+deviation from a uniform weight distribution. This approach forces the Fast-RL algorithm to 
+retain an equitable distribution of attention unless there is overwhelming, sustained statistical 
+evidence that a specific dimension is currently failing and requires immediate compensatory 
+focus. 
+We redefine the dynamic weighting process as an Entropy-Regularized Multi-Objective 
+learning problem. Instead of maximizing the raw scalar reward, we formulate the objective of 
+the dynamic weight controller as minimizing the maximum deviation across all reward heads, 
+which is mathematically related to Chebyshev scalarization, smoothed continuously by 
+Shannon entropy 
+. 
+The corrected, heavily stabilized update rule integrates a temperature-scaled entropy penalty 
+parameter 
+: 
+ 
+ 
+
+
+This optimization problem resolves elegantly to a closed-form Softmax update strictly gated by 
+the inverse temperature parameter: 
+ 
+By properly calibrating the temperature parameter 
+, the pipeline guarantees that the 
+distribution 
+ never collapses to a one-hot vertex state, mathematically forcing the 
+downstream PPO controller to continually optimize across all intersecting bias dimensions 
+simultaneously. Furthermore, by updating the logit 
+ based on the deficit from a predefined 
+baseline performance target 
+ rather than accumulating the raw magnitude 
+, the 
+weighting mechanism naturally and autonomously shifts its concentration toward the specific 
+bias dimensions where the model is currently underperforming. This creates an adaptive, 
+self-correcting balancing mechanism that is completely impervious to simplex collapse. 
+3. Trust Region Violations and the Mechanics of 
+Representation Collapse 
+The most catastrophic mathematical flaw identified within the C-DeFR-L pipeline resides in 
+Phase 3—the Causality-Aware Alignment phase—and its subsequent integration into the 
+unified PPO loss objective during Phase 5.5 This specific mechanistic error is almost entirely 
+responsible for the 3B model's absolute inability to learn, as it actively destroys the 
+fundamental convergence guarantees of the Proximal Policy Optimization algorithm, leading 
+directly to the phenomenon of representation collapse. 
+3.1 The Destructive Geometry of Surrogate Loss Scaling 
+During the alignment phase, the C-DeFR-L architecture computes a causal bias deviation 
+vector based on the representational difference between the active generated response and a 
+reference generated response. It calculates the L2 norm of this shift, applies a min-max 
+normalization across the batch, and generates a sample-specific scalar feedback weight 
+ 
+constrained strictly between 
+.5 
+In the decoupled loss optimization step, the pipeline applies this weight directly as an external 
+multiplier to the foundational PPO surrogate loss: 
+ 
+where 
+ is the importance sampling ratio and 
+ is the estimated 
+
+
+advantage.5 
+This mathematical formulation represents a profound misunderstanding of the Policy Gradient 
+Theorem and the highly sensitive mechanics of Trust Region optimization. In standard PPO, the 
+objective function relies entirely on the assumption that the advantage estimator 
+ 
+accurately reflects the sequence-level return relative to the current state-value baseline. The 
+surrogate clipping mechanism, restricted by 
+, mathematically guarantees that the policy 
+update step remains within a predefined bounded neighborhood (the trust region) around the 
+previous policy. This bounds the Kullback-Leibler (KL) divergence between update steps, 
+preventing catastrophic forgetting and ensuring monotonic performance improvement. 
+By multiplying the entire surrogate objective by the highly variable 
+, the pipeline is 
+effectively applying a dynamic, unpredictable, sample-specific learning rate modifier inside the 
+statistical expectation operator. If a generated response exhibits a massive bias deviation, 
+ 
+approaches 1.0, and the gradient step is taken at full magnitude. However, if the active policy 
+generates a response that is identical to the reference policy, 
+, meaning the assigned 
+weight falls to 
+. Consequently, the gradient for that specific sample is artificially 
+suppressed by a massive 90%. 
+This implementation creates three severe theoretical anomalies that paralyze the neural 
+network: 
+1.​ Advantage Distortion: The advantage metric 
+ natively encodes the magnitude of the 
+received reward. If a generated trajectory receives a poor reward due to the presence of 
+bias, the value of 
+ will naturally be negative and large in magnitude, correctly driving 
+the policy away from that region of the probability space. By subsequently multiplying the 
+surrogate objective by 
+ (which is itself derived from the reward shift), the pipeline 
+applies a recursive, mathematically unjustified double-penalty, fundamentally distorting 
+the Generalized Advantage Estimation (GAE) distribution. 
+2.​ Gradient Norm Heterogeneity: Because the scalar 
+ varies wildly and unpredictably 
+across a training batch of size 
+, the resulting batch gradient 
+ becomes 
+entirely dominated by a minute fraction of samples where 
+. This induces 
+severe gradient variance, completely destabilizing the AdamW optimizer's vital 
+momentum (
+) and variance tracking matrices (
+).5 
+3.​ Invalidation of the Trust Region Lipschitz Continuity: The PPO clip fraction 
+ is 
+carefully calibrated for a specifically expected, uniform gradient norm. Scaling the overall 
+objective continuously alters the effective step size geometry on a per-sample basis. This 
+
+
+allows the parameter update to violently violate the theoretical trust region boundaries 
+on certain batches, while simultaneously paralyzing learning and stranding the optimizer 
+in local minima on others. 
+3.2 The Etiology of Latent Representation Collapse 
+Recent foundational literature analyzing the behavioral failure modes of RLHF explicitly 
+confirms that such severe gradient distortions are the primary driver of "Representation 
+Collapse" in deep reinforcement learning.16 As rigorously analyzed by Moalla et al. (2024), the 
+integrity of PPO's trust region is highly dependent on the stability and quality of the model's 
+underlying latent representations.16 When a deep RL agent is continuously subjected to sparse, 
+arbitrarily scaled, or violently heterogeneous gradients—precisely the environment that the 
+scalar 
+ induces—the neural network prioritizes immediate capacity preservation by 
+systematically collapsing its internal representational space into a highly degenerate, low-rank 
+topology. 
+Because the smaller 3-Billion parameter model utilized in the architecture lacks the vast 
+parametric redundancy and resilience of a 70-Billion parameter model, it cannot physically 
+absorb these continuous gradient shockwaves. The model responds defensively by shrinking 
+its latent embedding space dimensionality. This collapse causes the representations for vastly 
+different images and prompts to map to the identical, degenerate coordinate points in the 
+embedding space, completely obliterating the model's ability to distinguish between distinct 
+visual concepts.19 Research into methods like CLARIFY underscores that ambiguous or 
+conflicting loss parameters directly cause these distinct segments to merge inappropriately.19 
+Once the latent representations collapse, the policy network outputs entirely uniform, baseline 
+responses regardless of the input context, completely ignoring the complex visual stimuli from 
+the SB-Bench dataset. This theoretical cascade accurately models the specific failure observed 
+by the architecture: the model suffered from complete plasticity loss, rendering any visible 
+debiasing strictly impossible.17 
+3.3 Mathematical Remediation: Dispersive Regularization and 
+Unscaled Objectives 
+To definitively resolve this critical mathematical failure, the causal alignment metric must be 
+completely and immediately removed as a multiplier on the surrogate policy loss. The 
+fundamental PPO objective must remain pristine and unscaled to rigorously preserve the 
+Lipschitz continuity of the trust region: 
+ 
+Instead of scaling the loss, the causal bias deviation should be integrated where it 
+mathematically belongs according to Markov Decision Process fundamentals: strictly within the 
+reward function architecture prior to the computation of GAE. The final sequence reward 
+
+
+should be an additive composition of the multi-dimensional task reward and a causal intrinsic 
+penalty: 
+ 
+where 
+ serves as a tunable impact coefficient and 
+ acts as a margin threshold 
+allowing for minor, benign semantic shifts without triggering penalty. This structural correction 
+ensures that the advantage estimator 
+ absorbs the causal penalty natively, correctly and 
+proportionally shaping the gradient without altering the geometric boundaries of the trust 
+region optimization. 
+Furthermore, because the model has already demonstrated a severe susceptibility to 
+representation collapse, the architecture must implement proactive countermeasures. By 
+integrating Dispersive Loss Regularization—a technique highly effective in combating 
+representation collapse in diffusion policies (D²PPO) and reinforcement learning 21—the pipeline 
+can physically enforce full-rank representations. Dispersive loss operates directly on the latent 
+space embedding geometry, penalizing the model when the embeddings of diverse, distinct 
+inputs begin to cluster or merge, thereby forcing the preservation of a high-dimensional, 
+expressive capacity. 
+Given a batch of final hidden states 
+, the dispersive loss is computed as a 
+repulsion term evaluated over all distinct pairwise permutations in the batch: 
+ 
+where 
+ controls the radius of the repulsive kernel. 
+The new, mathematically stable total loss configuration becomes: 
+ 
+This robust formulation guarantees that the VLM retains its complex representational capacity 
+(actively enforced by 
+) while safely and smoothly navigating the true policy trust region 
+(preserved entirely by the unscaled 
+). 
+4. Autoregressive Generative Trajectories and 
+Temporal Credit Assignment 
+Phase 3 of the C-DeFR-L pipeline attempts to enforce policy alignment by executing a "True 
+
+
+Dual Generation" step within the training loop. For every prompt, an active response 
+ and 
+a reference response 
+ are generated autoregressively side-by-side, heavily relying on 
+LoRA parameter toggling to switch model behaviors dynamically.5 To align these varied outputs 
+for scoring, the framework leverages dynamic left-padding to satisfy the strict sequence 
+formatting requirements of Flash Attention 2, subsequently extracts their macro-embeddings 
+ and 
+, projects them onto the extracted reward heads, and finally computes the 
+causal shift.5 
+4.1 Token-Level vs. Sequence-Level Disconnect and Credit 
+Assignment 
+The fundamental analytical error implemented in this phase is treating autoregressive, 
+text-based debiasing as a sequence-level spatial mapping problem rather than a strictly 
+token-level temporal mapping problem. 
+When a VLM generates a biased response based on an SB-Bench image—for instance, 
+observing an image of an elderly individual and generating the highly stereotypical sentence, 
+"This person is likely very slow and inherently frail"—the actual bias is not distributed evenly 
+across the text. Rather, the bias is injected at highly specific, localized semantic pivot points, 
+defined in recent literature as "concept tokens" (e.g., the specific generation of "slow" or 
+"frail").6 Methods aiming to enhance model robustness, such as ERICT, actively identify these 
+concept tokens to block out noise and mitigate spurious correlations dynamically.6 
+In the C-DeFR-L architecture, the generative trajectory embeddings 
+ and 
+ are 
+extracted only after the entire text sequence has concluded generation.5 By calculating the 
+reward projection purely at the macro-sequence level, the pipeline diffuses the critical gradient 
+signal across the entire length of the generation trajectory. 
+When Generalized Advantage Estimation (GAE) computes the token-level advantages 
+backward over the sequence 5: 
+ 
+the instantaneous reward 
+ is effectively set to zero for all tokens except the final 
+terminating token, where the massive, highly tangled sequence-level reward 
+ is abruptly 
+injected. This architecture creates a mathematically extreme temporal credit assignment 
+problem. The PPO critic (the Value network) struggles immensely to isolate which specific 
+token in the generated sequence triggered the bias shift, leading to incredibly high-variance 
+value estimates, destabilized gradients, and ultimately, stalled policy updates. 
+
+
+4.2 Dynamic Left Padding Artifacts and RoPE Disruption 
+Additionally, the pipeline's strict reliance on dynamic left-padding to satisfy Flash Attention 2 
+introduces a subtle, yet deeply pervasive and destructive attention mask artifact. When the 
+active sequence 
+ and the reference sequence 
+ are of different absolute 
+lengths—which occurs frequently as the active policy alters token choices during 
+exploration—left-padding the shorter sequence shifts the absolute positional encodings of all 
+its tokens relative to the visual embedding tokens, which natively reside at the absolute 
+beginning of the prompt sequence. 
+In models utilizing Rotary Position Embeddings (RoPE), such as the Qwen2.5 architecture, 
+shifting the absolute sequence positions mathematically alters the relative distances computed 
+dynamically within the cross-modal attention blocks. Consequently, the measured vector 
+distance 
+ captured by the causal deviation calculation 5 becomes heavily 
+contaminated by artificial positional shifts caused entirely by the padding disparity, rather than 
+genuine semantic or stereotypic bias deviations. The pipeline is inadvertently, yet aggressively, 
+penalizing the model for generating responses of different lengths, confusing sequence length 
+discrepancy with bias violation. 
+Evaluation Metric 
+Sequence-Level 
+Architecture 
+Token-Level Architecture 
+Reward Granularity 
+Sparse (Calculated 
+exclusively at final token) 
+Dense (Evaluated precisely at 
+every token ) 
+Value Critic Stability 
+Low (High variance due to 
+delayed credit) 
+High (Immediate, highly 
+correlated credit assignment) 
+Positional Artifacts 
+High (Left-pad shifts disrupt 
+RoPE relative distances) 
+None (Native, uninterrupted 
+forward pass calculation) 
+Reference Alignment 
+External Generation (L2 
+spatial shift prone to error) 
+Internal Log-Ratio (Direct 
+probabilistic KL-Divergence) 
+
+
+4.3 Mathematical Remediation: Token-Level Alignment via Direct 
+Preference Optimization Principles 
+To structurally eliminate the severe temporal credit assignment and positional embedding 
+artifacts, the architecture must fundamentally transition from sequence-level latent matching 
+to Token-Level Logit Alignment.7 This transition aligns with leading frameworks like ALA, which 
+directly adjusts token-level logits to measure bias misalignment seamlessly across modalities 23, 
+and principles derived directly from Direct Preference Optimization (DPO) 24, explicitly tailored 
+for VLMs incorporating noise-robust transformations.26 
+Rather than generating full, separated trajectories and subsequently attempting to 
+back-propagate a noisy sequence-level causal shift, the pipeline should integrate the reference 
+constraint directly into the token generation step. If the architecture dictates maintaining a 
+strict RL approach with an Actor-Critic framework, the reward distribution must be 
+mathematically transformed into a dense, instantaneous token-level reward signal. 
+Let the generated token sequence be defined as 
+. Utilizing the newly 
+proposed Boundary-Orthogonal Reward Heads (defined in Section 1.3), the system will extract 
+the intermediate latent representation at every discrete token generation step: 
+. 
+The token-level reward is computed instantaneously during the forward pass: 
+ 
+We mathematically define the causal token-level reward shift using the reference model's 
+inherent token probabilities, effectively merging the causal safety constraint directly into the 
+step-by-step reward matrix: 
+ 
+This specific formulation provides a dense, immediate, and highly accurate reward signal 
+ at 
+every sequential time step. The value function 
+ can now accurately track and evaluate 
+the accumulation of sociodemographic bias strictly token-by-token. Furthermore, because the 
+reward and alignment are computed natively during the standard forward pass of text 
+generation, it entirely bypasses the need for disjoint, post-hoc left-padding alignment, 
+completely eliminating the RoPE positional embedding corruption. 
+To further stabilize the dense reward array against the complex, highly noisy backgrounds 
+inherent in non-synthetic SB-Bench images, the pipeline should apply a Box-Cox 
+
+
+transformation to the reward signal—a technique proven highly effective in mitigating modality 
+bias and severe hallucinations in automated preference data 26: 
+ 
+where 
+ dynamically adjusts the algorithm's mathematical noise robustness based on the 
+evaluated variance of the visual tokens in the input prompt. This transformation smooths 
+volatile token rewards, ensuring that the PPO controller receives a steady, interpretable signal 
+that prioritizes semantic bias correction over reacting to high-frequency visual noise. 
+5. Architectural Synthesis: The Remediated Pipeline 
+Blueprint 
+To successfully recover from the catastrophic collapse observed in the initial SB-Bench 
+evaluation 5, the C-DeFR-L pipeline must be mathematically rebuilt from the ground up, 
+comprehensively integrating the highly targeted remediations discussed systematically above. 
+The resulting refined architecture replaces heuristically flawed operations with mathematically 
+rigorous, geometrically sound equivalents, preserving the original intent of multi-dimensional 
+causal debiasing while ensuring strict convergence on compact VLMs like the 3-Billion 
+parameter model. 
+The remediated architecture operates across an optimized, three-phase mathematical 
+framework: 
+First, the Latent Boundary Probing (LBP) phase completely replaces the variance-based PCA 
+extraction. The curated SB-Bench dataset is processed to isolate chosen and rejected pairs 
+strictly categorized by bias domain. Instead of aggregating global differences, the system 
+calculates 
+ independent Support Vector Normals 
+ for each demographic category, 
+establishing hyperplanes that definitively separate fair from biased representations in the 
+high-dimensional space. These 
+ highly purified boundary vectors are stacked into a singular 
+projection matrix 
+. Consequently, the raw latent reward vector for any evaluated 
+hidden state 
+ is cleanly, linearly defined as the dot product 
+, yielding semantically 
+pure scores completely uncorrupted by visual or syntactic variance. 
+Second, the Entropy-Regularized Multi-Objective Control framework replaces the unstable 
+Simplex Mirror Descent. The Fast-RL node tracks the moving average of dense token-level 
+returns for each dimension. The simplex update relies strictly on the entropy-regularized Nash 
+formulation 
+. By maintaining a temperature 
+, the mathematics 
+guarantee that no single dominant artifact dimension can force a winner-takes-all simplex 
+
+
+collapse, ensuring comprehensive demographic fairness across all domains. 
+Finally, the Dense Reward PPO with Dispersive Regularization replaces the fatally flawed 
+sequence-level scaling objective. The Actor policy generates sequences natively without 
+requiring secondary padding passes. At each temporal step , the hidden state 
+ is projected 
+via the matrix 
+ and dynamically weighted by 
+ to produce a dense task reward, while the 
+log-probability ratio against the reference policy acts as an inline causal penalty. The Critic 
+network evaluates value per token based entirely on this dense reward, completely eliminating 
+the temporal credit assignment ambiguity. Crucially, the PPO surrogate objective remains 
+structurally unaltered and unscaled, explicitly preserving the 
+-clipped trust region. To 
+definitively prevent future parameter collapse, the optimizer backpropagates the unified 
+objective: 
+. The introduction of the dispersive 
+term mathematically prevents the compact model from suffering rank degradation by 
+enforcing a calculated repulsion metric across the batch's latent states.21 
+This comprehensively redesigned framework seamlessly aligns with the original high-end 
+hardware constraints (such as the A100-80GB optimizations).5 In fact, it dramatically enhances 
+computational efficiency; by discarding the secondary "True Dual Generation" spatial alignment 
+step and substituting it with in-line log-ratio computation against the reference adapter, the 
+system significantly reduces peak VRAM allocation, yielding a robust, highly stable, and 
+mathematically sound approach to VLM alignment. 
+Works cited 
+1.​ SB-Bench: Stereotype Bias Benchmark for Large Multimodal Models - arXiv, 
+accessed May 19, 2026, https://arxiv.org/html/2502.08779v2 
+2.​ SB-Bench: Stereotype Bias Benchmark for Large Multimodal Models - 
+ResearchGate, accessed May 19, 2026, 
+https://www.researchgate.net/publication/388963952_SB-Bench_Stereotype_Bias
+_Benchmark_for_Large_Multimodal_Models 
+3.​ GitHub - UCF-CRCV/BBQ-Vision: SB-Bench: Stereotype Bias Benchmark for 
+Large Multimodal Models, accessed May 19, 2026, 
+https://github.com/UCF-CRCV/BBQ-Vision 
+4.​ ucf-crcv/SB-Bench · Datasets at Hugging Face, accessed May 19, 2026, 
+https://huggingface.co/datasets/ucf-crcv/SB-Bench 
+5.​ debiasing_methodology_guide.md 
+6.​ ICML Poster ERICT: Enhancing Robustness by Identifying Concept Tokens in 
+Zero-Shot Vision Language Models, accessed May 19, 2026, 
+https://icml.cc/virtual/2025/poster/44869 
+7.​ Over-Alignment and Geometric Debiasing in Vision-Language Models - arXiv, 
+accessed May 19, 2026, https://arxiv.org/html/2605.08245v3 
+8.​ UMAD: Enhancing LLM Debiasing via Multi-Agent Debate and Token-Level Bias 
+
+
+Interpretation - ACL Anthology, accessed May 19, 2026, 
+https://aclanthology.org/2025.ccl-1.81.pdf 
+9.​ ASRU: Activation Steering Meets Reinforcement Unlearning for Multimodal Large 
+Language Models - arXiv, accessed May 19, 2026, 
+https://arxiv.org/html/2605.15687v1 
+10.​VLM Latent Boundary Crossing | LLM Security Database - Promptfoo, accessed 
+May 19, 2026, 
+https://promptfoo.dev/lm-security-db/vuln/vlm-latent-boundary-crossing-4c1ad0
+6b 
+11.​JailBound: Jailbreaking Internal Safety Boundaries of Vision-Language Models | 
+OpenReview, accessed May 19, 2026, 
+https://openreview.net/forum?id=yg1yfaKolw&referrer=%5Bthe%20profile%20of
+%20Xuan%20Tong%5D(%2Fprofile%3Fid%3D~Xuan_Tong1) 
+12.​NeurIPS Poster BendVLM: Test-Time Debiasing of Vision-Language Embeddings, 
+accessed May 19, 2026, https://neurips.cc/virtual/2024/poster/93242 
+13.​ICML Poster Steer LLM Latents for Hallucination Detection, accessed May 19, 
+2026, https://icml.cc/virtual/2025/poster/45122 
+14.​Controlling Large Language Models Through Concept Activation Vectors - arXiv, 
+accessed May 19, 2026, https://arxiv.org/html/2501.05764v1 
+15.​NeurIPS Poster Stable Gradients for Stable Learning at Scale in Deep 
+Reinforcement Learning, accessed May 19, 2026, 
+https://neurips.cc/virtual/2025/poster/117652 
+16.​Plasticity Loss in Deep Reinforcement Learning: A Survey - arXiv, accessed May 
+19, 2026, https://arxiv.org/html/2411.04832v3 
+17.​No Representation, No Trust: Connecting Representation, Collapse, and Trust 
+Issues in PPO | OpenReview, accessed May 19, 2026, 
+https://openreview.net/forum?id=Wy9UgrMwD0¬eId=kiLWkRKb96 
+18.​Connecting Representation, Collapse, and Trust Issues in PPO - arXiv, accessed 
+May 19, 2026, https://arxiv.org/html/2405.00662v3 
+19.​ICML Poster CLARIFY: Contrastive Preference Reinforcement Learning for 
+Untangling Ambiguous Queries, accessed May 19, 2026, 
+https://icml.cc/virtual/2025/poster/43680 
+20.​Understanding and Preventing Capacity Loss in Reinforcement Learning - 
+OpenReview, accessed May 19, 2026, 
+https://openreview.net/forum?id=ZkC8wKoLbQ7 
+21.​D²PPO: Diffusion Policy Policy Optimization with Dispersive Loss, accessed May 
+19, 2026, https://ojs.aaai.org/index.php/AAAI/article/view/38959/42921 
+22.​D²PPO: Diffusion Policy Policy Optimization with Dispersive Loss - arXiv, accessed 
+May 19, 2026, https://arxiv.org/html/2508.02644v1 
+23.​Adaptive Logit Adjustment for Debiasing Multimodal Language Models - 
+OpenReview, accessed May 19, 2026, 
+https://openreview.net/forum?id=u02Tgg4UYg 
+24.​NeurIPS Poster Systematic Reward Gap Optimization for Mitigating VLM 
+Hallucinations, accessed May 19, 2026, 
+https://neurips.cc/virtual/2025/poster/116851 
+
+
+25.​Preference Tuning with Human Feedback on Language, Speech, and Vision Tasks: 
+A Survey - Columbia University, accessed May 19, 2026, 
+http://www.columbia.edu/~wt2319/Preference_survey.pdf 
+26.​[2503.17928] Debiasing Multimodal Large Language Models via Noise-Aware 
+Preference Optimization - arXiv, accessed May 19, 2026, 
+https://arxiv.org/abs/2503.17928 
+
+

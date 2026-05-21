@@ -52,10 +52,14 @@ class FastRLNode:
         Update alpha via deficit-based entropy-regularized softmax,
         then compute composite reward from normalized scores.
 
+        In token-level mode, rewards_curr should be mean-pooled over valid
+        token positions before calling this method. The updated self.alpha
+        is used externally for per-token dense reward weighting.
+
         Args:
-            rewards_curr: (batch_size, num_heads) raw reward projections.
+            rewards_curr: (batch_size, num_heads) — mean reward projections per head.
         Returns:
-            composite_reward: (batch_size,) weighted normalized reward.
+            composite_reward: (batch_size,) weighted normalized reward (sequence-level summary).
         """
         rewards_curr = rewards_curr.float()
         r_k_mean = rewards_curr.mean(dim=0)  # (num_heads,)

@@ -13,8 +13,16 @@ logger = logging.getLogger(__name__)
 
 class PPOVLMController:
     """
-    Decoupled PPO Trainer for Vision-Language Models.
-    Integrates Phase 2 (FastRL) and Phase 3 (CAA Feedback) strictly decoupled.
+    Token-Level Dense Reward PPO Trainer for Vision-Language Models.
+
+    Key architectural changes (v2):
+      - Dense token-level reward: projects hidden states at EVERY generated token
+        onto reward heads, providing per-token bias signal to GAE.
+      - Logit-grounded reward: adds a component measuring actual token probability
+        shift, preventing null-space exploitation (representation hacking).
+      - Token-level KL folded directly into per-token reward for native GAE absorption.
+      - Causal penalty uses mean-token embedding drift (not EOS-only).
+      - Dispersive loss on mean-pooled embeddings (O(B^2), not O((B*T)^2)).
     """
     def __init__(
         self,
@@ -30,17 +38,19 @@ class PPOVLMController:
         lambda_causal: float = 0.5,
         delta_margin: float = 1.0,
         lambda_dispersive: float = 0.01,
+        logit_reward_coef: float = 0.1,
     ):
         """
         Args:
             active_policy: The 3B model (with LoRA attached and active).
-                           We assume disabling the LoRA adapter yields the reference policy.
-            reward_heads_weight: Tensor of shape (K, hidden_size) of the PCA orthogonal directions.
+                           Disabling the LoRA adapter yields the reference policy.
+            reward_heads_weight: Tensor of shape (K, hidden_size) — reward direction vectors.
             accelerator: Hugging Face Accelerate instance.
-            fast_rl_node: Instance of FastRLNode for dynamic mirror descent updates.
+            fast_rl_node: Instance of FastRLNode for dynamic reward head balancing.
             lambda_causal: Causal deviation penalty strength (in reward).
             delta_margin: Tolerance margin for embedding drift before penalty activates.
             lambda_dispersive: Weight of dispersive regularization loss.
+            logit_reward_coef: Weight of the logit-grounded reward component.
         """
         self.policy = active_policy
         
@@ -63,11 +73,12 @@ class PPOVLMController:
         self.lambda_causal = lambda_causal
         self.delta_margin = delta_margin
         self.lambda_dispersive = lambda_dispersive
+        self.logit_reward_coef = logit_reward_coef
         
         self.reward_heads_weight = reward_heads_weight.to(accelerator.device, dtype=torch.bfloat16)
 
-    def extract_logits_and_values(self, model, value_head, input_ids, attention_mask, pixel_values, kwargs, extract_embedding=False):
-        """Forward pass to extract logits and values, and optionally the penultimate layer embedding."""
+    def extract_logits_values_and_hidden(self, model, value_head, input_ids, attention_mask, pixel_values, kwargs):
+        """Forward pass returning logits, per-token values, and full penultimate hidden states."""
         outputs = model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -76,44 +87,10 @@ class PPOVLMController:
             **kwargs
         )
         logits = outputs.logits
-        hidden_states = outputs.hidden_states[-1] # final layer
+        hidden_states = outputs.hidden_states[-1]  # final layer for values
         values = value_head(hidden_states).squeeze(-1)
-        
-        if extract_embedding:
-            penultimate = outputs.hidden_states[-2] 
-            # Assuming padding is handled, grab the last token
-            pad_token_id = getattr(model.config, "pad_token_id", None)
-            if pad_token_id is not None:
-                seq_lens = torch.eq(input_ids, pad_token_id).int().argmax(-1) - 1
-                seq_lens = seq_lens % input_ids.shape[-1]
-                e_token = penultimate[torch.arange(penultimate.shape[0]), seq_lens, :]
-            else:
-                e_token = penultimate[:, -1, :]
-            return logits, values, e_token
-            
-        return logits, values
-
-    def extract_preference_embeddings(self, model, input_ids, attention_mask, pixel_values, kwargs):
-        """Extract the <EOS> token embedding from the penultimate layer of the extractor."""
-        with torch.no_grad():
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                pixel_values=pixel_values,
-                output_hidden_states=True,
-                **kwargs
-            )
-            # Penultimate layer
-            penultimate = outputs.hidden_states[-2] 
-            # Assuming padding is handled, grab the last token
-            pad_token_id = getattr(model.config, "pad_token_id", None)
-            if pad_token_id is not None:
-                seq_lens = torch.eq(input_ids, pad_token_id).int().argmax(-1) - 1
-                seq_lens = seq_lens % input_ids.shape[-1]
-                e_token = penultimate[torch.arange(penultimate.shape[0]), seq_lens, :]
-            else:
-                e_token = penultimate[:, -1, :]
-            return e_token
+        penultimate = outputs.hidden_states[-2]  # penultimate layer for reward projection
+        return logits, values, penultimate
 
     def compute_logprobs(self, logits, labels):
         """Standard logprob extraction."""
@@ -127,32 +104,42 @@ class PPOVLMController:
         per_token_logprobs = torch.gather(logprobs, 2, labels.unsqueeze(2)).squeeze(2)
         return per_token_logprobs, loss_mask
 
-    def compute_gae(self, rewards: torch.Tensor, values: torch.Tensor, loss_mask: torch.Tensor):
-        """Calculate generalized advantage estimate."""
+    def compute_dense_gae(self, dense_rewards: torch.Tensor, values: torch.Tensor, loss_mask: torch.Tensor):
+        """
+        Compute GAE with DENSE per-token rewards.
+
+        Args:
+            dense_rewards: (batch, seq_len) — reward signal at every token position.
+            values: (batch, seq_len) — value estimates per token.
+            loss_mask: (batch, seq_len) — which tokens are valid.
+        Returns:
+            advantages: (batch, seq_len)
+            returns: (batch, seq_len)
+        """
         batch_size, seq_len = values.shape
         advantages = torch.zeros_like(values)
-        lastgaelam = 0
-        
-        # rewards are sequence-level (sparsely populated at the last valid token of each sequence)
-        # We will map the scalar R_final to the end of the sequence.
-        seq_rewards = torch.zeros_like(values)
-        end_indices = loss_mask.int().sum(dim=1) - 1 # Last valid token
-        
-        for i in range(batch_size):
-            if end_indices[i] >= 0:
-                seq_rewards[i, end_indices[i]] = rewards[i]
-                
+        lastgaelam = torch.zeros(batch_size, device=values.device)
+
         for t in reversed(range(seq_len)):
-            nextvalues = values[:, t + 1] if t < seq_len - 1 else 0.0
-            delta = seq_rewards[:, t] + self.gamma * nextvalues * loss_mask[:, t] - values[:, t]
-            advantages[:, t] = lastgaelam = delta + self.gamma * self.lam * lastgaelam * loss_mask[:, t]
-            
+            nextvalues = values[:, t + 1] if t < seq_len - 1 else torch.zeros(batch_size, device=values.device)
+            delta = dense_rewards[:, t] + self.gamma * nextvalues * loss_mask[:, t] - values[:, t]
+            lastgaelam = delta + self.gamma * self.lam * lastgaelam * loss_mask[:, t]
+            advantages[:, t] = lastgaelam
+
         returns = advantages + values
         return advantages, returns
 
     def step(self, batch, optimizer_policy, optimizer_value):
         """
-        Executes a single custom PPO Step with decoupled CAA weighting.
+        Executes a single token-level dense reward PPO step.
+
+        Changes from v1 (sequence-level):
+          - Reward projected at EVERY token position, not just EOS
+          - KL penalty integrated per-token into dense reward
+          - Logit-grounded reward prevents null-space exploitation
+          - Causal penalty from mean-token drift (not EOS-only)
+          - Dispersive loss on mean-pooled embeddings
+          - No separate reference generation pass for embeddings
         """
         prompt_input_ids = batch["input_ids"]
         prompt_attention_mask = batch["attention_mask"]
@@ -166,10 +153,9 @@ class PPOVLMController:
         if video_grid_thw is not None: kwargs["video_grid_thw"] = video_grid_thw
         if mm_token_type_ids is not None: kwargs["mm_token_type_ids"] = mm_token_type_ids
         
-        # 1. TRUE DUAL GENERATION
+        # 1. GENERATION — Active policy only (no separate reference generation needed)
         self.policy.eval()
         with torch.no_grad():
-            # Generate $y_{curr}$ from Active Policy
             unwrapped_policy = self.accelerator.unwrap_model(self.policy)
             
             curr_outputs = unwrapped_policy.generate(
@@ -183,73 +169,37 @@ class PPOVLMController:
                 top_p=0.9,
                 use_cache=True
             )
-            
-            # Generate $y_{init}$ from Reference Policy
-            with self.policy.disable_adapter():
-                init_outputs = unwrapped_policy.generate(
-                    prompt_input_ids,
-                    attention_mask=prompt_attention_mask,
-                    pixel_values=pixel_values,
-                    **kwargs,
-                    max_new_tokens=32,
-                    do_sample=True,
-                    temperature=0.7,
-                    top_p=0.9,
-                    use_cache=True
-                )
                 
         # Reconstruct dynamic attention masks natively
         pad_token_id = getattr(self.policy.config, "pad_token_id", None)
         if pad_token_id is None:
-            pad_token_id = 151643 # Qwen2 default pad token, or fallback to 0
+            pad_token_id = 151643  # Qwen2 default pad token
         
-        # Re-pad generated sequences to the LEFT for Flash Attention compatibility.
-        # generate() produces right-padded outputs (content + pad tokens at end).
-        # Qwen2.5-VL with Flash Attention requires left-padding.
         def _left_pad_generated(sequences, pad_id):
             """Convert right-padded generated sequences to left-padded."""
             attention_mask = (sequences != pad_id).long()
             batch_size, seq_len = sequences.shape
-            # Count actual content length per sequence
             content_lens = attention_mask.sum(dim=1)
-            # If all sequences have the same length (no padding), skip
             if (content_lens == seq_len).all():
                 return sequences, attention_mask
-            # Re-arrange: move padding to the left
             new_sequences = torch.full_like(sequences, pad_id)
             new_mask = torch.zeros_like(attention_mask)
             for i in range(batch_size):
                 clen = content_lens[i].item()
-                # Content is at the start of the original (right-padded) sequence
                 new_sequences[i, seq_len - clen:] = sequences[i, :clen]
                 new_mask[i, seq_len - clen:] = 1
             return new_sequences, new_mask
         
         curr_outputs, curr_attention_mask = _left_pad_generated(curr_outputs, pad_token_id)
-        init_outputs, init_attention_mask = _left_pad_generated(init_outputs, pad_token_id)
 
-        # Build post-generation kwargs for scoring forward passes.
-        # Key differences from generation kwargs:
-        #   1. pixel_values=None: images were already consumed during generate() and
-        #      embedded into the KV cache. The generated input_ids still contain image
-        #      placeholder tokens, but passing raw pixel_values again would cause the
-        #      model to try to re-embed them, leading to a token count mismatch.
-        #   2. mm_token_type_ids must be extended: generated sequences are longer than
-        #      prompts by max_new_tokens. New tokens are text (type=0), so we pad with 0s.
-        #   3. image_grid_thw / video_grid_thw are kept as-is (they describe the image
-        #      patches, not the sequence length).
-        def _build_scoring_kwargs(gen_outputs, gen_attention_mask, original_kwargs):
-            """Build kwargs suitable for a full scoring forward pass on generated sequences.
-            pixel_values are NOT passed for scoring (images consumed during generate()),
-            so image_grid_thw/video_grid_thw are also excluded."""
+        # Build scoring kwargs (no pixel_values — images consumed during generate())
+        def _build_scoring_kwargs(gen_outputs, original_kwargs):
             scoring_kw = {}
-            
             if "mm_token_type_ids" in original_kwargs:
-                orig_mm = original_kwargs["mm_token_type_ids"]  # (batch, prompt_len)
+                orig_mm = original_kwargs["mm_token_type_ids"]
                 gen_len = gen_outputs.shape[1]
                 extra = gen_len - orig_mm.shape[1]
                 if extra > 0:
-                    # Extend with zeros (text token type) to match generated length
                     ext = torch.zeros(
                         (orig_mm.shape[0], extra),
                         dtype=orig_mm.dtype,
@@ -260,91 +210,100 @@ class PPOVLMController:
                     scoring_kw["mm_token_type_ids"] = orig_mm
             return scoring_kw
         
-        curr_scoring_kwargs = _build_scoring_kwargs(curr_outputs, curr_attention_mask, kwargs)
-        init_scoring_kwargs = _build_scoring_kwargs(init_outputs, init_attention_mask, kwargs)
+        curr_scoring_kwargs = _build_scoring_kwargs(curr_outputs, kwargs)
 
-        # 2. Extract Active Policy Logprobs and Values over y_{curr}
-        # NOTE: pixel_values=None for scoring passes. Images were consumed during generate()
-        # and are encoded in the generated input_ids as placeholder tokens. Re-passing
-        # pixel_values would cause a token/feature count mismatch.
+        # 2. ACTIVE POLICY FORWARD — extract logits, values, and ALL hidden states
         self.policy.train()
         self.value_head.train()
         
-        curr_logits, curr_values = self.extract_logits_and_values(
+        curr_logits, curr_values, curr_penultimate = self.extract_logits_values_and_hidden(
             self.policy, self.value_head, curr_outputs, curr_attention_mask, None, curr_scoring_kwargs
         )
         curr_logprobs, loss_mask = self.compute_logprobs(curr_logits, curr_outputs)
         
-        # 3. Extract Reference Policy Logprobs over y_{curr} AND e_curr simultaneously
+        # 3. REFERENCE POLICY FORWARD — logits and hidden states (single pass)
         with torch.no_grad():
             self.policy.eval()
             with self.policy.disable_adapter():
-                init_logits_curr_traj, _, e_curr = self.extract_logits_and_values(
-                    self.policy, self.value_head, curr_outputs, curr_attention_mask, None, curr_scoring_kwargs, extract_embedding=True
+                ref_logits, _, ref_penultimate = self.extract_logits_values_and_hidden(
+                    self.policy, self.value_head, curr_outputs, curr_attention_mask, None, curr_scoring_kwargs
                 )
-                init_logprobs, _ = self.compute_logprobs(init_logits_curr_traj, curr_outputs)
-                
-                # 5. Extract Embeddings for y_{init}
-                e_init = self.extract_preference_embeddings(
-                    self.policy, init_outputs, init_attention_mask, None, init_scoring_kwargs
-                )
-                
+                ref_logprobs, _ = self.compute_logprobs(ref_logits, curr_outputs)
             self.policy.train()
-                
-        # 4. KL Divergence Penalty (Token level)
-        kl_divs = curr_logprobs - init_logprobs
-        seq_kl = (kl_divs * loss_mask).sum(dim=1) # (Batch,)
+
+        # 4. TOKEN-LEVEL DENSE REWARD COMPUTATION
+        # Align penultimate hidden states with the shifted logprob positions:
+        # logprobs/loss_mask are (batch, seq_len-1) due to shift, so use penultimate[:, 1:, :]
+        h_active = curr_penultimate[:, 1:, :].to(self.reward_heads_weight.dtype)   # (B, T, D)
+        h_ref = ref_penultimate[:, 1:, :].to(self.reward_heads_weight.dtype)       # (B, T, D)
         
-        # 6. Orthogonal Scoring (Phase 1 application)
-        # w_k dot e_curr => (Batch, K)
-        # Cast embeddings to match reward heads dtype (accelerate may upcast to fp32)
-        e_curr = e_curr.to(self.reward_heads_weight.dtype)
-        e_init = e_init.to(self.reward_heads_weight.dtype)
-        r_curr_k = torch.matmul(e_curr, self.reward_heads_weight.T)
+        # Project ALL token hidden states onto reward heads: (B, T, D) @ (D, K) → (B, T, K)
+        r_token_k = torch.matmul(h_active, self.reward_heads_weight.T)  # (B, T, K)
         
-        # 7. Phase 2 - Fast-RL Dynamic Balancing (with z-score normalization)
-        R_task = self.fast_rl.update(r_curr_k)
+        # Mean-pool over sequence for FastRL alpha update (global head importance)
+        # Only pool over valid (non-padding) positions
+        mask_expanded = loss_mask.unsqueeze(-1).float()  # (B, T, 1)
+        valid_counts = mask_expanded.sum(dim=1).clamp(min=1.0)  # (B, 1)
+        r_mean_k = (r_token_k * mask_expanded).sum(dim=1) / valid_counts  # (B, K)
         
-        # 8. Causal penalty as REWARD ADDITIVE (not loss multiplier!)
-        # Penalizes embedding drift beyond margin — absorbed natively by GAE
+        # Update FastRL alpha weights (returns scalar composite — we use alpha directly for dense)
+        _ = self.fast_rl.update(r_mean_k)
+        alpha = self.fast_rl.alpha  # (K,) — current head weights
+        
+        # Dense task reward: weighted sum across heads at each token
+        r_task_dense = torch.matmul(r_token_k, alpha)  # (B, T)
+        
+        # 5. LOGIT-GROUNDED REWARD (Phase 2 — prevents null-space hacking)
+        # Measures actual shift in token probability — grounds reward in discrete behavior
+        # Positive when active policy assigns MORE probability than reference to the chosen token
+        logit_reward = (curr_logprobs - ref_logprobs.detach()) * self.logit_reward_coef  # (B, T)
+        
+        # 6. TOKEN-LEVEL KL PENALTY (folded into reward)
+        token_kl = curr_logprobs - ref_logprobs.detach()  # (B, T) — per-token KL approx
+        
+        # 7. CAUSAL PENALTY (mean-token embedding drift)
+        # Use mean embedding across valid positions (not EOS-only)
+        e_active_mean = (h_active.float() * mask_expanded).sum(dim=1) / valid_counts  # (B, D)
+        e_ref_mean = (h_ref.float() * mask_expanded).sum(dim=1) / valid_counts  # (B, D)
+        
         causal_penalty = compute_causal_reward_penalty(
-            e_init.float(), e_curr.float(),
+            e_ref_mean, e_active_mean,
             lambda_causal=self.lambda_causal,
             delta_margin=self.delta_margin,
+        )  # (B,) — scalar per sequence, broadcast to all tokens
+        
+        # Distribute causal penalty evenly across valid tokens
+        seq_lens = loss_mask.sum(dim=1).clamp(min=1).float()  # (B,)
+        causal_per_token = (causal_penalty / seq_lens).unsqueeze(1).expand_as(r_task_dense)  # (B, T)
+        
+        # 8. COMPOSE DENSE REWARD
+        # r_t = r_task_t + logit_reward_t + causal_per_token_t - beta * kl_t
+        dense_rewards = (r_task_dense + logit_reward + causal_per_token - self.kl_beta * token_kl) * loss_mask
+        
+        # 9. DENSE GAE
+        curr_values_aligned = curr_values[:, :-1]  # align with shifted positions
+        advantages, returns = self.compute_dense_gae(
+            dense_rewards.detach(), curr_values_aligned.detach(), loss_mask
         )
-        
-        # 9. Final reward: task reward + causal penalty - KL divergence
-        R_final = R_task + causal_penalty - self.kl_beta * seq_kl
-        
-        # 10. Loss Optimization (GAE via R_final)
-        # Align values with loss_mask: values has shape (batch, seq_len) but
-        # logprobs/loss_mask are shifted by 1 position, so shape is (batch, seq_len-1).
-        # Use values[:, :-1] as current token values for GAE computation.
-        curr_values_aligned = curr_values[:, :-1]
-        advantages, returns = self.compute_gae(R_final.detach(), curr_values_aligned.detach(), loss_mask)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
-        # PPO Surrogate Loss (UNSCALED — trust region preserved)
-        ratio = torch.exp(curr_logprobs - init_logprobs.detach())
+        # 10. PPO SURROGATE LOSS (UNSCALED — trust region preserved)
+        ratio = torch.exp(curr_logprobs - ref_logprobs.detach())
         pg_loss1 = -advantages * ratio
         pg_loss2 = -advantages * torch.clamp(ratio, 1.0 - self.ppo_clip_range, 1.0 + self.ppo_clip_range)
         
-        # Per-token pg loss -> Per-sequence pg loss
-        seq_pg_loss = torch.max(pg_loss1, pg_loss2) * loss_mask
-        seq_pg_loss = seq_pg_loss.sum(dim=1) / loss_mask.sum(dim=1)
-        
-        # Unscaled PPO loss (NO w_hat multiplication)
+        seq_pg_loss = (torch.max(pg_loss1, pg_loss2) * loss_mask).sum(dim=1) / loss_mask.sum(dim=1)
         pg_loss = seq_pg_loss.mean()
         
-        # Value Loss
+        # 11. VALUE LOSS
         v_loss = 0.5 * ((curr_values_aligned - returns) ** 2) * loss_mask
         v_loss = v_loss.sum(dim=1) / loss_mask.sum(dim=1)
         v_loss = v_loss.mean()
         
-        # Dispersive regularization (anti-collapse)
-        dispersive_loss = compute_dispersive_loss(e_curr.float())
+        # 12. DISPERSIVE REGULARIZATION (mean-pooled embeddings, O(B^2))
+        dispersive_loss = compute_dispersive_loss(e_active_mean)
         
-        # Total loss: L_PPO + vf_coef * L_V + lambda_D * L_disp
+        # 13. TOTAL LOSS
         loss = pg_loss + self.vf_coef * v_loss + self.lambda_dispersive * dispersive_loss
         
         # Backprop
@@ -361,7 +320,8 @@ class PPOVLMController:
             "v_loss": v_loss.item(),
             "dispersive_loss": dispersive_loss.item(),
             "causal_penalty": causal_penalty.mean().item(),
-            "reward": R_task.mean().item(),
-            "reward_final": R_final.mean().item(),
-            "kl": seq_kl.mean().item(),
+            "reward_dense_mean": dense_rewards.sum(dim=1).mean().item(),
+            "reward_task": r_task_dense[loss_mask.bool()].mean().item(),
+            "logit_reward": logit_reward[loss_mask.bool()].mean().item(),
+            "kl": token_kl[loss_mask.bool()].mean().item(),
         }

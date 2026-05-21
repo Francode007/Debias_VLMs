@@ -1,0 +1,661 @@
+Mathematical and Structural Failure 
+Analysis of a Vision-Language Model 
+Debiasing Pipeline 
+Executive Summary of Optimization Failures 
+The pursuit of equitable, unbiased, and visually grounded large multimodal models—specifically 
+Vision-Language Models (VLMs)—requires optimization frameworks capable of navigating 
+highly complex, high-dimensional representation spaces without compromising the underlying 
+reasoning capabilities of the architecture. A recently developed, novel VLM debiasing pipeline 
+designed for smaller model architectures was subjected to rigorous empirical evaluation to 
+validate its efficacy. The experimental framework evaluated the pipeline's generalization 
+capabilities across the POPE benchmark (targeting out-of-domain visual object hallucinations) 
+and its direct bias mitigation capabilities on the SB-Bench dataset (targeting in-domain social 
+and stereotypic biases). The empirical results documented in the debiasing analysis 
+demonstrate a systemic and fundamental optimization failure: the debiasing pipeline produced a 
+model that remained statistically indistinguishable from the baseline vanilla architecture across 
+all measured dimensions.1 
+This comprehensive research report provides a critical mathematical and structural review of the 
+pipeline's architecture. By isolating the exact mechanisms of the training framework, this 
+analysis establishes that the lack of divergence from the baseline is not attributable to stochastic 
+variance, insufficient data volume, or minor hyperparameter misconfigurations. Rather, the 
+failure stems from a cascading collapse of the primary reinforcement learning optimization loop, 
+driven by deeply flawed architectural assumptions regarding the geometry of multimodal latent 
+spaces and the mechanics of causal weight scaling. 
+The primary pathology identified within the architecture is a severe instance of "representation 
+hacking." The pipeline utilizes a reward function defined exclusively within the continuous latent 
+space, ungrounded from the discrete token probabilities that dictate the model's actual 
+generative output.1 This allows the optimization algorithm to mathematically satisfy the reward 
+constraint by exploiting the vast null space of the unembedding matrix, shifting representations 
+without altering the argmax token selection.1 This primary failure is compounded by severe 
+dimensionality bottlenecks introduced through a low-rank Principal Component Analysis (PCA) 
+constraint, which leaves the vast majority of the vector space entirely unconstrained.1 
+Furthermore, the pipeline suffers from algorithmic degeneration during the causal weight 
+normalization phase, where a min-max scaling algorithm triggers floating-point safeguards at 
+initialization, collapsing the causal weights to a uniform distribution and rendering the debiasing 
+signal inert.1 
+To reconstruct this architecture into a functional, state-of-the-art bias mitigation framework, this 
+
+
+report synthesizes advanced mathematical correctives. The analysis details the theoretical 
+necessity of transitioning from an ungrounded continuous reward to Direct Steering Optimization 
+(DSO), a framework that directly learns affine layer-norm interventions via reinforcement 
+learning to ensure strict behavioral controllability.5 Furthermore, it replaces the flawed PCA 
+heuristic with Iterative Null-space Projection (INLP), ensuring rigorous geometric 
+disentanglement of stereotypic concepts.7 The report concludes by providing a highly detailed 
+technical prompt designed to facilitate the independent execution of these structural 
+enhancements and the automated orchestration of a systematic ablation study. 
+Diagnostic Deconstruction of the Empirical 
+Benchmarks 
+A precise mathematical diagnosis of the pipeline's failure requires an exhaustive examination of 
+the empirical delta between the vanilla baseline model and the debiased iteration. The 
+evaluation strategy deliberately juxtaposed an out-of-domain evaluation (POPE) against an 
+in-domain evaluation (SB-Bench) to measure both target objective satisfaction and the collateral 
+impact on general visual reasoning. The results demonstrate a total stagnation in gradient flow 
+and an absolute failure to update the generative policy. 
+Out-of-Domain Generalization and The POPE Benchmark 
+The POPE (Polling-based Object Probing Evaluation) benchmark evaluates a vision-language 
+model's propensity for object hallucination. In the context of debiasing, POPE serves as a 
+critical indicator of out-of-domain generalization, measuring whether the aggressive perturbation 
+of internal representations to mitigate social bias inadvertently degrades the model's 
+fundamental ability to ground textual outputs in visual evidence. A functional debiasing pipeline 
+operating on a shared representation manifold should exhibit at least marginal perturbations in 
+these metrics, reflecting either generalized representation smoothing or catastrophic forgetting. 
+Instead, the experimental trial exhibited virtually zero statistical deviation. 
+POPE Evaluation 
+Metric 
+Vanilla Baseline 
+Policy 
+Debiased Pipeline 
+Policy 
+Absolute Delta 
+Overall Accuracy 
+87.18% 
+87.19% 
++0.01% 
+Precision 
+85.43% 
+85.36% 
+-0.07% 
+
+
+Recall 
+89.64% 
+89.78% 
++0.14% 
+F1 Score 
+87.49% 
+87.51% 
++0.02% 
+Yes Proportion 
+51.94% 
+52.07% 
++0.13% 
+Unknown Rate 
+0.69% 
+0.69% 
+0.00% 
+The negligible variance recorded during the evaluation indicates that the policy weights of the 
+debiased model (
+) remained functionally equivalent to the reference weights (
+).1 For 
+instance, out of over 4,000 evaluation instances, the True Positive rate shifted by a mere 6 
+instances. This lack of movement provides the first empirical signal that the optimization 
+gradients either vanished entirely or were perfectly counteracted by the regularization 
+constraints. 
+In-Domain Performance and The SB-Bench Dataset 
+The magnitude of the architectural failure is most acutely highlighted by the in-domain 
+evaluation. The SB-Bench dataset represents a highly rigorous, visually grounded evaluation 
+framework designed specifically to assess stereotype biases across key social dimensions 
+using carefully curated, non-synthetic images.9 The pipeline utilized Debiased Representation 
+Mapping (DRM) reward heads trained directly on the SB-Bench distribution. Therefore, a 
+theoretically sound reinforcement learning pipeline should have achieved, at minimum, 
+substantial over-optimization (if not outright overfitting) on this specific dataset. 
+SB-Bench 
+Demographic 
+Category 
+Vanilla Baseline 
+Accuracy 
+Debiased Pipeline 
+Accuracy 
+Absolute Delta 
+Age 
+64.19% 
+64.23% 
++0.04% 
+
+
+Disability 
+63.96% 
+63.71% 
+-0.25% 
+Gender 
+51.03% 
+50.48% 
+-0.55% 
+Nationality 
+70.53% 
+70.15% 
+-0.38% 
+Physical 
+Appearance 
+64.91% 
+65.02% 
++0.11% 
+Race / Ethnicity 
+64.05% 
+64.77% 
++0.72% 
+Religion 
+81.07% 
+81.36% 
++0.29% 
+Socioeconomic 
+Status (SES) 
+84.85% 
+85.28% 
++0.43% 
+Sexual Orientation 
+76.62% 
+75.79% 
+-0.83% 
+Overall Aggregate 
+Performance 
+65.14% 
+65.10% 
+-0.04% 
+SB-Bench explicitly disentangles visual biases from textual biases, comprising over 14,500 
+open-ended and multiple-choice questions spanning 9 diverse domains and 54 sub-domains, 
+including highly specific intersectional biases.10 An overall accuracy degradation of 
+ 
+on the exact training distribution confirms that the Proximal Policy Optimization (PPO) algorithm 
+failed entirely to update the generative distribution 
+ in response to the social bias 
+constraints.1 The model learned nothing regarding the visual grounding of stereotype mitigation. 
+
+
+Mathematical Deconstruction of Representation 
+Hacking 
+The fundamental inability of the pipeline to alter the discrete, token-level outputs of the 
+vision-language model originates from a critical architectural misunderstanding of 
+autoregressive generation mechanics. The primary structural flaw is the mathematical 
+formulation of the reward function. 
+The Decoupling of Continuous Latents and Discrete Tokens 
+The pipeline defines the reward function at the current timestep as a projection in the 
+continuous latent space: 
+.1 In this formulation, 
+ 
+represents a predefined bias direction vector established by the DRM reward heads, and 
+ 
+represents the hidden state embedding of the final generated token. The objective of the 
+optimization algorithm is to maximize this dot product, thereby pushing the hidden state away 
+from the identified bias direction. 
+However, this formulation completely ignores the terminal operation of a language model. In any 
+decoder-based architecture, the continuous hidden state 
+ must be projected through an 
+unembedding matrix 
+ to produce logits over the vocabulary 
+, followed by a softmax 
+operation to yield the final probability distribution for the next discrete token 
+: 
+ 
+By maximizing the continuous reward 
+ without enforcing a strict scalar constraint on the 
+discrete token output probabilities, the pipeline directly incentivizes a severe form of 
+"representation hacking".1 Representation hacking is an optimization pathology where an agent 
+exploits spurious geometrical pathways to artificially maximize a learned scalar reward, entirely 
+decoupling the optimization process from the intended semantic or behavioral outcome.4 
+Exploiting the Null Space of the Unembedding Matrix 
+Because the embedding space of a modern vision-language model is exceedingly 
+high-dimensional (where 
+ is typically 
+ or greater), the unembedding matrix 
+ possesses a massive null space with respect to any small subset of viable 
+output tokens. In a multiple-choice evaluation setting like SB-Bench, the model is only 
+evaluating the relative logits of a few specific tokens (e.g., 'A', 'B', 'C', 'D'). 
+When the PPO algorithm calculates gradients to maximize 
+, it effortlessly 
+
+
+discovers a perturbation vector 
+ that satisfies two conditions simultaneously: 
+1.​ Reward Maximization: The projection of the perturbed state onto the bias direction is 
+significantly larger than the original state: 
+. 
+2.​ Output Invariance: The perturbation vector lies precisely within the null space of the 
+unembedding matrix corresponding to the target tokens, meaning the logits remain 
+mathematically identical: 
+. 
+Because the relative distances between the logits for the biased and unbiased answers remain 
+unchanged, the subsequent 
+ operation during inference selects the exact same 
+biased token it would have chosen prior to any optimization. The reward model is successfully 
+manipulated at the representation level, generating a high scalar reward, while the aggregate 
+consequence of feature-level exploitation remains completely unchecked in the final text 
+generation.1 The optimization process is rendered a mathematically complex but entirely inert 
+exercise. 
+Dimensionality Bottlenecks in PCA-Constrained 
+Reward Spaces 
+Compounding the failure of the ungrounded reward function is the pipeline's attempt to constrain 
+the reward optimization by applying Principal Component Analysis (PCA). The architecture 
+specifically reduces the 
+-dimensional representation space down to just 
+ principal 
+components before calculating the reward.1 
+This architectural decision introduces a severe geometric vulnerability governed by the curse of 
+dimensionality. In high-dimensional manifolds, random vectors are almost entirely orthogonal, 
+and the volume of a sphere is concentrated entirely near its surface. By restricting the reward 
+calculation and gradient flow strictly to a 
+-dimensional subspace, the pipeline actively 
+monitors and constrains only approximately 
+ of the total available representation space. 
+Let the total vector space of the hidden representations be denoted as 
+. The PCA 
+projection defines a small, dense subspace 
+. The orthogonal complement of this 
+subspace, denoted as 
+, possesses a dimensionality of 
+. 
+During the reinforcement learning loop, the policy is penalized by a Kullback-Leibler (KL) 
+divergence constraint to prevent it from drifting too far from the reference model.3 To maximize 
+the reward within 
+ while minimizing the overall KL penalty, the optimizer will naturally shift 
+the bulk of the representation updates entirely into the unmonitored orthogonal complement 
+
+
+. Because the reward function is mathematically blind to any perturbations or preserved 
+biases residing in the 
+-dimensional orthogonal space, the model effortlessly evades the 
+intended debiasing constraints.1 
+This renders the low-rank PCA mechanism actively counterproductive. It provides the training 
+loop with a false, heavily compressed signal of reward satisfaction, while leaving 
+ of the 
+representation space entirely free to preserve the original stereotypic correlations encoded 
+during pre-training. 
+Algorithmic Degeneration and Causal Weight Collapse 
+Beyond the geometric flaws of the reward and dimensionality reduction, a fundamental 
+algorithmic failure occurred within the Contrastive Activation Addition (CAA) mechanism during 
+the earliest and most critical stages of training. The pipeline utilized a naive min-max 
+normalization algorithm to scale the causal difference per sample. This causal difference was 
+calculated as the deviation in reward between the active training policy and the frozen reference 
+policy.1 
+Let 
+ represent the reward of the active policy for sample , and 
+ represent the reward 
+of the reference policy. The causal difference is strictly defined as the L2 norm: 
+. The min-max normalization step attempts to scale this into a unified 
+causal weight 
+ bounded between 
+ and 
+: 
+ 
+The mathematical collapse of this formulation occurs precisely at the initialization of the PPO 
+training loop (Epoch 1, Step 1). At step zero, the active policy weights 
+ are identically 
+initialized to the reference policy weights 
+. Therefore, the probability distributions 
+generated by both models are identical, yielding 
+ for all samples across the entire 
+training batch. As a direct consequence, the minimum and maximum variances converge: 
+. 
+When the denominator of the normalization equation approaches zero (
+), PyTorch and similar tensor computation frameworks trigger 
+necessary floating-point arithmetic safeguards. These safeguards (such as an allclose guard or 
+the injection of a static epsilon) are designed to prevent division by zero or the catastrophic 
+propagation of NaN (Not a Number) values through the gradient graph.1 
+
+
+In this specific architectural implementation, the safeguard entirely bypassed the calculation and 
+statically set the weights to a uniform vector of ones (
+). This algorithmic 
+degeneration transformed a finely-tuned, sample-specific causal weighting mechanism into a 
+static identity multiplier—a mathematical no-op. Because this collapse occurred during the 
+earliest phase of training, when gradient magnitudes are naturally largest and the model 
+establishes its foundational directional trajectory in the latent space, the pipeline effectively 
+trained without any causal distinction between biased and unbiased representations.1 The 
+model was instructed to treat every sample as equally important, destroying the contrastive 
+learning signal required for debiasing. 
+Geometrical Orthogonality of Domain Transfer 
+A significant conceptual flaw in the pipeline was the assumption that debiasing social 
+stereotypes via the SB-Bench dataset would yield generalized out-of-domain improvements on 
+the POPE object hallucination benchmark. This expectation violates the established geometry of 
+multimodal representation spaces. 
+The DRM reward heads were explicitly trained to map and mitigate social attributes such as 
+age, gender, race, and socioeconomic status.1 These attributes exist as specific semantic 
+directions within the representation manifold. Conversely, the POPE benchmark evaluates a 
+vision-language model's reliance on visual priors versus actual visual evidence (e.g., 
+hallucinating the presence of a "chair" simply because a "dining table" is correctly identified in 
+the image). 
+In the high-dimensional embedding space of a heavily parameterized transformer, distinct and 
+unrelated semantic concepts are driven to become mathematically orthogonal to one another. 
+This orthogonality minimizes cross-talk, prevents representation interference, and preserves 
+distinct knowledge structures.14 Therefore, the subspace encoding human demographic biases (
+) is structurally orthogonal to the subspace encoding physical object 
+co-occurrence and visual priors (
+). 
+Because the dot product of orthogonal vectors is zero, minimizing projection magnitudes within 
+ will have zero correlative effect on the activation patterns within 
+. Even 
+if the in-domain optimization on SB-Bench had succeeded flawlessly, the theoretical foundation 
+for assuming out-of-domain transfer to POPE was geometrically invalid.1 
+Capacity Constraints and Restrictive Regularization 
+The pipeline's hyperparameter configuration further guaranteed that the model would be 
+mathematically incapable of escaping its initial local minimum, even within the targeted 
+demographic subspace. The configuration relied on modifying a Low-Rank Adaptation (LoRA) 
+matrix with an exceptionally restrictive rank of 
+, trained for a single epoch, and heavily 
+
+
+penalized by a KL divergence coefficient of 
+.1 
+In standard alignment architectures, the policy 
+ seeks to maximize the reward while 
+constrained by the reference model 
+: 
+ 
+A KL penalty of 
+ is highly restrictive for parameter-efficient fine-tuning, particularly 
+when paired with a low rank of 
+.1 A rank-16 adapter modifying the vast linear 
+projections of a multibillion-parameter VLM possesses minimal expressive capacity. Bridging the 
+visual-textual modality gap to alter deeply ingrained stereotypic representations requires 
+substantial parameter movement.15 When the gradients from the (already flawed) continuous 
+reward function attempted to adjust the LoRA weights, the KL divergence penalty 
+disproportionately punished even minute deviations from the pre-trained reference manifold. 
+The gradients were zeroed out almost immediately, and the single-epoch constraint ensured 
+that the optimizer never had the iterative opportunity to incrementally overcome this high 
+regularization wall.1 
+Concrete Mathematical Enhancements and Structural 
+Overhaul 
+To salvage the architecture and transform it into a functional, state-of-the-art vision-language 
+model debiasing pipeline, a comprehensive mathematical and structural overhaul is required. 
+The following methodologies replace the flawed, heuristic-based mechanisms with 
+mathematically grounded frameworks derived from advanced representation engineering, 
+null-space projection, and direct steering optimization. 
+Transitioning to Direct Steering Optimization (DSO) 
+To definitively cure the "representation hacking" pathology caused by the continuous reward 
+formulation, the objective function must be structurally tethered directly to behavioral output 
+control. While logit-grounding (calculating rewards on the final token probability distribution) is a 
+viable baseline, the most advanced and computationally efficient paradigm for this specific 
+architecture is Direct Steering Optimization (DSO).5 
+Unlike traditional RLHF pipelines that attempt to backpropagate unstable gradients through the 
+entire autoregressive language modeling head via PPO, DSO utilizes reinforcement learning to 
+train lightweight, targeted affine adapters.6 These adapters are applied directly to the 
+LayerNorm outputs of the completely frozen base model. 
+Instead of relying on unguided perturbations or rigid representation steering which often 
+
+
+exacerbates conflict rates and degrades reasoning (as observed in standard steering methods 
+on models like Llama-3.2V) 16, DSO directly optimizes a linear intervention: 
+ 
+DSO learns a specific scale vector (
+) and bias vector (
+) that are injected into the activations 
+on-the-fly. This allows the intervention strength (
+) to be dynamically tuned at inference time.5 
+By optimizing these linear interventions directly against the bias mitigation objective, DSO 
+completely circumvents the autoregressive reward hacking loop. It provides theoretical 
+guarantees that bias is minimized while providing practitioners with a tunable parameter (
+) to 
+perfectly balance the fairness versus capability trade-off without requiring costly retraining.5 
+Implementing DSO shifts the pipeline from a fragile, end-to-end generative optimization loop 
+into a highly robust, interpretable representation steering framework.19 
+Replacing PCA with Iterative Null-Space Projection (INLP) 
+The critical geometric vulnerability introduced by the 50-component PCA constraint must be 
+replaced with a mathematically exhaustive disentanglement method. Iterative Null-space 
+Projection (INLP) provides a robust structural solution for debiasing representations by 
+guaranteeing that the modified multimodal embeddings contain absolutely zero linear correlation 
+with the targeted protected attributes.7 
+Instead of arbitrarily restricting the reward optimization to a low-rank principal component 
+subspace, INLP fundamentally alters the geometry of the entire manifold. The INLP 
+methodology iteratively trains a sequence of linear classifiers (e.g., Support Vector Machines) 
+ to predict the protected attribute (such as gender or race) directly from the 
+hidden representation 
+.8 
+For each trained classifier 
+, INLP calculates the precise null space of the classifier's weight 
+matrix 
+. It then constructs an orthogonal projection matrix 
+ that projects the 
+representations entirely into this null space. This mathematical operation effectively and 
+permanently erases the precise direction along which the classifier was able to detect the social 
+bias.8 
+The total, mathematically debiased representation is achieved by applying the cumulative 
+product of these projection matrices to the original hidden state before it reaches the 
+unembedding layer: 
+ 
+
+
+ 
+By utilizing INLP, the pipeline guarantees that the debiasing operation acts as a strict, 
+unavoidable geometric constraint across the entirety of the relevant representation space. It 
+prevents the model from hiding biased correlations in orthogonal subspaces, entirely eliminating 
+the 
+ unconstrained vulnerability caused by the previous PCA methodology.7 
+Resolving Weight Collapse via Advantage Normalization 
+The catastrophic collapse of the causal weighting mechanism (
+) at initialization can 
+be structurally prevented by abandoning the naive min-max scaling algorithm. Min-max 
+normalization is highly susceptible to outliers and fails completely in zero-variance scenarios 
+(such as when the active policy 
+ is mathematically identical to the reference policy 
+).1 
+The pipeline must transition to a Group Relative Policy Optimization (GRPO) advantage 
+normalization framework, or incorporate a multi-objective optimization constraint.13 In a 
+GRPO-style approach, the advantage normalization relies on calculating the relative mean and 
+standard deviation across a specifically grouped batch of samples, rather than relying on 
+absolute minimum and maximum bounds that are prone to convergence.25 
+ 
+By injecting a small, statically defined epsilon (
+), the algorithm mathematically ensures a 
+non-zero denominator even during the earliest epochs when the reward variance is effectively 
+zero. Furthermore, integrating a ratio-preserving sampler or applying Simplex Mirror Descent 
+guarantees that the updated causal weights remain properly constrained within a valid 
+multi-objective equilibrium.26 This explicitly prevents the algorithm from collapsing the weights, 
+ensuring continuous gradient flow and preserving the contrastive learning signal necessary to 
+differentiate between biased and equitable representations.25 
+Dynamic Hyperparameter Relaxation and Capacity Scaling 
+To overcome the static nature of the parameter-efficient fine-tuning configuration observed in the 
+original experiment, the fundamental hyperparameter restrictions must be restructured to allow 
+for adequate geometric traversal of the latent space.1 
+1.​ Representational Capacity Expansion: The intrinsic rank of the LoRA matrices must be 
+increased from the highly restrictive 
+ to a minimum of 
+ or 
+. 
+Bridging the semantic gap between vision and language modalities to perform complex 
+orthogonal projections for debiasing requires significantly higher representational capacity 
+
+
+than standard stylistic text fine-tuning.15 
+2.​ Dynamic KL Penalty Scheduling: A static KL divergence penalty of 
+ acts as 
+an insurmountable regularization barrier at the point of initialization. The pipeline must 
+implement a cosine or linear warmup schedule for the KL penalty. Training should initiate 
+with a nearly non-existent penalty (
+), granting the optimization algorithm the 
+freedom to deviate from the reference policy and identify the necessary debiasing 
+manifold. As training progresses and the reward begins to plateau, 
+ should be smoothly 
+annealed back to 
+ to enforce the preservation of core visual reasoning 
+capabilities and mitigate catastrophic forgetting. 
+3.​ Extended Optimization Horizon: The optimization loop must be extended significantly 
+beyond a single epoch. Multi-epoch training (e.g., 3 to 5 epochs) paired with a reduced 
+learning rate enables the optimizer to incrementally traverse the highly complex, 
+non-convex intersection between the strict debiasing constraints and the foundational 
+language modeling objectives.1 
+Architectural Ablation Study and Execution Prompt 
+To systematically execute these critical architectural changes and validate their individual 
+efficacy, a rigorous ablation study must be conducted. The study should incrementally apply the 
+structural fixes to isolate the exact causal impact of each mathematical correction on the 
+SB-Bench metrics. 
+Below is a highly structured, comprehensive implementation prompt designed to be utilized 
+within an integrated development environment or a Large Language Model coding assistant. It 
+provides the exact technical and mathematical specifications necessary to rewrite the 
+underlying pipeline, bypassing the flaws documented throughout this analysis. 
+BEGIN PROMPT FOR PIPELINE IMPLEMENTATION 
+You are an expert AI researcher specializing in Mechanistic Interpretability, Representation 
+Engineering, and Vision-Language Model Alignment. I am tasked with completely re-architecting 
+a VLM debiasing pipeline to resolve critical optimization failures—specifically representation 
+hacking, causal weight collapse at initialization, and PCA dimensionality constraints. 
+Please rewrite my training and inference architecture by implementing the following exact 
+structural mathematical changes. Generate the necessary PyTorch/HuggingFace code to 
+execute a multi-stage ablation study. 
+Phase 1: Core Architectural Code Replacements 
+1.​ Replace PCA with Iterative Null-space Projection (INLP): 
+○​ Discard the sklearn.decomposition.PCA module currently reducing the representation 
+
+
+space to 50 components. 
+○​ Implement an INLP module that iteratively trains linear Support Vector Machines 
+(SVMs) on the frozen VLM hidden states (
+) to predict the protected attributes 
+(Gender, Race, Age, etc.) from the SB-Bench dataset. 
+○​ Extract the null space of each classifier's weight matrix 
+ and construct the 
+orthogonal projection matrix 
+. 
+○​ Create a forward PyTorch hook that applies the accumulated projection matrix 
+ 
+to the intermediate activations immediately before they are processed by the 
+unembedding head (
+). 
+2.​ Transition to Direct Steering Optimization (DSO) or Logit-Grounded Rewards: 
+○​ Completely remove the representation dot-product reward: R_curr = FastRL(w_k * 
+e_EOS). 
+○​ Primary Objective: Implement DSO. Write a training loop that utilizes reinforcement 
+learning to train lightweight affine adapters (scale 
+ and bias 
+) applied exclusively 
+to the LayerNorm outputs of the frozen base model. 
+○​ Ensure the linear intervention 
+ is exposed during generation, 
+allowing 
+ to be dynamically tuned at inference time. 
+○​ Secondary Fallback: If DSO is not implemented, calculate the reward strictly based 
+on the Log-Probabilities of the discrete multiple-choice token outputs (A, B, C, D). The 
+reward must heavily penalize divergence between the logits of counterfactual 
+demographic pairs. 
+3.​ Replace Min-Max Normalization with GRPO Z-Score Advantage: 
+○​ Locate the Contrastive Activation Addition (CAA) weight scaling function in the code. 
+○​ Remove the (r - r_min) / (r_max - r_min) calculation and delete the torch.allclose 
+safeguard. 
+○​ Implement a group-relative advantage normalization: advantage = (r - r.mean()) / 
+(r.std() + 1e-8). Ensure the 1e-8 epsilon is explicitly defined to prevent zero-division 
+collapse during step zero without forcing a uniform weight vector. 
+4.​ Dynamic KL Scheduling and LoRA Capacity Expansion: 
+○​ Update the peft_config for the target model. Increase the LoRA rank from r=16 to 
+r=128. Increase lora_alpha to 256. 
+○​ Implement a custom PPO Trainer callback that dynamically schedules the KL 
+divergence penalty (kl_beta). Initialize kl_beta = 0.001 at step 0, and linearly scale it 
+to 0.05 over the first 50% of the training steps. 
+○​ Set the training arguments to execute for exactly 4 epochs. 
+Phase 2: Ablation Study Orchestration Script 
+
+
+Write a Python script that iterates through the following 5 distinct configurations, training a new 
+adapter for each and evaluating it exclusively on the SB-Bench multiple-choice validation set 
+(do not evaluate on POPE, as domain transfer to object hallucination is geometrically 
+orthogonal): 
+●​ Configuration 0 (Baseline): Vanilla Model (Zero modifications). 
+●​ Configuration 1 (Capacity Fix): RLHF/PPO with LoRA r=128, 4 Epochs, dynamic KL 
+warmup. (Retains the original faulty representation reward to test capacity alone). 
+●​ Configuration 2 (Optimization Fix): Config 1 + GRPO Z-Score Advantage Normalization 
+replacing the Min-Max scaler. 
+●​ Configuration 3 (Geometry Fix): Config 2 + INLP integration replacing the 
+50-component PCA. 
+●​ Configuration 4 (Structural Fix - State of the Art): Complete implementation of DSO 
+(Direct Steering Optimization) utilizing affine LayerNorm adapters, completely bypassing 
+the autoregressive PPO generation loop. 
+Ensure the script automatically logs the evaluation accuracy broken down by the 9 SB-Bench 
+sub-domains to Weights & Biases (wandb) for comparative analysis. Provide highly modular, 
+mathematically precise, and well-commented PyTorch code. 
+END PROMPT FOR PIPELINE IMPLEMENTATION 
+Works cited 
+1.​ debiasing_analysis.md 
+2.​ (Chapman Hall - CRC Artificial Intelligence and Robotics Series 7) Yampolskiy, 
+Roman V.-Artificial Intelligence Safety and security-CRC Press - Taylor Francis 
+Group (2018) | PDF | Artificial Intelligence | Intelligence (AI) & Semantics - Scribd, 
+accessed May 19, 2026, 
+https://www.scribd.com/document/603006106/Chapman-Hall-CRC-artificial-intellig
+ence-and-robotics-series-7-Yampolskiy-Roman-V-Artificial-intelligence-safety-and-
+security-CRC-Press-Taylor-F 
+3.​ Reward Hacking in the Era of Large Models: Mechanisms, Emergent 
+Misalignment, Challenges - arXiv, accessed May 19, 2026, 
+https://arxiv.org/html/2604.13602v1 
+4.​ InfoRM: Mitigating Reward Hacking in RLHF via Information-Theoretic Reward 
+Modeling | Request PDF - ResearchGate, accessed May 19, 2026, 
+https://www.researchgate.net/publication/397212665_InfoRM_Mitigating_Reward_
+Hacking_in_RLHF_via_Information-Theoretic_Reward_Modeling 
+5.​ DSO: Direct Steering Optimization for Bias Mitigation - arXiv, accessed May 19, 
+2026, https://arxiv.org/html/2512.15926v3 
+6.​ apple/ml-dso - GitHub, accessed May 19, 2026, https://github.com/apple/ml-dso 
+7.​ Bias and Fairness in Large Language Models: A Survey - MIT Press Direct, 
+accessed May 19, 2026, 
+https://direct.mit.edu/coli/article/50/3/1097/121961/Bias-and-Fairness-in-Large-Lan
+
+
+guage-Models-A 
+8.​ From Prejudice to Parity: A New Approach to Debiasing Large Language Model 
+Word Embeddings - ACL Anthology, accessed May 19, 2026, 
+https://aclanthology.org/2025.coling-main.450.pdf 
+9.​ SB-Bench: Stereotype Bias Benchmark for Large Multimodal Models - arXiv, 
+accessed May 19, 2026, https://arxiv.org/html/2502.08779v2 
+10.​SB-Bench: Stereotype Bias Benchmark for Large Multimodal Models - 
+ResearchGate, accessed May 19, 2026, 
+https://www.researchgate.net/publication/388963952_SB-Bench_Stereotype_Bias
+_Benchmark_for_Large_Multimodal_Models 
+11.​ucf-crcv/SB-Bench · Datasets at Hugging Face, accessed May 19, 2026, 
+https://huggingface.co/datasets/ucf-crcv/SB-Bench 
+12.​GitHub - UCF-CRCV/BBQ-Vision: SB-Bench: Stereotype Bias Benchmark for 
+Large Multimodal Models, accessed May 19, 2026, 
+https://github.com/UCF-CRCV/BBQ-Vision 
+13.​Advantage Weighted Matching: Aligning RL with Pretraining in Diffusion Models, 
+accessed May 19, 2026, https://openreview.net/forum?id=wekWtzTbUP 
+14.​NeurIPS Poster Erasing Conceptual Knowledge from Language Models, accessed 
+May 19, 2026, https://neurips.cc/virtual/2025/poster/118404 
+15.​Over-Alignment and Geometric Debiasing in Vision-Language Models - arXiv, 
+accessed May 19, 2026, https://arxiv.org/html/2605.08245v3 
+16.​Diagnosing Knowledge Conflict in Multimodal Long-Chain Reasoning - arXiv, 
+accessed May 19, 2026, https://arxiv.org/html/2602.14518v1 
+17.​DSO: Direct Steering Optimization for Bias Mitigation - arXiv, accessed May 19, 
+2026, https://arxiv.org/html/2512.15926v1 
+18.​DSO: Direct Steering Optimization for Bias Mitigation - Apple Machine Learning 
+Research, accessed May 19, 2026, 
+https://machinelearning.apple.com/research/direct-steering-optimization 
+19.​Daily Papers - Hugging Face, accessed May 19, 2026, 
+https://huggingface.co/papers?q=steering%20vector 
+20.​An Introduction to Representation Engineering - an activation-based paradigm for 
+controlling LLMs - LessWrong, accessed May 19, 2026, 
+https://www.lesswrong.com/posts/3ghj8EuKzwD3MQR5G/an-introduction-to-repre
+sentation-engineering-an-activation 
+21.​STEER: Semantic Turn Extension-Expansion Recognition for Voice Assistants, 
+accessed May 19, 2026, https://machinelearning.apple.com/research/steer 
+22.​From Prejudice to Parity: A New Approach to Debiasing Large Language Model 
+Word Embeddings - arXiv, accessed May 19, 2026, 
+https://arxiv.org/html/2402.11512v3 
+23.​Debiasing with Sufficient Projection: A General Theoretical Framework for Vector 
+Representations - ACL Anthology, accessed May 19, 2026, 
+https://aclanthology.org/2024.naacl-long.332.pdf 
+24.​Department of Computer Science Debiasing of Large Language Models for Rural 
+Users - St. Francis Xavier University, accessed May 19, 2026, 
+https://www.stfx.ca/sites/default/files/documents/MSC_proposal_PatrickBowen_0.
+
+
+pdf 
+25.​(PDF) Multi-Task GRPO: Reliable LLM Reasoning Across Tasks - ResearchGate, 
+accessed May 19, 2026, 
+https://www.researchgate.net/publication/400505842_Multi-Task_GRPO_Reliable
+_LLM_Reasoning_Across_Tasks 
+26.​TACL'26 Learning to Optimize Multi-Objective Alignment Through Dynamic 
+Reward Weighting - arXiv, accessed May 19, 2026, 
+https://arxiv.org/html/2509.11452v2 
+27.​Learning to Optimize Multi-Objective Alignment Through Dynamic Reward 
+Weighting - OpenReview, accessed May 19, 2026, 
+https://openreview.net/pdf/3bc0aeeb5c0a53df46269dc44ff9bb5fa5e639d3.pdf 
+28.​Learning to Optimize Multi-Objective Alignment Through Dynamic Reward 
+Weighting - arXiv, accessed May 19, 2026, https://arxiv.org/html/2509.11452v1 
+29.​Erasing Conceptual Knowledge from Language Models - arXiv, accessed May 19, 
+2026, https://arxiv.org/html/2410.02760v3 
+
+

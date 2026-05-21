@@ -96,7 +96,8 @@ def run_ppo_loop(
                 pbar.set_postfix(
                     {
                         "loss": f"{metrics['loss']:.4f}",
-                        "reward": f"{metrics['reward']:.4f}",
+                        "r_dense": f"{metrics.get('reward_dense_mean', metrics.get('reward', 0)):.4f}",
+                        "logit_r": f"{metrics.get('logit_reward', 0):.4f}",
                         "causal": f"{metrics['causal_penalty']:.4f}",
                         "disp": f"{metrics['dispersive_loss']:.4f}",
                         "gpu_mem_gb": (

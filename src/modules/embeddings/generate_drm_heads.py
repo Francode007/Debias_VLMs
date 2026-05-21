@@ -186,14 +186,195 @@ def generate_orthogonal_heads(args):
     print(f"Max off-diagonal dot product: {np.max(np.abs(off)):.6f}")
 
 
+SB_BENCH_CATEGORIES = [
+    "Age", "Disability", "Gender", "Nationality",
+    "Physical Appearance", "Race/Ethnicity", "Religion", "SES", "Sexual Orientation",
+]
+
+
+def generate_svm_heads(args):
+    """
+    Generate category-specific SVM boundary normal vectors as reward heads.
+
+    Instead of PCA (which captures variance, not bias semantics), this trains
+    one linear SVM per SB-Bench category on (chosen, rejected) embedding pairs
+    specific to that category. The SVM decision boundary normal is the reward
+    direction — it maximally separates fair from biased responses for that
+    specific demographic dimension.
+
+    Output: 9 .pth files (one per category), same format as PCA heads.
+    """
+    import re
+    import pandas as pd
+    from sklearn.svm import LinearSVC
+    from sklearn.preprocessing import StandardScaler
+
+    input_dir = args.input_dir
+    output_dir = args.output_dir
+    case_name = getattr(args, "case_name", "sb_bench")
+    data_path = args.data_path
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Load embeddings
+    emb_files = sorted(glob.glob(os.path.join(input_dir, "emb_*.npy")))
+    if not emb_files:
+        print(f"No embedding files found in {input_dir}.")
+        return
+
+    # Apply split filter if requested
+    split_mode = getattr(args, "split", "all")
+    split_indices_path = getattr(args, "split_indices_path", None)
+    if split_mode in ("train", "test") and split_indices_path:
+        with open(split_indices_path, "r") as f:
+            split_info = json.load(f)
+        orig_indices = set(split_info["train_indices"] if split_mode == "train" else split_info["test_indices"])
+        valid_data_indices = set()
+        for idx in orig_indices:
+            valid_data_indices.add(idx * 2)
+            valid_data_indices.add(idx * 2 + 1)
+
+        def _get_data_index(path):
+            m = re.search(r"emb_(\d+)\.npy$", path)
+            return int(m.group(1)) if m else -1
+
+        emb_files = [f for f in emb_files if _get_data_index(f) in valid_data_indices]
+        print(f"Filtered to {len(emb_files)} embedding files for '{split_mode}' split")
+
+    # Load all embeddings
+    print(f"Loading {len(emb_files)} embedding files...")
+
+    def _get_data_index(path):
+        m = re.search(r"emb_(\d+)\.npy$", path)
+        return int(m.group(1)) if m else -1
+
+    emb_data = []
+    for f in tqdm.tqdm(emb_files, desc="Loading embeddings"):
+        data_idx = _get_data_index(f)
+        arr = np.load(f)
+        if arr.ndim == 3:
+            arr = arr[0]
+        # arr shape: (3, hidden_dim) or (2, hidden_dim) — [chosen, rejected, (prompt)]
+        emb_data.append((data_idx, arr))
+
+    # Load categories from parquet
+    print(f"Loading categories from {data_path}...")
+    parquet_files = sorted(glob.glob(os.path.join(data_path, "*.parquet")))
+    if not parquet_files:
+        print(f"ERROR: No parquet files in {data_path}. Cannot determine categories for SVM.")
+        return
+    dfs = [pd.read_parquet(f, engine="fastparquet") for f in parquet_files]
+    df = pd.concat(dfs, ignore_index=True)
+    print(f"  Dataset rows: {len(df)}")
+
+    # Build per-category (chosen, rejected) pairs
+    # data_index = orig_row * 2 for chosen, orig_row * 2 + 1 for rejected
+    # Each emb file has shape (>=2, hidden_dim): row[0]=chosen_emb, row[1]=rejected_emb
+    category_pairs = {cat: {"chosen": [], "rejected": []} for cat in range(len(SB_BENCH_CATEGORIES))}
+
+    for data_idx, arr in emb_data:
+        orig_row = data_idx // 2
+        if orig_row >= len(df):
+            continue
+        cat = df.iloc[orig_row].get("category", None)
+        if hasattr(cat, "item"):
+            cat = int(cat.item())
+        elif isinstance(cat, str):
+            cat = SB_BENCH_CATEGORIES.index(cat) if cat in SB_BENCH_CATEGORIES else None
+        if cat is None or cat < 0 or cat >= len(SB_BENCH_CATEGORIES):
+            continue
+        # Only process even-indexed files (each file already has chosen[0] and rejected[1])
+        if data_idx % 2 == 0:
+            chosen_emb = arr[0]  # (hidden_dim,)
+            rejected_emb = arr[1]  # (hidden_dim,)
+            if np.isfinite(chosen_emb).all() and np.isfinite(rejected_emb).all():
+                category_pairs[cat]["chosen"].append(chosen_emb)
+                category_pairs[cat]["rejected"].append(rejected_emb)
+
+    # Train one SVM per category
+    component_dir = os.path.join(output_dir, f"{case_name}-SVM-component")
+    os.makedirs(component_dir, exist_ok=True)
+
+    all_normals = []
+    for cat_idx, cat_name in enumerate(SB_BENCH_CATEGORIES):
+        chosen = np.array(category_pairs[cat_idx]["chosen"])
+        rejected = np.array(category_pairs[cat_idx]["rejected"])
+        n_pairs = min(len(chosen), len(rejected))
+
+        if n_pairs < 10:
+            print(f"  ⚠️  {cat_name}: Only {n_pairs} pairs — skipping (need ≥10)")
+            # Use zero vector as fallback
+            hidden_dim = emb_data[0][1].shape[-1]
+            all_normals.append(np.zeros(hidden_dim))
+            continue
+
+        print(f"  {cat_name}: {n_pairs} pairs — training SVM...")
+
+        # Build X (features) and y (labels): chosen=1, rejected=0
+        X = np.concatenate([chosen[:n_pairs], rejected[:n_pairs]], axis=0)
+        y = np.concatenate([np.ones(n_pairs), np.zeros(n_pairs)])
+
+        # Standardize for stable SVM training
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        # Train linear SVM — the coef_ normal vector is our reward direction
+        svm = LinearSVC(C=1.0, max_iter=5000, dual=True if n_pairs * 2 > X.shape[1] else False)
+        svm.fit(X_scaled, y)
+        train_acc = svm.score(X_scaled, y)
+
+        # Get the decision boundary normal in original (unscaled) space
+        # SVM separates in scaled space: w_scaled^T x_scaled + b = 0
+        # In original space: (w_scaled / scale)^T x + (b - w_scaled^T mean/scale) = 0
+        # The normal direction in original space is w_scaled / scale
+        w_original = svm.coef_[0] / scaler.scale_
+
+        # Normalize to unit vector (direction is what matters for dot-product reward)
+        norm = np.linalg.norm(w_original)
+        if norm > 0:
+            w_original = w_original / norm
+
+        all_normals.append(w_original)
+        print(f"    Train accuracy: {train_acc:.4f}, ||w||={norm:.4f}")
+
+    # Save as .pth files (same format as PCA heads)
+    all_normals = np.array(all_normals)  # (9, hidden_dim)
+    np.save(os.path.join(output_dir, "svm_normals.npy"), all_normals)
+
+    for i, cat_name in enumerate(SB_BENCH_CATEGORIES):
+        comp_t = torch.tensor(all_normals[i], dtype=torch.float32).unsqueeze(0)  # (1, hidden_dim)
+        state = {"weight": comp_t}
+        path_out = os.path.join(component_dir, f"{case_name}-SVM-component{i}.pth")
+        torch.save(state, path_out)
+
+    print(f"\nSaved {len(SB_BENCH_CATEGORIES)} SVM head files to {component_dir}")
+    print("Category → Head mapping:")
+    for i, name in enumerate(SB_BENCH_CATEGORIES):
+        print(f"  Head {i}: {name}")
+
+    # Check approximate orthogonality
+    dot = np.dot(all_normals, all_normals.T)
+    off = dot - np.diag(np.diag(dot))
+    print(f"\nMax off-diagonal dot product: {np.max(np.abs(off)):.6f}")
+    print("(SVM heads are NOT guaranteed orthogonal — this is expected and acceptable)")
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate orthogonal DRM heads (PCA) from embeddings")
+    parser = argparse.ArgumentParser(description="Generate DRM heads from embeddings (PCA or SVM)")
     parser.add_argument("--input_dir", type=str, default="./embeddings_output", help="Directory with emb_*.npy files")
     parser.add_argument("--output_dir", type=str, default="./generated_heads", help="Directory to save heads and metadata")
-    parser.add_argument("--n_components", type=int, default=100, help="Number of PCA components")
+    parser.add_argument("--n_components", type=int, default=100, help="Number of PCA components (ignored for SVM)")
     parser.add_argument("--case_name", type=str, default="sb_bench", help="Prefix for .pth filenames")
     parser.add_argument("--full_composed", action="store_true", help="Use all dimensions (k=hidden_dim)")
     parser.add_argument("--split_indices_path", type=str, default=None, help="Path to split_indices.json for filtering to train split")
     parser.add_argument("--split", type=str, default="all", choices=["train", "test", "all"], help="Which split to use (default: all)")
+    parser.add_argument("--head_type", type=str, default="pca", choices=["pca", "svm"],
+                        help="Head generation method: 'pca' (variance-maximizing) or 'svm' (category-specific boundary normals)")
+    parser.add_argument("--data_path", type=str, default="./sb_bench_data/data",
+                        help="Path to SB-Bench parquet dir (required for --head_type svm to read categories)")
     args = parser.parse_args()
-    generate_orthogonal_heads(args)
+
+    if args.head_type == "svm":
+        generate_svm_heads(args)
+    else:
+        generate_orthogonal_heads(args)

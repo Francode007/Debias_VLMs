@@ -116,6 +116,7 @@ def build_ppo_controller(
         lambda_causal=getattr(args, 'lambda_causal', 0.5),
         delta_margin=getattr(args, 'delta_margin', 1.0),
         lambda_dispersive=getattr(args, 'lambda_dispersive', 0.01),
+        logit_reward_coef=getattr(args, 'logit_reward_coef', 0.1),
     )
 
 

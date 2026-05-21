@@ -108,19 +108,36 @@ def run_inference(dataset: str = "sb_bench", model_family: str = "qwen"):
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
 def run_drm_generation():
-    """Run PCA on embeddings to generate DRM reward heads."""
+    """Run PCA and SVM on embeddings to generate DRM reward heads."""
     _setup_env()
     print("🧬 Phase 2: DRM Head Generation (CPU only)...")
+
+    # Generate PCA heads (legacy, kept for comparison)
+    print("  → PCA heads...")
     subprocess.run([
         "python", "-m", "modules.embeddings.generate_drm_heads",
         "--input_dir", os.environ["OUTPUT_PATH"],
         "--output_dir", "/mnt/data/generated_heads",
         "--n_components", "50",
+        "--head_type", "pca",
         "--split", "train",
         "--split_indices_path", SPLIT_INDICES_PATH,
     ], check=True)
+
+    # Generate SVM heads (category-specific boundary normals)
+    print("  → SVM heads...")
+    subprocess.run([
+        "python", "-m", "modules.embeddings.generate_drm_heads",
+        "--input_dir", os.environ["OUTPUT_PATH"],
+        "--output_dir", "/mnt/data/generated_heads",
+        "--head_type", "svm",
+        "--data_path", os.environ["DATA_PATH"],
+        "--split", "train",
+        "--split_indices_path", SPLIT_INDICES_PATH,
+    ], check=True)
+
     volume.commit()
-    print("✅ DRM heads generated.")
+    print("✅ DRM heads generated (PCA + SVM).")
 
 
 # ─── Phase 4: PPO Training (A100-80GB) ───────────────────────────────────────
@@ -137,21 +154,30 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
                  kl_beta: float = 0.1, ppo_clip_range: float = 0.2, learning_rate: float = 1e-5,
                  lora_r: int = 16, lora_alpha: int = 32, max_train_samples: int = None, eta: float = 0.01,
                  num_heads: int = 9, tau: float = 1.0, lambda_causal: float = 0.5,
-                 delta_margin: float = 1.0, lambda_dispersive: float = 0.01):
+                 delta_margin: float = 1.0, lambda_dispersive: float = 0.01,
+                 logit_reward_coef: float = 0.1, head_type: str = "svm"):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
     print(f"   Hyperparams: kl_beta={kl_beta}, clip={ppo_clip_range}, lr={learning_rate}, "
           f"lora_r={lora_r}, lora_alpha={lora_alpha}, max_samples={max_train_samples}, "
           f"num_heads={num_heads}, tau={tau}, lambda_causal={lambda_causal}, "
-          f"delta_margin={delta_margin}, lambda_dispersive={lambda_dispersive}")
+          f"delta_margin={delta_margin}, lambda_dispersive={lambda_dispersive}, "
+          f"logit_reward_coef={logit_reward_coef}, head_type={head_type}")
+
+    # Select reward heads directory based on head type
+    if head_type == "svm":
+        reward_heads_dir = "/mnt/data/generated_heads/sb_bench-SVM-component"
+    else:
+        reward_heads_dir = "/mnt/data/generated_heads/sb_bench-PCA-component"
+
     cmd = [
         "python", "-m", "modules.training.train_rl",
         "--dataset_name", dataset,
         "--model_family", model_family,
         "--policy_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
         "--extractor_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
-        "--reward_heads_dir", "/mnt/data/generated_heads/sb_bench-PCA-component",
+        "--reward_heads_dir", reward_heads_dir,
         "--num_heads", str(num_heads),
         "--per_device_train_batch_size", "12",
         "--gradient_accumulation_steps", "4",
@@ -171,6 +197,7 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--lambda_causal", str(lambda_causal),
         "--delta_margin", str(delta_margin),
         "--lambda_dispersive", str(lambda_dispersive),
+        "--logit_reward_coef", str(logit_reward_coef),
     ]
     if max_train_samples:
         cmd.extend(["--max_train_samples", str(max_train_samples)])
@@ -316,7 +343,8 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
          kl_beta: float = 0.1, ppo_clip_range: float = 0.2, learning_rate: float = 1e-5,
          lora_r: int = 16, lora_alpha: int = 32, max_train_samples: int = 0, eta: float = 0.01,
          num_heads: int = 9, tau: float = 1.0, lambda_causal: float = 0.5,
-         delta_margin: float = 1.0, lambda_dispersive: float = 0.01):
+         delta_margin: float = 1.0, lambda_dispersive: float = 0.01,
+         logit_reward_coef: float = 0.1, head_type: str = "svm"):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -356,6 +384,7 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
         max_train_samples=max_train_samples if max_train_samples > 0 else None,
         num_heads=num_heads, tau=tau, lambda_causal=lambda_causal,
         delta_margin=delta_margin, lambda_dispersive=lambda_dispersive,
+        logit_reward_coef=logit_reward_coef, head_type=head_type,
     )
     
     if phase in ["all", "train"]:

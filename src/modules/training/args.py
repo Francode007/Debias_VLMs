@@ -108,6 +108,12 @@ def parse_training_args() -> argparse.Namespace:
         help="Dispersive regularization loss weight (anti-collapse)",
     )
     parser.add_argument(
+        "--logit_reward_coef",
+        type=float,
+        default=0.1,
+        help="Weight of logit-grounded reward component (prevents null-space hacking)",
+    )
+    parser.add_argument(
         "--lora_r",
         type=int,
         default=16,
