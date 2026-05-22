@@ -155,7 +155,8 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
                  lora_r: int = 16, lora_alpha: int = 32, max_train_samples: int = None, eta: float = 0.01,
                  num_heads: int = 9, tau: float = 1.0, lambda_causal: float = 0.5,
                  delta_margin: float = 1.0, lambda_dispersive: float = 0.01,
-                 logit_reward_coef: float = 0.1, head_type: str = "svm"):
+                 logit_reward_coef: float = 0.1, head_type: str = "svm",
+                 max_gen_tokens: int = 256, batch_size: int = 12):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
@@ -163,7 +164,8 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
           f"lora_r={lora_r}, lora_alpha={lora_alpha}, max_samples={max_train_samples}, "
           f"num_heads={num_heads}, tau={tau}, lambda_causal={lambda_causal}, "
           f"delta_margin={delta_margin}, lambda_dispersive={lambda_dispersive}, "
-          f"logit_reward_coef={logit_reward_coef}, head_type={head_type}")
+          f"logit_reward_coef={logit_reward_coef}, head_type={head_type}, "
+          f"max_gen_tokens={max_gen_tokens}, batch_size={batch_size}")
 
     # Select reward heads directory based on head type
     if head_type == "svm":
@@ -179,7 +181,7 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--extractor_model_name", "Qwen/Qwen2.5-VL-3B-Instruct",
         "--reward_heads_dir", reward_heads_dir,
         "--num_heads", str(num_heads),
-        "--per_device_train_batch_size", "12",
+        "--per_device_train_batch_size", str(batch_size),
         "--gradient_accumulation_steps", "4",
         "--max_length", "2048",
         "--epochs", str(epochs),
@@ -198,6 +200,7 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--delta_margin", str(delta_margin),
         "--lambda_dispersive", str(lambda_dispersive),
         "--logit_reward_coef", str(logit_reward_coef),
+        "--max_gen_tokens", str(max_gen_tokens),
     ]
     if max_train_samples:
         cmd.extend(["--max_train_samples", str(max_train_samples)])
@@ -344,7 +347,8 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
          lora_r: int = 16, lora_alpha: int = 32, max_train_samples: int = 0, eta: float = 0.01,
          num_heads: int = 9, tau: float = 1.0, lambda_causal: float = 0.5,
          delta_margin: float = 1.0, lambda_dispersive: float = 0.01,
-         logit_reward_coef: float = 0.1, head_type: str = "svm"):
+         logit_reward_coef: float = 0.1, head_type: str = "svm",
+         max_gen_tokens: int = 256, batch_size: int = 12):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -385,6 +389,7 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
         num_heads=num_heads, tau=tau, lambda_causal=lambda_causal,
         delta_margin=delta_margin, lambda_dispersive=lambda_dispersive,
         logit_reward_coef=logit_reward_coef, head_type=head_type,
+        max_gen_tokens=max_gen_tokens, batch_size=batch_size,
     )
     
     if phase in ["all", "train"]:

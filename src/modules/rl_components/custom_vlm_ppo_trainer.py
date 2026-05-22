@@ -39,6 +39,7 @@ class PPOVLMController:
         delta_margin: float = 1.0,
         lambda_dispersive: float = 0.01,
         logit_reward_coef: float = 0.1,
+        max_gen_tokens: int = 256,
     ):
         """
         Args:
@@ -76,6 +77,7 @@ class PPOVLMController:
         self.logit_reward_coef = logit_reward_coef
         
         self.reward_heads_weight = reward_heads_weight.to(accelerator.device, dtype=torch.bfloat16)
+        self.max_gen_tokens = max_gen_tokens
 
     def extract_logits_values_and_hidden(self, model, value_head, input_ids, attention_mask, pixel_values, kwargs):
         """Forward pass returning logits, per-token values, and full penultimate hidden states."""
@@ -155,7 +157,7 @@ class PPOVLMController:
         
         # 1. GENERATION — Active policy only (no separate reference generation needed)
         self.policy.eval()
-        with torch.no_grad():
+        with torch.inference_mode():
             unwrapped_policy = self.accelerator.unwrap_model(self.policy)
             
             curr_outputs = unwrapped_policy.generate(
@@ -163,7 +165,7 @@ class PPOVLMController:
                 attention_mask=prompt_attention_mask,
                 pixel_values=pixel_values,
                 **kwargs,
-                max_new_tokens=32,
+                max_new_tokens=self.max_gen_tokens,
                 do_sample=True,
                 temperature=0.7,
                 top_p=0.9,

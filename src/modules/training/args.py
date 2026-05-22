@@ -114,6 +114,12 @@ def parse_training_args() -> argparse.Namespace:
         help="Weight of logit-grounded reward component (prevents null-space hacking)",
     )
     parser.add_argument(
+        "--max_gen_tokens",
+        type=int,
+        default=256,
+        help="Max new tokens to generate per PPO step (longer = richer reward signal)",
+    )
+    parser.add_argument(
         "--lora_r",
         type=int,
         default=16,

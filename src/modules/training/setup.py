@@ -117,6 +117,7 @@ def build_ppo_controller(
         delta_margin=getattr(args, 'delta_margin', 1.0),
         lambda_dispersive=getattr(args, 'lambda_dispersive', 0.01),
         logit_reward_coef=getattr(args, 'logit_reward_coef', 0.1),
+        max_gen_tokens=getattr(args, 'max_gen_tokens', 256),
     )
 
 
