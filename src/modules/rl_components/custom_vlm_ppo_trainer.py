@@ -219,7 +219,21 @@ class PPOVLMController:
         curr_logits, curr_values, curr_penultimate = self.extract_logits_values_and_hidden(
             self.policy, self.value_head, curr_outputs, curr_attention_mask, None, curr_scoring_kwargs
         )
-        curr_logprobs, loss_mask = self.compute_logprobs(curr_logits, curr_outputs)
+        curr_logprobs, _ = self.compute_logprobs(curr_logits, curr_outputs)
+        
+        # FIX: loss_mask must only include GENERATED tokens (exclude prompt + padding)
+        # After left-padding: content is right-aligned, prompt is first part of content
+        total_seq_len = curr_outputs.shape[1]
+        content_lens = curr_attention_mask.sum(dim=1)  # (B,) actual content length per sample
+        prompt_lens = prompt_attention_mask.sum(dim=1)  # (B,) actual prompt length per sample
+        # Generation starts at: (total_seq_len - content_len) + prompt_len in the padded sequence
+        gen_starts = (total_seq_len - content_lens + prompt_lens).long()  # (B,)
+        # In shifted space (logprobs are for positions 0..seq_len-2 predicting 1..seq_len-1)
+        gen_starts_shifted = (gen_starts - 1).clamp(min=0)  # (B,)
+        shifted_len = total_seq_len - 1  # length of shifted logprobs/labels
+        positions = torch.arange(shifted_len, device=curr_outputs.device).unsqueeze(0)  # (1, T)
+        loss_mask = (positions >= gen_starts_shifted.unsqueeze(1)) & curr_attention_mask[:, 1:].bool()
+        loss_mask = loss_mask.float()
         
         # 3. REFERENCE POLICY FORWARD — logits and hidden states (single pass)
         with torch.no_grad():
@@ -254,12 +268,13 @@ class PPOVLMController:
         r_task_dense = torch.matmul(r_token_k, alpha.to(r_token_k.dtype))  # (B, T)
         
         # 5. LOGIT-GROUNDED REWARD (Phase 2 — prevents null-space hacking)
-        # Measures actual shift in token probability — grounds reward in discrete behavior
-        # Positive when active policy assigns MORE probability than reference to the chosen token
-        logit_reward = (curr_logprobs - ref_logprobs.detach()) * self.logit_reward_coef  # (B, T)
+        # Only reward INCREASED confidence (ReLU) — prevents cancellation with KL penalty
+        # KL penalizes ALL divergence; logit reward selectively rewards positive divergence
+        logprob_diff = curr_logprobs - ref_logprobs.detach()  # (B, T)
+        logit_reward = torch.clamp(logprob_diff, min=0) * self.logit_reward_coef  # (B, T)
         
         # 6. TOKEN-LEVEL KL PENALTY (folded into reward)
-        token_kl = curr_logprobs - ref_logprobs.detach()  # (B, T) — per-token KL approx
+        token_kl = logprob_diff  # (B, T) — per-token KL approx (reuse computed diff)
         
         # 7. CAUSAL PENALTY (mean-token embedding drift)
         # Use mean embedding across valid positions (not EOS-only)
