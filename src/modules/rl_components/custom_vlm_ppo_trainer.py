@@ -184,7 +184,14 @@ class PPOVLMController:
             pad_token_id = 151643  # Qwen2 default pad token
         
         def _left_pad_generated(sequences, pad_id):
-            """Convert right-padded generated sequences to left-padded."""
+            """Convert generated sequences (which may have both left AND right padding) to left-padded.
+            
+            HF generate() with left-padded inputs preserves left-padding and adds right-padding:
+            Input:  [PAD PAD prompt_tokens]
+            Output: [PAD PAD prompt_tokens gen_tokens PAD PAD]
+            
+            We need to extract the contiguous content block and right-align it.
+            """
             attention_mask = (sequences != pad_id).long()
             batch_size, seq_len = sequences.shape
             content_lens = attention_mask.sum(dim=1)
@@ -194,7 +201,12 @@ class PPOVLMController:
             new_mask = torch.zeros_like(attention_mask)
             for i in range(batch_size):
                 clen = content_lens[i].item()
-                new_sequences[i, seq_len - clen:] = sequences[i, :clen]
+                if clen == 0:
+                    continue
+                # Find first non-pad position (content start)
+                first_content = attention_mask[i].argmax().item()
+                # Copy the contiguous content block, right-aligned
+                new_sequences[i, seq_len - clen:] = sequences[i, first_content:first_content + clen]
                 new_mask[i, seq_len - clen:] = 1
             return new_sequences, new_mask
         
