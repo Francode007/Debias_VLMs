@@ -100,6 +100,8 @@ def run_ppo_loop(
                         "logit_r": f"{metrics.get('logit_reward', 0):.4f}",
                         "causal": f"{metrics['causal_penalty']:.4f}",
                         "disp": f"{metrics['dispersive_loss']:.4f}",
+                        "|Δlogp|": f"{metrics.get('mean_abs_logprob_diff', 0):.6f}",
+                        "ratio": f"{metrics.get('ratio_mean', 1.0):.4f}",
                         "gpu_mem_gb": (
                             f"{torch.cuda.max_memory_allocated() / (1024 ** 3):.2f}"
                         ),

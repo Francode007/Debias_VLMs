@@ -395,4 +395,6 @@ class PPOVLMController:
             "reward_task": r_task_dense[loss_mask.bool()].mean().item(),
             "logit_reward": logit_reward[loss_mask.bool()].mean().item(),
             "kl": token_kl[loss_mask.bool()].mean().item(),
+            "mean_abs_logprob_diff": logprob_diff[loss_mask.bool()].abs().mean().item(),
+            "ratio_mean": ratio[loss_mask.bool()].mean().item(),
         }
