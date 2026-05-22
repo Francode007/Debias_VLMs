@@ -79,6 +79,12 @@ class PPOVLMController:
         self.reward_heads_weight = reward_heads_weight.to(accelerator.device, dtype=torch.bfloat16)
         self.max_gen_tokens = max_gen_tokens
 
+        # Running normalization for task reward (keeps r_task in same scale as KL/logit components)
+        self._r_task_running_mean = torch.tensor(0.0, device=accelerator.device)
+        self._r_task_running_var = torch.tensor(1.0, device=accelerator.device)
+        self._r_task_initialized = False
+        self._r_task_ema_decay = 0.99
+
     def extract_logits_values_and_hidden(self, model, value_head, input_ids, attention_mask, pixel_values, kwargs):
         """Forward pass returning logits, per-token values, and full penultimate hidden states."""
         outputs = model(
@@ -194,9 +200,15 @@ class PPOVLMController:
         
         curr_outputs, curr_attention_mask = _left_pad_generated(curr_outputs, pad_token_id)
 
-        # Build scoring kwargs (no pixel_values — images consumed during generate())
+        # Build scoring kwargs — pass through vision metadata for correct M-RoPE and embeddings
         def _build_scoring_kwargs(gen_outputs, original_kwargs):
             scoring_kw = {}
+            # image_grid_thw / video_grid_thw: unchanged (describe images, not sequence length)
+            if "image_grid_thw" in original_kwargs:
+                scoring_kw["image_grid_thw"] = original_kwargs["image_grid_thw"]
+            if "video_grid_thw" in original_kwargs:
+                scoring_kw["video_grid_thw"] = original_kwargs["video_grid_thw"]
+            # mm_token_type_ids: extend to match generated sequence length
             if "mm_token_type_ids" in original_kwargs:
                 orig_mm = original_kwargs["mm_token_type_ids"]
                 gen_len = gen_outputs.shape[1]
@@ -215,11 +227,13 @@ class PPOVLMController:
         curr_scoring_kwargs = _build_scoring_kwargs(curr_outputs, kwargs)
 
         # 2. ACTIVE POLICY FORWARD — extract logits, values, and ALL hidden states
+        #    Pass pixel_values so vision tokens get proper ViT embeddings (not generic token embeddings)
+        #    and image_grid_thw is in curr_scoring_kwargs for correct M-RoPE position computation.
         self.policy.train()
         self.value_head.train()
         
         curr_logits, curr_values, curr_penultimate = self.extract_logits_values_and_hidden(
-            self.policy, self.value_head, curr_outputs, curr_attention_mask, None, curr_scoring_kwargs
+            self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, curr_scoring_kwargs
         )
         curr_logprobs, _ = self.compute_logprobs(curr_logits, curr_outputs)
         
@@ -238,11 +252,12 @@ class PPOVLMController:
         loss_mask = loss_mask.float()
         
         # 3. REFERENCE POLICY FORWARD — logits and hidden states (single pass)
+        #    Same pixel_values for correct vision embeddings (ViT has no adapters, output is identical)
         with torch.no_grad():
             self.policy.eval()
             with self.policy.disable_adapter():
                 ref_logits, _, ref_penultimate = self.extract_logits_values_and_hidden(
-                    self.policy, self.value_head, curr_outputs, curr_attention_mask, None, curr_scoring_kwargs
+                    self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, curr_scoring_kwargs
                 )
                 ref_logprobs, _ = self.compute_logprobs(ref_logits, curr_outputs)
             self.policy.train()
@@ -267,16 +282,38 @@ class PPOVLMController:
         alpha = self.fast_rl.alpha  # (K,) — current head weights
         
         # Dense task reward: weighted sum across heads at each token
-        r_task_dense = torch.matmul(r_token_k, alpha.to(r_token_k.dtype))  # (B, T)
+        r_task_dense_raw = torch.matmul(r_token_k, alpha.to(r_token_k.dtype))  # (B, T)
+        
+        # Normalize r_task to unit variance using running statistics
+        # This ensures KL/logit reward components (~0.01-0.3) are not dwarfed by
+        # raw SVM projections (~10-30) which would make KL regularization ineffective.
+        with torch.no_grad():
+            valid_vals = r_task_dense_raw[loss_mask.bool()]
+            batch_mean = valid_vals.mean()
+            batch_var = valid_vals.var().clamp(min=1e-8)
+            if not self._r_task_initialized:
+                self._r_task_running_mean = batch_mean
+                self._r_task_running_var = batch_var
+                self._r_task_initialized = True
+            else:
+                self._r_task_running_mean = self._r_task_ema_decay * self._r_task_running_mean + (1 - self._r_task_ema_decay) * batch_mean
+                self._r_task_running_var = self._r_task_ema_decay * self._r_task_running_var + (1 - self._r_task_ema_decay) * batch_var
+        r_task_std = torch.sqrt(self._r_task_running_var + 1e-8)
+        r_task_dense = (r_task_dense_raw - self._r_task_running_mean) / r_task_std  # ~ N(0,1)
         
         # 5. LOGIT-GROUNDED REWARD (Phase 2 — prevents null-space hacking)
-        # Only reward INCREASED confidence (ReLU) — prevents cancellation with KL penalty
-        # KL penalizes ALL divergence; logit reward selectively rewards positive divergence
+        # Only reward INCREASED confidence (ReLU) — selective positive divergence signal
         logprob_diff = curr_logprobs - ref_logprobs.detach()  # (B, T)
         logit_reward = torch.clamp(logprob_diff, min=0) * self.logit_reward_coef  # (B, T)
         
-        # 6. TOKEN-LEVEL KL PENALTY (folded into reward)
-        token_kl = logprob_diff  # (B, T) — per-token KL approx (reuse computed diff)
+        # 6. TOKEN-LEVEL KL PENALTY (Schulman k3 estimator — always non-negative)
+        # k3 = exp(Δ) - 1 - Δ, where Δ = log(π/π_ref)
+        # This avoids cancellation with logit_reward (which uses raw Δ) because:
+        #   - logit_reward = max(0, Δ) * coef   (linear in positive Δ)
+        #   - kl_penalty = (exp(Δ)-1-Δ) * beta  (quadratic near 0, exponential for large Δ)
+        # Net effect: small positive divergence is rewarded, large divergence is penalized.
+        token_kl = torch.exp(logprob_diff) - 1.0 - logprob_diff  # (B, T) — always ≥ 0
+        token_kl = token_kl.clamp(max=10.0)  # Prevent explosion for large logprob_diff
         
         # 7. CAUSAL PENALTY (mean-token embedding drift)
         # Use mean embedding across valid positions (not EOS-only)
@@ -302,7 +339,12 @@ class PPOVLMController:
         advantages, returns = self.compute_dense_gae(
             dense_rewards.detach(), curr_values_aligned.detach(), loss_mask
         )
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        # Normalize advantages ONLY over valid (generated) positions
+        # Prompt positions have garbage advantages (-values[t]) that would dilute the signal
+        valid_advs = advantages[loss_mask.bool()]
+        adv_mean = valid_advs.mean()
+        adv_std = valid_advs.std().clamp(min=1e-8)
+        advantages = (advantages - adv_mean) / adv_std
         
         # 10. PPO SURROGATE LOSS (UNSCALED — trust region preserved)
         ratio = torch.exp(curr_logprobs - ref_logprobs.detach())
