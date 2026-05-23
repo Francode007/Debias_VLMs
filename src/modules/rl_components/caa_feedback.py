@@ -42,38 +42,33 @@ def compute_causal_reward_penalty(
 
 def compute_dispersive_loss(hidden_states: torch.Tensor, sigma: float = 1.0) -> torch.Tensor:
     """
-    Dispersive regularization loss that prevents representation collapse by
-    penalizing pairwise proximity of embeddings in the batch.
+    Bounded dispersive regularization (Phase 3 fix).
 
-    Formula:
-        L_disp = -1/(B*(B-1)) * sum_{i!=j} log(||h_i - h_j||_2 + epsilon)
+    Replaces the previous `-mean(log(d + eps))` form, which is unbounded as
+    d -> 0 and produced unstable gradients during training.
 
-    This forces embeddings of different inputs to remain spread apart,
-    preserving full-rank representational capacity.
+    New formulation (Gaussian RBF in [0, 1]):
+
+        L_disp = mean_{i != j}  exp(-||h_i - h_j||_2^2 / (2 * sigma^2))
+
+    - Always in [0, 1]; gradients are bounded.
+    - Minimizing this still drives embeddings apart, but with diminishing
+      pressure as they separate (rather than infinite pressure when close).
 
     Args:
-        hidden_states: (batch_size, hidden_dim) — penultimate layer embeddings.
-        sigma: Scale parameter (unused in log formulation, kept for API stability).
+        hidden_states: (B, D)
+        sigma:         RBF bandwidth.
 
     Returns:
-        Scalar dispersive loss (to be minimized — drives embeddings apart).
+        Scalar loss in [0, 1].
     """
     batch_size = hidden_states.shape[0]
     if batch_size < 2:
         return torch.tensor(0.0, device=hidden_states.device, dtype=hidden_states.dtype)
 
-    # Pairwise L2 distances: (B, B)
     diffs = hidden_states.unsqueeze(0) - hidden_states.unsqueeze(1)  # (B, B, D)
-    dists = torch.linalg.norm(diffs, ord=2, dim=-1)  # (B, B)
+    sq_dists = (diffs * diffs).sum(dim=-1)                            # (B, B)
 
-    # Exclude diagonal (self-pairs)
     mask = ~torch.eye(batch_size, device=hidden_states.device, dtype=torch.bool)
-    pairwise_dists = dists[mask]  # (B*(B-1),)
-
-    # Log-distance repulsion: minimize this → push embeddings apart
-    log_dists = torch.log(pairwise_dists + 1e-8)
-
-    # Negative mean log-distance: lower distance → higher loss
-    dispersive_loss = -log_dists.mean()
-
-    return dispersive_loss
+    pairwise_sq = sq_dists[mask]
+    return torch.exp(-pairwise_sq / (2.0 * sigma * sigma + 1e-8)).mean()

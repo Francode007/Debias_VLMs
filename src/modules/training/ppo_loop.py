@@ -28,6 +28,8 @@ def run_ppo_loop(
     resume_step: int,
     global_step: int,
     save_checkpoint_fn: Callable,
+    lr_scheduler_policy=None,
+    lr_scheduler_value=None,
 ) -> Dict:
     """
     Execute the PPO training loop across all epochs.
@@ -89,6 +91,13 @@ def run_ppo_loop(
                         batch, optimizer_policy, optimizer_value
                     )
                     torch.cuda.empty_cache()
+
+                # Phase 3: step LR schedulers on accumulation boundaries only.
+                if accelerator.sync_gradients:
+                    if lr_scheduler_policy is not None:
+                        lr_scheduler_policy.step()
+                    if lr_scheduler_value is not None:
+                        lr_scheduler_value.step()
 
                 t_batch_end = time.time()
                 batch_times.append(t_batch_end - t_batch_start)

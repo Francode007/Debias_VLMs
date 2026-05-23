@@ -67,17 +67,34 @@ def build_policy_model(args, accelerator: Accelerator) -> Tuple:
     lora_r = getattr(args, 'lora_r', 16)
     lora_alpha = getattr(args, 'lora_alpha', 32)
     logger.info(f"LoRA config: r={lora_r}, alpha={lora_alpha}")
+    lora_target_modules = [
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj",
+    ]
+    # Phase 3 hygiene: refuse to LoRA-adapt the vision tower (would corrupt
+    # the visual encoder we use to extract clean image features for the
+    # reference policy and for SVM head training).
+    _vision_substrings = ("vision", "visual", "vit", "image_encoder")
+    for m in lora_target_modules:
+        assert not any(s in m.lower() for s in _vision_substrings), (
+            f"LoRA target_modules must not include vision-tower modules; got '{m}'"
+        )
     lora_config = LoraConfig(
         r=lora_r,
         lora_alpha=lora_alpha,
-        target_modules=[
-            "q_proj", "k_proj", "v_proj", "o_proj",
-            "gate_proj", "up_proj", "down_proj",
-        ],
+        target_modules=lora_target_modules,
         bias="none",
         task_type="CAUSAL_LM",
     )
     active_policy = get_peft_model(policy_base, lora_config)
+
+    # Post-hoc safety: enumerate every adapter-attached module and confirm
+    # none of them live under a vision/visual submodule path.
+    for name, _module in active_policy.named_modules():
+        if "lora_" in name:
+            assert not any(s in name.lower() for s in _vision_substrings), (
+                f"LoRA adapter attached to vision-tower path: {name}"
+            )
 
     if hasattr(active_policy, "gradient_checkpointing_enable"):
         logger.info("Enabling gradient checkpointing on policy model")

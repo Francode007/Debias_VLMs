@@ -74,6 +74,28 @@ def resolve_category(cat_val) -> str:
     return str(cat_val)
 
 
+def resolve_letter_ids(tokenizer):
+    """Pick the single token id that the tokenizer emits for ' A' / ' B' / ' C'.
+
+    Qwen tokenizers prefix-space single-token-encode capital letters; we use
+    the leading-space variant because that is what the model would emit right
+    after the colon in the prompt 'Answer with only the letter (A, B, or C):'.
+    Falls back to the no-space variant if the leading-space form is multi-token.
+    """
+    ids = []
+    for letter in ("A", "B", "C"):
+        cand = tokenizer.encode(" " + letter, add_special_tokens=False)
+        if len(cand) != 1:
+            cand = tokenizer.encode(letter, add_special_tokens=False)
+        if len(cand) != 1:
+            raise ValueError(
+                f"Tokenizer does not encode '{letter}' as a single token; "
+                f"constrained decoding requires it."
+            )
+        ids.append(cand[0])
+    return tuple(ids)
+
+
 def main():
     args = parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -171,17 +193,24 @@ def main():
         ).to(device)
 
         with torch.inference_mode():
-            generated_ids = model.generate(**inputs, max_new_tokens=10)
+            # Phase 3 fix: CONSTRAINED DECODING on {A, B, C}.
+            # SB-Bench is multiple-choice; the eval parser only consumes the
+            # first letter A/B/C it sees. Producing free-form text and then
+            # regex-parsing wastes signal whenever the model prefixes with
+            # "The image shows..." etc. We instead compute the next-token
+            # logits and argmax over the 3 letter token ids per example.
+            outputs = model(**inputs)
+            next_token_logits = outputs.logits[:, -1, :]  # (B, V)
 
-        generated_ids_trimmed = [
-            out_ids[len(in_ids):]
-            for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-        ]
+            # Resolve the letter token ids once (lazily, on first batch).
+            if "_abc_ids" not in resolve_letter_ids.__dict__:
+                resolve_letter_ids._abc_ids = resolve_letter_ids(processor.tokenizer)
+            abc_ids = resolve_letter_ids._abc_ids  # tuple (id_A, id_B, id_C)
 
-        output_texts = processor.batch_decode(
-            generated_ids_trimmed, skip_special_tokens=True,
-            clean_up_tokenization_spaces=False
-        )
+            letter_logits = next_token_logits[:, list(abc_ids)]  # (B, 3)
+            picks = letter_logits.argmax(dim=-1).tolist()         # list[int]
+
+        output_texts = [["A", "B", "C"][p] for p in picks]
 
         for m, text in zip(meta, output_texts):
             results.append({**m, "text": text.strip()})

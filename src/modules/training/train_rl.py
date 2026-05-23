@@ -111,6 +111,28 @@ def main() -> None:
         train_dataloader,
     )
 
+    # Phase 3 hygiene: linear LR warmup over `warmup_ratio` of total updates.
+    from transformers import get_linear_schedule_with_warmup
+    total_update_steps = max(
+        1,
+        (len(train_dataloader) * args.epochs) // max(args.gradient_accumulation_steps, 1),
+    )
+    warmup_ratio = getattr(args, "warmup_ratio", 0.05)
+    warmup_steps = int(total_update_steps * warmup_ratio)
+    logger.info(
+        f"LR schedule: linear warmup over {warmup_steps}/{total_update_steps} updates "
+        f"(warmup_ratio={warmup_ratio})"
+    )
+    lr_scheduler_policy = get_linear_schedule_with_warmup(
+        optimizer_policy, num_warmup_steps=warmup_steps, num_training_steps=total_update_steps
+    )
+    lr_scheduler_value = get_linear_schedule_with_warmup(
+        optimizer_value, num_warmup_steps=warmup_steps, num_training_steps=total_update_steps
+    )
+    lr_scheduler_policy, lr_scheduler_value = accelerator.prepare(
+        lr_scheduler_policy, lr_scheduler_value
+    )
+
     setup_duration = time.time() - t_start_setup
     logger.info(f"Setup completed in {setup_duration:.2f}s")
 
@@ -156,6 +178,8 @@ def main() -> None:
         resume_step=resume_step,
         global_step=global_step,
         save_checkpoint_fn=_save_ckpt,
+        lr_scheduler_policy=lr_scheduler_policy,
+        lr_scheduler_value=lr_scheduler_value,
     )
 
     # ── 12. Final model save ──────────────────────────────────────────────────
