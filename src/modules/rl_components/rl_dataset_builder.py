@@ -90,7 +90,7 @@ class RLDatasetBuilder:
         num_chunks = (total + chunk_size - 1) // chunk_size
         
         cache_key = hashlib.md5(
-            f"{data_path}_{total}_{self.script_args.max_length}_rl_v2".encode()
+            f"{data_path}_{total}_{self.script_args.max_length}_rl_v3".encode()
         ).hexdigest()[:12]
         chunks_dir = os.path.join(os.path.dirname(data_path), f"rl_chunks_{cache_key}")
         os.makedirs(chunks_dir, exist_ok=True)
@@ -143,7 +143,7 @@ class RLDatasetBuilder:
         _RESULT_KEYS = [
             "pixel_values", "input_ids", "attention_mask",
             "image_grid_thw", "video_grid_thw", "mm_token_type_ids",
-            "data_index", "context", "question",
+            "data_index", "context", "question", "gold_label",
         ]
         results = {k: [] for k in _RESULT_KEYS}
         
@@ -246,6 +246,8 @@ class RLDatasetBuilder:
             # extract them or fall back to the generic prompt text for metadata.
             results["context"].append(example.get("context", ""))
             results["question"].append(example.get("question", self.dataset_adapter.get_prompt_text(example)))
+            # Gold label (0/1/2 → index of the correct unbiased answer)
+            results["gold_label"].append(int(example.get("label", -1)))
         
         # Remove columns that are entirely None (model doesn't produce them)
         results = {k: v for k, v in results.items() if not all(x is None for x in v)}

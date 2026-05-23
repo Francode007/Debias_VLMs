@@ -114,5 +114,11 @@ class RLDataCollatorWithPadding:
             if pixel_values.shape[0] != total_patches_from_grid:
                 sys.stderr.write(f"CRITICAL WARNING: Patch mismatch! {pixel_values.shape[0]} != {total_patches_from_grid}\n")
                 sys.stderr.flush()
+
+        # Pass through gold_label if present (for binary reward mode)
+        if "gold_label" in features[0]:
+            batch["gold_label"] = torch.tensor(
+                [f["gold_label"] for f in features], dtype=torch.long
+            )
         
         return batch

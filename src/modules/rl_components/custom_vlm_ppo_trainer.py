@@ -4,7 +4,35 @@ from torch.utils.data import DataLoader
 from accelerate import Accelerator
 from tqdm import tqdm
 from transformers import PreTrainedModel
+from transformers.generation.logits_process import LogitsProcessor, LogitsProcessorList
 import logging
+
+
+class FirstTokenAllowlistProcessor(LogitsProcessor):
+    """Restricts the FIRST generated token to a fixed allowlist of token IDs.
+
+    Used during PPO rollouts to match the constrained-decoding eval setup:
+    the model may only emit A / B / C as its first generated token. Subsequent
+    tokens are unrestricted (the model will typically emit <eos> immediately).
+
+    Without this, stochastic sampling over the full 152k vocab produces a
+    train-time accuracy floor far below the model's actual constrained
+    capability (we measured 0.40 train vs 0.62 vanilla constrained eval).
+    """
+
+    def __init__(self, allowed_token_ids, prompt_length: int):
+        super().__init__()
+        self.allowed = list(allowed_token_ids)
+        self.prompt_length = prompt_length
+
+    def __call__(self, input_ids, scores):
+        # input_ids: (B, T_so_far). T_so_far == prompt_length on the first
+        # generation step, then grows. We only mask on the very first step.
+        if input_ids.shape[1] != self.prompt_length:
+            return scores
+        mask = torch.full_like(scores, float("-inf"))
+        mask[:, self.allowed] = 0.0
+        return scores + mask
 
 from .fast_rl import FastRLNode
 from .caa_feedback import compute_causal_reward_penalty, compute_dispersive_loss
@@ -41,6 +69,7 @@ class PPOVLMController:
         logit_reward_coef: float = 0.1,
         max_gen_tokens: int = 8,
         max_grad_norm: float = 1.0,
+        reward_mode: str = "svm",
     ):
         """
         Args:
@@ -80,12 +109,58 @@ class PPOVLMController:
         self.reward_heads_weight = reward_heads_weight.to(accelerator.device, dtype=torch.bfloat16)
         self.max_gen_tokens = max_gen_tokens
         self.max_grad_norm = max_grad_norm
+        self.reward_mode = reward_mode  # "svm" or "binary"
 
         # Running normalization for task reward (keeps r_task in same scale as KL/logit components)
         self._r_task_running_mean = torch.tensor(0.0, device=accelerator.device)
         self._r_task_running_var = torch.tensor(1.0, device=accelerator.device)
         self._r_task_initialized = False
         self._r_task_ema_decay = 0.99
+        self._letter_token_ids = None  # Cached for binary reward mode
+
+    def _get_letter_token_ids(self):
+        """Resolve token IDs for A, B, C letters. Cached after first call.
+        
+        Tries multiple encodings: ' A', 'A', '\\nA' to find single-token representations.
+        Also builds a reverse lookup for ALL possible token IDs that could represent A/B/C.
+        """
+        if self._letter_token_ids is not None:
+            return self._letter_token_ids
+        unwrapped = self.accelerator.unwrap_model(self.policy)
+        if hasattr(unwrapped, "tokenizer"):
+            tok = unwrapped.tokenizer
+        else:
+            from transformers import AutoTokenizer
+            tok = AutoTokenizer.from_pretrained(unwrapped.config._name_or_path, trust_remote_code=True)
+        
+        letter_ids = {}  # {label_idx: set of matching token IDs}
+        for idx, letter in enumerate(["A", "B", "C"]):
+            candidates = set()
+            # Try multiple possible encodings
+            for prefix in ["", " ", "\n"]:
+                encoded = tok.encode(f"{prefix}{letter}", add_special_tokens=False)
+                if len(encoded) == 1:
+                    candidates.add(encoded[0])
+                elif len(encoded) > 1:
+                    # The last token might be the letter
+                    candidates.add(encoded[-1])
+            # Also try the letter alone
+            encoded_bare = tok.encode(letter, add_special_tokens=False)
+            for t_id in encoded_bare:
+                candidates.add(t_id)
+            letter_ids[idx] = candidates
+        
+        # Convert to a flat lookup: {token_id: label_idx}
+        # If a token_id maps to multiple labels, prefer exact single-token encoding
+        flat_lookup = {}
+        for idx, candidates in letter_ids.items():
+            for t_id in candidates:
+                if t_id not in flat_lookup:
+                    flat_lookup[t_id] = idx
+        
+        logger.info(f"Binary reward: letter candidates = {letter_ids}, flat_lookup = {flat_lookup}")
+        self._letter_token_ids = flat_lookup
+        return self._letter_token_ids
 
     def extract_logits_values_and_hidden(self, model, value_head, input_ids, attention_mask, pixel_values, kwargs):
         """Forward pass returning logits, per-token values, and full penultimate hidden states."""
@@ -168,6 +243,26 @@ class PPOVLMController:
         with torch.inference_mode():
             unwrapped_policy = self.accelerator.unwrap_model(self.policy)
             
+            # Constrained sampling: restrict the first generated token to
+            # {A, B, C} so train-time decoding matches eval-time decoding.
+            # PPO still gets exploration via temperature over the 3 letters.
+            logits_processor = None
+            if self.reward_mode == "binary":
+                letter_lookup = self._get_letter_token_ids()  # {tok_id: label}
+                allowed_ids = list(letter_lookup.keys())
+                logits_processor = LogitsProcessorList([
+                    FirstTokenAllowlistProcessor(
+                        allowed_token_ids=allowed_ids,
+                        prompt_length=prompt_input_ids.shape[1],
+                    )
+                ])
+
+            # NOTE: temperature was lowered from 0.7 → 0.3 to reduce sampling
+            # variance over the 3-way {A,B,C} action space. At 0.7, even a model
+            # peaked on the correct letter sampled the wrong letter often enough
+            # to keep mean train acc at ~0.40 (vs vanilla constrained-argmax 0.62).
+            # At 0.3, sampling stays close to argmax while preserving enough
+            # entropy for PPO exploration.
             curr_outputs = unwrapped_policy.generate(
                 prompt_input_ids,
                 attention_mask=prompt_attention_mask,
@@ -175,9 +270,10 @@ class PPOVLMController:
                 **kwargs,
                 max_new_tokens=self.max_gen_tokens,
                 do_sample=True,
-                temperature=0.7,
+                temperature=0.3,
                 top_p=0.9,
-                use_cache=True
+                use_cache=True,
+                logits_processor=logits_processor,
             )
                 
         # Reconstruct dynamic attention masks natively
@@ -304,75 +400,187 @@ class PPOVLMController:
         # so we use penultimate[:, :-1, :], not penultimate[:, 1:, :].
         h_active = curr_penultimate[:, :-1, :].to(self.reward_heads_weight.dtype)  # (B, T, D)
         h_ref = ref_penultimate[:, :-1, :].to(self.reward_heads_weight.dtype)      # (B, T, D)
-        
-        # Project ALL token hidden states onto reward heads: (B, T, D) @ (D, K) → (B, T, K)
-        r_token_k = torch.matmul(h_active, self.reward_heads_weight.T)  # (B, T, K)
-        
-        # Mean-pool over sequence for FastRL alpha update (global head importance)
-        # Only pool over valid (non-padding) positions
-        mask_expanded = loss_mask.unsqueeze(-1).float()  # (B, T, 1)
-        valid_counts = mask_expanded.sum(dim=1).clamp(min=1.0)  # (B, 1)
-        r_mean_k = (r_token_k * mask_expanded).sum(dim=1) / valid_counts  # (B, K)
-        
-        # Update FastRL alpha weights (returns scalar composite — we use alpha directly for dense)
-        _ = self.fast_rl.update(r_mean_k)
-        alpha = self.fast_rl.alpha  # (K,) — current head weights
-        
-        # Dense task reward: weighted sum across heads at each token
-        r_task_dense_raw = torch.matmul(r_token_k, alpha.to(r_token_k.dtype))  # (B, T)
-        
-        # Phase 3 fix: SCALE-ONLY normalization (preserve sign / directional info).
-        # Divide by running std so the magnitude is bounded, but DO NOT subtract the
-        # running mean — that re-centering destroys the absolute sign of the reward
-        # and stacks redundantly with the batch-wise advantage normalization below.
-        with torch.no_grad():
-            valid_vals = r_task_dense_raw[loss_mask.bool()]
-            batch_var = valid_vals.var().clamp(min=1e-8)
-            if not self._r_task_initialized:
-                self._r_task_running_var = batch_var
-                self._r_task_initialized = True
-            else:
-                self._r_task_running_var = (
-                    self._r_task_ema_decay * self._r_task_running_var
-                    + (1 - self._r_task_ema_decay) * batch_var
-                )
-        r_task_std = torch.sqrt(self._r_task_running_var + 1e-8)
-        r_task_dense = r_task_dense_raw / r_task_std  # sign-preserving
-        
-        # 5. LOGIT-GROUNDED REWARD (DISABLED in Phase 1 fix)
-        # Previously this was a workaround for the broken ratio (which compared
-        # π_active vs π_ref). With the correct π_old ratio + clip below, this
-        # term double-counts with the surrogate. Kept for diagnostic logging only.
-        logprob_diff = curr_logprobs - ref_logprobs.detach()  # (B, T) — diagnostic only
-        logit_reward = torch.zeros_like(logprob_diff)         # disabled
 
-        # 6. TOKEN-LEVEL KL PENALTY (DISABLED in Phase 1 fix)
-        # The KL-to-ref previously folded into the reward acted as a SECOND
-        # trust region toward the base policy (the first being the ratio's
-        # implicit one). Removing it; PPO ratio + clip is the only trust region.
-        # We still compute the k3 estimator for diagnostic logging.
-        token_kl = torch.exp(logprob_diff) - 1.0 - logprob_diff
-        token_kl = token_kl.clamp(max=10.0)
-        
-        # 7. CAUSAL PENALTY (mean-token embedding drift)
-        # Use mean embedding across valid positions (not EOS-only)
-        e_active_mean = (h_active.float() * mask_expanded).sum(dim=1) / valid_counts  # (B, D)
-        e_ref_mean = (h_ref.float() * mask_expanded).sum(dim=1) / valid_counts  # (B, D)
-        
-        causal_penalty = compute_causal_reward_penalty(
-            e_ref_mean, e_active_mean,
-            lambda_causal=self.lambda_causal,
-            delta_margin=self.delta_margin,
-        )  # (B,) — scalar per sequence, broadcast to all tokens
-        
-        # Distribute causal penalty evenly across valid tokens
-        seq_lens = loss_mask.sum(dim=1).clamp(min=1).float()  # (B,)
-        causal_per_token = (causal_penalty / seq_lens).unsqueeze(1).expand_as(r_task_dense)  # (B, T)
-        
-        # 8. COMPOSE DENSE REWARD (Phase 1 fix: KL & logit_reward removed)
-        # r_t = r_task_t + causal_per_token_t  (masked to generated positions)
-        dense_rewards = (r_task_dense + causal_per_token) * loss_mask
-        
+        if self.reward_mode == "binary":
+            # ─── BINARY REWARD MODE ──────────────────────────────────────────
+            # Reward = +1 if generated letter == gold, -1 otherwise.
+            # Placed as a sparse terminal reward at the LAST valid token position.
+            gold_labels = batch.get("gold_label")  # (B,) tensor of 0/1/2
+            if gold_labels is None:
+                logger.warning("BINARY REWARD: gold_label NOT found in batch! Reward will be all -1.")
+            # Generated portion starts at gen_starts in the full sequence
+            batch_size = curr_outputs.shape[0]
+            binary_reward_per_sample = torch.zeros(batch_size, device=curr_outputs.device)
+            letter_token_ids = self._get_letter_token_ids()  # {0: id_A, 1: id_B, 2: id_C}
+
+            num_correct = 0
+            num_unparsed = 0
+            # Track WHERE in the generated sequence the letter token was found.
+            # -1 means "no letter token found in the first 5 generated tokens".
+            # We use this below to place the reward at the position whose logit
+            # *actually* predicted the letter — not on the (often non-letter)
+            # first generated token (e.g. " The" / " Answer:" preambles).
+            pred_offset_per_sample = [-1] * batch_size
+            for b_idx in range(batch_size):
+                gen_start = gen_starts[b_idx].item()
+                # Get generated token ids (only the generated portion)
+                gen_tokens = curr_outputs[b_idx, gen_start:]
+                # Look for A/B/C token in the first few generated positions
+                pred_label = -1
+                for offset, tok in enumerate(gen_tokens[:5]):
+                    tok_id = tok.item()
+                    if tok_id in letter_token_ids:
+                        pred_label = letter_token_ids[tok_id]
+                        pred_offset_per_sample[b_idx] = offset
+                        break
+
+                gold = gold_labels[b_idx].item() if gold_labels is not None else -1
+
+                # CRITICAL: if we can't parse prediction OR don't have gold, reward = -1
+                if pred_label < 0 or gold < 0:
+                    binary_reward_per_sample[b_idx] = -1.0
+                    num_unparsed += 1
+                elif pred_label == gold:
+                    binary_reward_per_sample[b_idx] = 1.0
+                    num_correct += 1
+                else:
+                    binary_reward_per_sample[b_idx] = -1.0
+
+            # Stash for metrics (see below). Parsed-offset stats let us see if the
+            # model is emitting the letter at position 0 (good) or buried after a
+            # preamble (bad — base capability is hidden behind verbose generation).
+            parsed = [o for o in pred_offset_per_sample if o >= 0]
+            self._last_parse_success_rate = (len(parsed) / batch_size) if batch_size > 0 else 0.0
+            self._last_pred_letter_offset_mean = (
+                (sum(parsed) / len(parsed)) if parsed else float("nan")
+            )
+
+            # Log diagnostics on first few batches
+            if not hasattr(self, '_binary_log_count'):
+                self._binary_log_count = 0
+            if self._binary_log_count < 3:
+                self._binary_log_count += 1
+                # Decode first sample's generated tokens for debugging
+                gen_start_0 = gen_starts[0].item()
+                gen_tok_ids = curr_outputs[0, gen_start_0:gen_start_0+5].tolist()
+                gold_vals = gold_labels.tolist() if gold_labels is not None else "NONE"
+                logger.info(
+                    f"BINARY REWARD DEBUG (batch {self._binary_log_count}): "
+                    f"letter_token_ids={letter_token_ids}, "
+                    f"first_gen_tokens={gen_tok_ids}, "
+                    f"gold_labels={gold_vals}, "
+                    f"correct={num_correct}/{batch_size}, unparsed={num_unparsed}/{batch_size}"
+                )
+
+            # Construct sparse reward: place at the position whose logit ACTUALLY
+            # predicted the answer letter, not the first generated token.
+            #
+            # Why: chat-tuned VLMs often emit a preamble (" The", " Answer:",
+            # "<thinking>") before the letter even when prompted to answer with
+            # only A/B/C. Crediting the first-generated-token's predictor with
+            # the letter's reward pushes the model AWAY from whatever produced
+            # the letter — actively destroying baseline capability (we saw the
+            # vanilla 0.619 baseline degrade to ~0.40 under PPO before this fix).
+            #
+            # Position math: if the letter appeared at curr_outputs[b, gen_start+k],
+            # the logit that predicted it sits at full-seq position (gen_start+k-1),
+            # which equals (gen_starts_shifted[b] + k) in shifted/logprob coords.
+            # When no letter is found in the first 5 tokens (k = -1), fall back to
+            # gen_starts_shifted (the old behaviour) — these samples get r=-1 anyway
+            # and we have no better position to place it.
+            dense_rewards = torch.zeros_like(loss_mask)
+            for b_idx in range(batch_size):
+                k = pred_offset_per_sample[b_idx]
+                if k >= 0:
+                    ans_pos = gen_starts_shifted[b_idx].item() + k
+                else:
+                    ans_pos = gen_starts_shifted[b_idx].item()
+                # Clamp to valid range (defensive — should always be inside loss_mask)
+                if 0 <= ans_pos < loss_mask.shape[1] and loss_mask[b_idx, ans_pos] > 0:
+                    dense_rewards[b_idx, ans_pos] = binary_reward_per_sample[b_idx]
+            # NB: do NOT multiply by loss_mask again — answer-position is already inside it.
+            # Keep the unmodified per-sample binary reward around for honest accuracy logging,
+            # since `dense_rewards` will shortly be mixed with the KL penalty below.
+            self._last_binary_reward_per_sample = binary_reward_per_sample.detach()
+
+            # Token-level KL penalty (folded into reward, the standard PPO-with-KL recipe).
+            # With kl_beta>0 this pulls the policy back toward π_ref and prevents
+            # unbounded drift / mode collapse. In the previous code path this was
+            # computed but discarded — that is why the policy degraded toward chance.
+            logprob_diff = curr_logprobs - ref_logprobs.detach()
+            token_kl = torch.exp(logprob_diff) - 1.0 - logprob_diff
+            token_kl = token_kl.clamp(max=10.0)
+            dense_rewards = (dense_rewards - self.kl_beta * token_kl) * loss_mask
+
+            # Diagnostics (no SVM, no causal penalty in binary mode)
+            logit_reward = torch.zeros_like(logprob_diff)
+            r_task_dense = dense_rewards  # for logging
+            causal_penalty = torch.zeros(batch_size, device=curr_outputs.device)
+            dispersive_loss = torch.tensor(0.0, device=curr_outputs.device)
+            # ─────────────────────────────────────────────────────────────────
+
+        else:
+            # ─── SVM REWARD MODE (original dense reward) ─────────────────────
+            # Project ALL token hidden states onto reward heads: (B, T, D) @ (D, K) → (B, T, K)
+            r_token_k = torch.matmul(h_active, self.reward_heads_weight.T)  # (B, T, K)
+            
+            # Mean-pool over sequence for FastRL alpha update (global head importance)
+            # Only pool over valid (non-padding) positions
+            mask_expanded = loss_mask.unsqueeze(-1).float()  # (B, T, 1)
+            valid_counts = mask_expanded.sum(dim=1).clamp(min=1.0)  # (B, 1)
+            r_mean_k = (r_token_k * mask_expanded).sum(dim=1) / valid_counts  # (B, K)
+            
+            # Update FastRL alpha weights (returns scalar composite — we use alpha directly for dense)
+            _ = self.fast_rl.update(r_mean_k)
+            alpha = self.fast_rl.alpha  # (K,) — current head weights
+            
+            # Dense task reward: weighted sum across heads at each token
+            r_task_dense_raw = torch.matmul(r_token_k, alpha.to(r_token_k.dtype))  # (B, T)
+            
+            # Phase 3 fix: SCALE-ONLY normalization (preserve sign / directional info).
+            with torch.no_grad():
+                valid_vals = r_task_dense_raw[loss_mask.bool()]
+                batch_var = valid_vals.var().clamp(min=1e-8)
+                if not self._r_task_initialized:
+                    self._r_task_running_var = batch_var
+                    self._r_task_initialized = True
+                else:
+                    self._r_task_running_var = (
+                        self._r_task_ema_decay * self._r_task_running_var
+                        + (1 - self._r_task_ema_decay) * batch_var
+                    )
+            r_task_std = torch.sqrt(self._r_task_running_var + 1e-8)
+            r_task_dense = r_task_dense_raw / r_task_std  # sign-preserving
+            
+            # 5. LOGIT-GROUNDED REWARD (DISABLED in Phase 1 fix)
+            logprob_diff = curr_logprobs - ref_logprobs.detach()
+            logit_reward = torch.zeros_like(logprob_diff)
+
+            # 6. TOKEN-LEVEL KL PENALTY (DISABLED in Phase 1 fix)
+            token_kl = torch.exp(logprob_diff) - 1.0 - logprob_diff
+            token_kl = token_kl.clamp(max=10.0)
+            
+            # 7. CAUSAL PENALTY (mean-token embedding drift)
+            e_active_mean = (h_active.float() * mask_expanded).sum(dim=1) / valid_counts  # (B, D)
+            e_ref_mean = (h_ref.float() * mask_expanded).sum(dim=1) / valid_counts  # (B, D)
+            
+            causal_penalty = compute_causal_reward_penalty(
+                e_ref_mean, e_active_mean,
+                lambda_causal=self.lambda_causal,
+                delta_margin=self.delta_margin,
+            )
+            
+            # Distribute causal penalty evenly across valid tokens
+            seq_lens = loss_mask.sum(dim=1).clamp(min=1).float()
+            causal_per_token = (causal_penalty / seq_lens).unsqueeze(1).expand_as(r_task_dense)
+            
+            # 8. COMPOSE DENSE REWARD (Phase 1 fix: KL & logit_reward removed)
+            dense_rewards = (r_task_dense + causal_per_token) * loss_mask
+            
+            # 12. DISPERSIVE REGULARIZATION (mean-pooled embeddings, O(B^2))
+            e_active_mean_disp = (h_active.float() * mask_expanded).sum(dim=1) / valid_counts
+            dispersive_loss = compute_dispersive_loss(e_active_mean_disp)
+            # ─────────────────────────────────────────────────────────────────
         # 9. DENSE GAE
         curr_values_aligned = curr_values[:, :-1]  # align with shifted positions
         advantages, returns = self.compute_dense_gae(
@@ -398,41 +606,104 @@ class PPOVLMController:
         v_loss = v_loss.sum(dim=1) / loss_mask.sum(dim=1)
         v_loss = v_loss.mean()
         
-        # 12. DISPERSIVE REGULARIZATION (mean-pooled embeddings, O(B^2))
-        dispersive_loss = compute_dispersive_loss(e_active_mean)
-        
         # 13. TOTAL LOSS
         loss = pg_loss + self.vf_coef * v_loss + self.lambda_dispersive * dispersive_loss
         
         # Backprop
         self.accelerator.backward(loss)
 
+        # SANITY: on the very first backward call, verify that gradients
+        # actually reached the trainable (LoRA) parameters. Fail loudly
+        # rather than waiting for a 23-minute training run to discover
+        # the policy never moved.
+        if not getattr(self, "_grad_flow_checked", False):
+            n_trainable = 0
+            n_with_grad = 0
+            sample_zero_param = None
+            for name, p in self.policy.named_parameters():
+                if p.requires_grad:
+                    n_trainable += 1
+                    if p.grad is not None and p.grad.abs().sum().item() > 0:
+                        n_with_grad += 1
+                    elif sample_zero_param is None:
+                        sample_zero_param = name
+            logger.info(
+                f"GRAD FLOW CHECK: {n_with_grad}/{n_trainable} trainable policy "
+                f"params received non-zero gradients on first backward. "
+                f"loss={loss.item():.4f}, pg_loss={pg_loss.item():.4f}"
+            )
+            if n_with_grad == 0 and n_trainable > 0:
+                raise RuntimeError(
+                    f"Zero gradient flow to ALL {n_trainable} trainable policy "
+                    f"params. Example param with no grad: {sample_zero_param}. "
+                    f"Check: (1) use_reentrant=False on gradient checkpointing, "
+                    f"(2) ppo_controller.policy is the prepared model, "
+                    f"(3) no torch.no_grad() wraps curr_logprobs forward, "
+                    f"(4) curr_logprobs is connected to loss (not detached)."
+                )
+            self._grad_flow_checked = True
+
         # Phase 3 hygiene: gradient clipping (only on accumulation boundaries).
-        if self.accelerator.sync_gradients and self.max_grad_norm is not None:
-            self.accelerator.clip_grad_norm_(
-                [p for p in self.policy.parameters() if p.requires_grad],
-                self.max_grad_norm,
-            )
-            self.accelerator.clip_grad_norm_(
-                self.value_head.parameters(), self.max_grad_norm,
-            )
+        # Also capture pre-clip gradient norms so we can SEE whether any policy
+        # gradient signal is reaching the LoRA params. (Without this, both `pg`
+        # and `ratio` are uninformative: pg=0 because advantages are mean-centered,
+        # ratio=1 because π_old==π_curr in single-epoch on-policy PPO.)
+        policy_grad_norm = 0.0
+        value_grad_norm = 0.0
+        if self.accelerator.sync_gradients:
+            policy_params = [p for p in self.policy.parameters() if p.requires_grad]
+            if self.max_grad_norm is not None:
+                p_norm = self.accelerator.clip_grad_norm_(policy_params, self.max_grad_norm)
+                v_norm = self.accelerator.clip_grad_norm_(
+                    self.value_head.parameters(), self.max_grad_norm,
+                )
+                # clip_grad_norm_ returns the PRE-clip total norm
+                policy_grad_norm = float(p_norm) if p_norm is not None else 0.0
+                value_grad_norm = float(v_norm) if v_norm is not None else 0.0
 
         optimizer_policy.step()
         optimizer_value.step()
         optimizer_policy.zero_grad()
         optimizer_value.zero_grad()
-        
-        return {
+
+        # Honest signal-magnitude metric: how big are the advantages at the
+        # reward-bearing positions (i.e. the answer-letter logit positions)?
+        # This is what the LoRA gradient is actually proportional to.
+        adv_abs_mean = (
+            advantages[loss_mask.bool()].abs().mean().item() if loss_mask.any() else 0.0
+        )
+
+        metrics = {
             "loss": loss.item(),
             "pg_loss": pg_loss.item(),
             "v_loss": v_loss.item(),
             "dispersive_loss": dispersive_loss.item(),
             "causal_penalty": causal_penalty.mean().item(),
             "reward_dense_mean": dense_rewards.sum(dim=1).mean().item(),
-            "reward_task": r_task_dense[loss_mask.bool()].mean().item(),
-            "logit_reward": logit_reward[loss_mask.bool()].mean().item(),
-            "kl": token_kl[loss_mask.bool()].mean().item(),
-            "mean_abs_logprob_diff": logprob_diff[loss_mask.bool()].abs().mean().item(),
-            "mean_abs_old_curr_diff": (curr_logprobs - old_logprobs)[loss_mask.bool()].abs().mean().item(),
-            "ratio_mean": ratio[loss_mask.bool()].mean().item(),
+            "reward_task": r_task_dense[loss_mask.bool()].mean().item() if loss_mask.any() else 0.0,
+            "logit_reward": logit_reward[loss_mask.bool()].mean().item() if loss_mask.any() else 0.0,
+            "kl": token_kl[loss_mask.bool()].mean().item() if loss_mask.any() else 0.0,
+            "mean_abs_logprob_diff": logprob_diff[loss_mask.bool()].abs().mean().item() if loss_mask.any() else 0.0,
+            "mean_abs_old_curr_diff": (curr_logprobs - old_logprobs)[loss_mask.bool()].abs().mean().item() if loss_mask.any() else 0.0,
+            "ratio_mean": ratio[loss_mask.bool()].mean().item() if loss_mask.any() else 1.0,
+            "adv_abs_mean": adv_abs_mean,
+            "policy_grad_norm": policy_grad_norm,
+            "value_grad_norm": value_grad_norm,
         }
+        if self.reward_mode == "binary":
+            # Track accuracy from the *pre-KL* per-sample reward (dense_rewards now
+            # has the KL penalty folded in, so its sign no longer tracks correctness).
+            bps = getattr(self, "_last_binary_reward_per_sample", None)
+            if bps is not None:
+                accuracy = (bps > 0).float().mean().item()
+                metrics["binary_accuracy"] = accuracy
+                metrics["reward_binary_mean"] = bps.mean().item()
+            # Parse diagnostics: did the model actually emit a letter token in
+            # the first 5 generated positions, and at what offset?
+            psr = getattr(self, "_last_parse_success_rate", None)
+            if psr is not None:
+                metrics["parse_success_rate"] = psr
+            plom = getattr(self, "_last_pred_letter_offset_mean", None)
+            if plom is not None and plom == plom:  # nan-safe
+                metrics["pred_letter_offset_mean"] = plom
+        return metrics

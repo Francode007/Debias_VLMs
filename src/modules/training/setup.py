@@ -67,18 +67,14 @@ def build_policy_model(args, accelerator: Accelerator) -> Tuple:
     lora_r = getattr(args, 'lora_r', 16)
     lora_alpha = getattr(args, 'lora_alpha', 32)
     logger.info(f"LoRA config: r={lora_r}, alpha={lora_alpha}")
-    lora_target_modules = [
-        "q_proj", "k_proj", "v_proj", "o_proj",
-        "gate_proj", "up_proj", "down_proj",
-    ]
+    # Use regex to target ONLY text-model layers (model.layers.N.*),
+    # excluding the vision tower (model.visual.blocks.*) which also has
+    # gate_proj/up_proj/down_proj in its MLP blocks.
+    lora_target_modules = r".*layers\.\d+\.\w+\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)"
     # Phase 3 hygiene: refuse to LoRA-adapt the vision tower (would corrupt
     # the visual encoder we use to extract clean image features for the
     # reference policy and for SVM head training).
     _vision_substrings = ("vision", "visual", "vit", "image_encoder")
-    for m in lora_target_modules:
-        assert not any(s in m.lower() for s in _vision_substrings), (
-            f"LoRA target_modules must not include vision-tower modules; got '{m}'"
-        )
     lora_config = LoraConfig(
         r=lora_r,
         lora_alpha=lora_alpha,
@@ -97,8 +93,29 @@ def build_policy_model(args, accelerator: Accelerator) -> Tuple:
             )
 
     if hasattr(active_policy, "gradient_checkpointing_enable"):
-        logger.info("Enabling gradient checkpointing on policy model")
-        active_policy.gradient_checkpointing_enable()
+        logger.info("Enabling gradient checkpointing on policy model (use_reentrant=False)")
+        # CRITICAL: With LoRA + frozen base + multimodal (Qwen2.5-VL fuses
+        # frozen vision + frozen text embeddings before the LM decoder),
+        # the *reentrant* checkpoint variant requires at least one input
+        # tensor to have requires_grad=True and silently produces None
+        # gradients otherwise. enable_input_require_grads() only hooks the
+        # TEXT embedding, which is insufficient because the combined
+        # text+vision tensor is what actually enters the checkpointed
+        # decoder blocks. Use the non-reentrant variant which uses
+        # saved_tensors_hooks and does not have this restriction — this is
+        # the standard fix for PEFT + gradient_checkpointing.
+        active_policy.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
+        if hasattr(active_policy, "enable_input_require_grads"):
+            # Belt-and-suspenders: also register the embedding hook so any
+            # downstream code path that *does* use reentrant checkpointing
+            # (e.g. inside the vision tower) still sees grad-tracking inputs.
+            logger.info("Enabling input require_grads for LoRA + checkpointing compatibility")
+            active_policy.enable_input_require_grads()
+
+    # Attach tokenizer to model for reward computation (binary mode needs it)
+    active_policy.tokenizer = processor.tokenizer
 
     return active_policy, processor
 
@@ -135,6 +152,7 @@ def build_ppo_controller(
         lambda_dispersive=getattr(args, 'lambda_dispersive', 0.01),
         logit_reward_coef=getattr(args, 'logit_reward_coef', 0.1),
         max_gen_tokens=getattr(args, 'max_gen_tokens', 256),
+        reward_mode=getattr(args, 'reward_mode', 'svm'),
     )
 
 

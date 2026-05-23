@@ -4,7 +4,9 @@ PPO training loop — per-epoch / per-batch execution.
 Isolated from setup and checkpointing so it can be independently
 tested, profiled, or replaced (e.g. with a GRPO variant).
 """
+import json
 import logging
+import os
 import time
 from typing import Callable, Dict, Set
 
@@ -73,6 +75,21 @@ def run_ppo_loop(
     t_start_training = time.time()
     batch_times = []
 
+    # ── Persistent per-batch metrics JSONL ──────────────────────────────────
+    # Write every batch's full metrics dict to `<output_dir>/metrics.jsonl`
+    # so we get full visibility into training without scraping stdout.
+    # Only the main process should write to avoid duplicate lines.
+    metrics_log_path = None
+    metrics_log_fh = None
+    if getattr(accelerator, "is_main_process", True):
+        out_dir = getattr(args, "output_dir", None)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+            metrics_log_path = os.path.join(out_dir, "metrics.jsonl")
+            # Append so resumed runs preserve prior history
+            metrics_log_fh = open(metrics_log_path, "a", buffering=1)  # line-buffered
+            logger.info(f"Per-batch metrics → {metrics_log_path}")
+
     for epoch in range(start_epoch, args.epochs):
         logger.info(f"--- Epoch {epoch + 1}/{args.epochs} ---")
         step_in_epoch = 0
@@ -102,20 +119,45 @@ def run_ppo_loop(
                 t_batch_end = time.time()
                 batch_times.append(t_batch_end - t_batch_start)
 
-                pbar.set_postfix(
-                    {
+                postfix_dict = {
                         "loss": f"{metrics['loss']:.4f}",
-                        "r_dense": f"{metrics.get('reward_dense_mean', metrics.get('reward', 0)):.4f}",
-                        "logit_r": f"{metrics.get('logit_reward', 0):.4f}",
-                        "causal": f"{metrics['causal_penalty']:.4f}",
-                        "disp": f"{metrics['dispersive_loss']:.4f}",
-                        "|Δlogp|": f"{metrics.get('mean_abs_logprob_diff', 0):.6f}",
-                        "ratio": f"{metrics.get('ratio_mean', 1.0):.4f}",
+                        "r_bin": f"{metrics.get('reward_binary_mean', metrics.get('reward_dense_mean', 0)):.3f}",
+                        "adv": f"{metrics.get('adv_abs_mean', 0):.3f}",
+                        "pg_gn": f"{metrics.get('policy_grad_norm', 0):.4f}",
+                        "v_gn": f"{metrics.get('value_grad_norm', 0):.4f}",
+                        "kl": f"{metrics.get('kl', 0):.4f}",
+                        "|Δlogp|": f"{metrics.get('mean_abs_logprob_diff', 0):.5f}",
                         "gpu_mem_gb": (
                             f"{torch.cuda.max_memory_allocated() / (1024 ** 3):.2f}"
                         ),
+                }
+                if "binary_accuracy" in metrics:
+                    postfix_dict["acc"] = f"{metrics['binary_accuracy']:.3f}"
+                if "parse_success_rate" in metrics:
+                    postfix_dict["parse"] = f"{metrics['parse_success_rate']:.2f}"
+                if "pred_letter_offset_mean" in metrics:
+                    postfix_dict["off"] = f"{metrics['pred_letter_offset_mean']:.2f}"
+                pbar.set_postfix(postfix_dict)
+
+                # Persist full metrics to JSONL (one line per batch).
+                if metrics_log_fh is not None:
+                    record = {
+                        "epoch": epoch,
+                        "step_in_epoch": step_in_epoch,
+                        "global_step": global_step,
+                        "batch_time_s": t_batch_end - t_batch_start,
+                        "gpu_mem_gb": torch.cuda.max_memory_allocated() / (1024 ** 3),
                     }
-                )
+                    # Only serialize JSON-friendly scalars from metrics
+                    for k, v in metrics.items():
+                        if isinstance(v, (int, float, bool)) or v is None:
+                            record[k] = v
+                        else:
+                            try:
+                                record[k] = float(v)
+                            except Exception:
+                                pass
+                    metrics_log_fh.write(json.dumps(record) + "\n")
 
                 global_step += 1
                 step_in_epoch += 1
@@ -138,6 +180,9 @@ def run_ppo_loop(
 
     total_training_time = time.time() - t_start_training
     avg_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0.0
+
+    if metrics_log_fh is not None:
+        metrics_log_fh.close()
 
     return {
         "total_training_time": total_training_time,

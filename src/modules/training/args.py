@@ -210,4 +210,13 @@ def parse_training_args() -> argparse.Namespace:
         help="Path to split_indices.json (generated once, reused across phases)",
     )
 
+    # Reward mode
+    parser.add_argument(
+        "--reward_mode",
+        type=str,
+        default="svm",
+        choices=["svm", "binary"],
+        help="Reward signal: 'svm' (dense SVM projection) or 'binary' (+1/-1 correctness)",
+    )
+
     return parser.parse_args()
