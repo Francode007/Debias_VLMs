@@ -1,0 +1,405 @@
+{
+  "baseline": 0.6015625,
+  "grid": [
+    {
+      "layer": 12,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": -3.0,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 12,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": -1.5,
+      "acc": 0.59375,
+      "delta": -0.0078125
+    },
+    {
+      "layer": 12,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 0.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 12,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 1.5,
+      "acc": 0.59765625,
+      "delta": -0.00390625
+    },
+    {
+      "layer": 12,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 3.0,
+      "acc": 0.58203125,
+      "delta": -0.01953125
+    },
+    {
+      "layer": 12,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": -3.0,
+      "acc": 0.59375,
+      "delta": -0.0078125
+    },
+    {
+      "layer": 12,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": -1.5,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 12,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 0.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 12,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 1.5,
+      "acc": 0.59765625,
+      "delta": -0.00390625
+    },
+    {
+      "layer": 12,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 3.0,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 18,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": -3.0,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 18,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": -1.5,
+      "acc": 0.58203125,
+      "delta": -0.01953125
+    },
+    {
+      "layer": 18,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 0.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 18,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 1.5,
+      "acc": 0.59375,
+      "delta": -0.0078125
+    },
+    {
+      "layer": 18,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 3.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 18,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": -3.0,
+      "acc": 0.59375,
+      "delta": -0.0078125
+    },
+    {
+      "layer": 18,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": -1.5,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 18,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 0.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 18,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 1.5,
+      "acc": 0.58203125,
+      "delta": -0.01953125
+    },
+    {
+      "layer": 18,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 3.0,
+      "acc": 0.58203125,
+      "delta": -0.01953125
+    },
+    {
+      "layer": 24,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": -3.0,
+      "acc": 0.578125,
+      "delta": -0.0234375
+    },
+    {
+      "layer": 24,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": -1.5,
+      "acc": 0.578125,
+      "delta": -0.0234375
+    },
+    {
+      "layer": 24,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 0.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 24,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 1.5,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 24,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 3.0,
+      "acc": 0.59765625,
+      "delta": -0.00390625
+    },
+    {
+      "layer": 24,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": -3.0,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 24,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": -1.5,
+      "acc": 0.59375,
+      "delta": -0.0078125
+    },
+    {
+      "layer": 24,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 0.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 24,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 1.5,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 24,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 3.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 30,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": -3.0,
+      "acc": 0.5859375,
+      "delta": -0.015625
+    },
+    {
+      "layer": 30,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": -1.5,
+      "acc": 0.58203125,
+      "delta": -0.01953125
+    },
+    {
+      "layer": 30,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 0.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 30,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 1.5,
+      "acc": 0.5859375,
+      "delta": -0.015625
+    },
+    {
+      "layer": 30,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 3.0,
+      "acc": 0.59765625,
+      "delta": -0.00390625
+    },
+    {
+      "layer": 30,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": -3.0,
+      "acc": 0.59375,
+      "delta": -0.0078125
+    },
+    {
+      "layer": 30,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": -1.5,
+      "acc": 0.59375,
+      "delta": -0.0078125
+    },
+    {
+      "layer": 30,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 0.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 30,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 1.5,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 30,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 3.0,
+      "acc": 0.5859375,
+      "delta": -0.015625
+    },
+    {
+      "layer": 34,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": -3.0,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 34,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": -1.5,
+      "acc": 0.59765625,
+      "delta": -0.00390625
+    },
+    {
+      "layer": 34,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 0.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 34,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 1.5,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 34,
+      "head": 3,
+      "category": "Nationality",
+      "lambda": 3.0,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 34,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": -3.0,
+      "acc": 0.58984375,
+      "delta": -0.01171875
+    },
+    {
+      "layer": 34,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": -1.5,
+      "acc": 0.59375,
+      "delta": -0.0078125
+    },
+    {
+      "layer": 34,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 0.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    },
+    {
+      "layer": 34,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 1.5,
+      "acc": 0.5859375,
+      "delta": -0.015625
+    },
+    {
+      "layer": 34,
+      "head": 4,
+      "category": "Physical Appearance",
+      "lambda": 3.0,
+      "acc": 0.6015625,
+      "delta": 0.0
+    }
+  ]
+}

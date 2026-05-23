@@ -298,6 +298,109 @@ def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jso
         print(f"❌ Error: Generation not implemented for dataset '{dataset}'")
 
 
+# ─── Phase 0a: SVM Head Activation-Steering Sanity Gate (A100-80GB) ─────────
+@app.function(
+    image=vlm_image,
+    gpu="A100-80GB",
+    cpu=8.0,
+    memory=65536,
+    volumes={"/mnt/data": volume},
+    timeout=14400,
+    secrets=[modal.Secret.from_name("huggingface-secret")]
+)
+def run_phase0_steering(
+    num_samples: int = 256,
+    batch_size: int = 4,
+    layers: str = "12,18,24,30,34",
+    lambdas: str = "-3.0,-1.5,0.0,1.5,3.0",
+    heads: str = "",
+    output_json: str = "/mnt/data/phase0/steering.json",
+    heads_dir: str = "/mnt/data/generated_heads/sb_bench-SVM-component",
+    base_model: str = "Qwen/Qwen2.5-VL-3B-Instruct",
+):
+    """Phase 0a: inject λ·w_k at chosen layers; measure SB-Bench Δ accuracy."""
+    _setup_env()
+    os.chdir("/root/debias-vlms")
+    os.makedirs(os.path.dirname(output_json), exist_ok=True)
+    print(f"🔬 Phase 0a: Activation-steering sweep "
+          f"(layers={layers}, lambdas={lambdas}, n={num_samples})")
+    cmd = [
+        "python", "-m", "scripts.phase0_activation_steering",
+        "--base_model", base_model,
+        "--data_path", "/mnt/data/sb_bench_data/sb_bench_data.parquet",
+        "--heads_dir", heads_dir,
+        "--split_indices_path", SPLIT_INDICES_PATH,
+        "--split", "test",
+        "--num_samples", str(num_samples),
+        "--batch_size", str(batch_size),
+        "--layers", *layers.split(","),
+        "--lambdas", *lambdas.split(","),
+        "--output_json", output_json,
+    ]
+    if heads:
+        cmd += ["--heads", *heads.split(",")]
+    subprocess.run(cmd, check=True)
+    volume.commit()
+    print(f"✅ Phase 0a complete → {output_json}")
+
+
+# ─── Phase 0b: Reward / Metric Correlation (A100-80GB) ──────────────────────
+@app.function(
+    image=vlm_image,
+    gpu="A100-80GB",
+    cpu=8.0,
+    memory=65536,
+    volumes={"/mnt/data": volume},
+    timeout=14400,
+    secrets=[modal.Secret.from_name("huggingface-secret")]
+)
+def run_phase0_correlation(
+    num_samples: int = 512,
+    output_json: str = "/mnt/data/phase0/correlation.json",
+    heads_dir: str = "/mnt/data/generated_heads/sb_bench-SVM-component",
+    base_model: str = "Qwen/Qwen2.5-VL-3B-Instruct",
+):
+    """Phase 0b: does the SVM head rank correct letter > wrong letters?"""
+    _setup_env()
+    os.chdir("/root/debias-vlms")
+    os.makedirs(os.path.dirname(output_json), exist_ok=True)
+    print(f"🔬 Phase 0b: Reward/metric correlation (n={num_samples})")
+    subprocess.run([
+        "python", "-m", "scripts.phase0_reward_correlation",
+        "--base_model", base_model,
+        "--data_path", "/mnt/data/sb_bench_data/sb_bench_data.parquet",
+        "--heads_dir", heads_dir,
+        "--split_indices_path", SPLIT_INDICES_PATH,
+        "--split", "test",
+        "--num_samples", str(num_samples),
+        "--output_json", output_json,
+    ], check=True)
+    volume.commit()
+    print(f"✅ Phase 0b complete → {output_json}")
+
+
+# ─── Phase 0c: McNemar Paired Test (CPU only) ───────────────────────────────
+@app.function(
+    image=vlm_image,
+    gpu=None,
+    cpu=2.0,
+    memory=4096,
+    volumes={"/mnt/data": volume},
+    timeout=600,
+)
+def run_phase0_mcnemar(vanilla_jsonl: str, v4_jsonl: str):
+    """Phase 0c: paired exact-binomial McNemar test on two answer JSONLs."""
+    _setup_env()
+    os.chdir("/root/debias-vlms")
+    print(f"🔬 Phase 0c: McNemar test\n  vanilla = {vanilla_jsonl}\n  v4      = {v4_jsonl}")
+    subprocess.run([
+        "python", "-m", "scripts.phase0_mcnemar",
+        "--vanilla_jsonl", vanilla_jsonl,
+        "--v4_jsonl",      v4_jsonl,
+    ], check=True)
+    print("✅ Phase 0c complete.")
+
+
 # ─── Phase: Evaluation ────────────────────────────────────────────────────────
 @app.function(
     image=vlm_image,
@@ -348,7 +451,15 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
          num_heads: int = 9, tau: float = 1.0, lambda_causal: float = 0.5,
          delta_margin: float = 1.0, lambda_dispersive: float = 0.01,
          logit_reward_coef: float = 0.1, head_type: str = "svm",
-         max_gen_tokens: int = 256, batch_size: int = 12):
+         max_gen_tokens: int = 256, batch_size: int = 12,
+         # Phase 0 knobs
+         p0_num_samples: int = 256, p0_batch_size: int = 4,
+         p0_layers: str = "12,18,24,30,34",
+         p0_lambdas: str = "-3.0,-1.5,0.0,1.5,3.0",
+         p0_heads: str = "",
+         p0_output_json: str = "",
+         vanilla_jsonl: str = "/mnt/data/sb_bench_vanilla_baseline/sb_bench_generations.jsonl",
+         v4_jsonl: str = ""):
     """
     Run pipeline phases with optimized GPU allocation.
     
@@ -358,6 +469,12 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
       inference   - Extract embeddings (A100-80GB)
       phase1      - preprocess + inference combined
       phase2      - Generate DRM heads (CPU, 32GB RAM)
+      phase0a     - Activation-steering sanity gate on SVM heads (A100-80GB)
+      phase0b     - Reward / metric correlation on SVM heads (A100-80GB)
+      phase0c     - McNemar paired test on vanilla vs v4 JSONLs (CPU)
+                    Requires --v4-jsonl <path>; vanilla defaults to
+                    /mnt/data/sb_bench_vanilla_baseline/sb_bench_generations.jsonl
+      phase0      - Runs phase0a + phase0b; runs phase0c iff --v4-jsonl given
       train       - PPO training (A100-80GB). Use --epochs N for multi-epoch.
       train5      - PPO training for 5 epochs (separate output dir)
       train10     - PPO training for 10 epochs (separate output dir)
@@ -380,6 +497,43 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
     
     if phase in ["all", "phase2"]:
         run_drm_generation.remote()
+
+    # ── Phase 0 sanity gates ──────────────────────────────────────────────────
+    if phase == "phase0a":
+        out = p0_output_json or "/mnt/data/phase0/steering.json"
+        run_phase0_steering.remote(
+            num_samples=p0_num_samples, batch_size=p0_batch_size,
+            layers=p0_layers, lambdas=p0_lambdas, heads=p0_heads,
+            output_json=out,
+        )
+
+    if phase == "phase0b":
+        out = p0_output_json or "/mnt/data/phase0/correlation.json"
+        run_phase0_correlation.remote(
+            num_samples=p0_num_samples, output_json=out,
+        )
+
+    if phase == "phase0c":
+        if not v4_jsonl:
+            raise SystemExit(
+                "phase0c requires --v4-jsonl <path>  (and optionally --vanilla-jsonl)"
+            )
+        run_phase0_mcnemar.remote(vanilla_jsonl=vanilla_jsonl, v4_jsonl=v4_jsonl)
+
+    if phase == "phase0":
+        run_phase0_steering.remote(
+            num_samples=p0_num_samples, batch_size=p0_batch_size,
+            layers=p0_layers, lambdas=p0_lambdas, heads=p0_heads,
+            output_json=p0_output_json or "/mnt/data/phase0/steering.json",
+        )
+        run_phase0_correlation.remote(
+            num_samples=p0_num_samples,
+            output_json="/mnt/data/phase0/correlation.json",
+        )
+        if v4_jsonl:
+            run_phase0_mcnemar.remote(vanilla_jsonl=vanilla_jsonl, v4_jsonl=v4_jsonl)
+        else:
+            print("ℹ️  Skipping Phase 0c (McNemar): no --v4-jsonl provided.")
     
     resume_ckpt = resume if resume else None
     train_kwargs = dict(
