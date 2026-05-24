@@ -474,6 +474,219 @@ def run_evaluation(dataset: str, gt_file: str, gen_file: str):
         print(f"❌ Error: Unknown dataset '{dataset}'. Supported: pope, sb_bench")
 
 
+# ─── Phase 0 Eval Sweep: generate + eval every checkpoint, single combined JSON ──
+@app.function(
+    image=vlm_image,
+    gpu="A100-80GB",
+    cpu=8.0,
+    memory=65536,
+    volumes={"/mnt/data": volume},
+    timeout=43200,  # 12h — plenty for sweeping ~10-30 ckpts
+    secrets=[modal.Secret.from_name("huggingface-secret")],
+)
+def run_phase0_eval_sweep(
+    train_output_dir: str = "/mnt/data/output_ppo_phase0",
+    combined_json: str = "/mnt/data/output_ppo_phase0/phase0_eval_sweep.json",
+    data_path: str = "/mnt/data/sb_bench_data/sb_bench_data.parquet",
+    dataset: str = "sb_bench",
+    gen_subdir: str = "generations",
+    only_tags: str = "",   # comma-separated list of tags to evaluate; empty = all
+    skip_existing: bool = True,
+    force: bool = False,
+):
+    """
+    Sweep every `checkpoint-*` under `train_output_dir`, run generation + eval
+    on each one, and incrementally update a single combined JSON file at
+    `combined_json`. Safe to restart: each completed checkpoint is written to
+    disk and the volume is committed before moving on, so the next run picks
+    up where this one left off (unless --force).
+
+    Output schema (combined_json):
+    {
+      "train_output_dir": "...",
+      "dataset": "sb_bench",
+      "data_path": "...",
+      "results": {
+        "ep1-step10":   { "metrics": {...}, "per_category": {...},
+                          "checkpoint_dir": "...", "gen_file": "...",
+                          "eval_json": "...", "completed_at": "..." },
+        "ep1-step20":   { ... },
+        ...
+      },
+      "ordered_tags": ["ep1-step10", "ep1-step20", ...],
+      "summary": {
+        "best": {"tag": "...", "accuracy": ...},
+        "last_updated": "..."
+      }
+    }
+    """
+    _setup_env()
+    import glob
+    import json
+    import re
+    import time
+
+    os.makedirs(os.path.dirname(combined_json), exist_ok=True)
+    gen_root = os.path.join(train_output_dir, gen_subdir)
+    os.makedirs(gen_root, exist_ok=True)
+
+    # ── Discover checkpoints ────────────────────────────────────────────
+    ckpt_paths = sorted(glob.glob(os.path.join(train_output_dir, "checkpoint-*")))
+    if not ckpt_paths:
+        print(f"❌ No checkpoint-* directories under {train_output_dir}")
+        return
+
+    def _tag_of(p):
+        # /mnt/data/output_ppo_phase0/checkpoint-ep1-step10 → ep1-step10
+        return os.path.basename(p).replace("checkpoint-", "", 1)
+
+    # Sort: epoch first, then numeric step / pct
+    def _sort_key(p):
+        tag = _tag_of(p)
+        m_ep = re.search(r"ep(\d+)", tag)
+        ep = int(m_ep.group(1)) if m_ep else 0
+        m_step = re.search(r"step(\d+)", tag)
+        m_pct = re.search(r"(\d+)pct", tag)
+        if m_step:
+            return (ep, 0, int(m_step.group(1)))
+        if m_pct:
+            return (ep, 1, int(m_pct.group(1)))
+        return (ep, 2, 0)
+
+    ckpt_paths.sort(key=_sort_key)
+    allow = set(t.strip() for t in only_tags.split(",") if t.strip()) if only_tags else None
+
+    print(f"🔍 Found {len(ckpt_paths)} checkpoints under {train_output_dir}")
+    for p in ckpt_paths:
+        print(f"   - {_tag_of(p)}")
+
+    # ── Load / init combined JSON ───────────────────────────────────────
+    if os.path.exists(combined_json) and not force:
+        with open(combined_json) as f:
+            combined = json.load(f)
+        print(f"📂 Resuming from existing {combined_json} "
+              f"({len(combined.get('results', {}))} already done)")
+    else:
+        combined = {
+            "train_output_dir": train_output_dir,
+            "dataset": dataset,
+            "data_path": data_path,
+            "results": {},
+            "ordered_tags": [],
+            "summary": {"best": None, "last_updated": None},
+        }
+
+    def _flush():
+        # Recompute summary
+        best_tag, best_acc = None, -1.0
+        for tag, r in combined["results"].items():
+            acc = r.get("metrics", {}).get("accuracy")
+            if acc is not None and acc > best_acc:
+                best_acc = acc
+                best_tag = tag
+        combined["summary"] = {
+            "best": {"tag": best_tag, "accuracy": best_acc} if best_tag else None,
+            "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        tmp = combined_json + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(combined, f, indent=2)
+        os.replace(tmp, combined_json)
+        volume.commit()
+
+    # Make sure ordered_tags reflects current disc order (preserves history).
+    seen = set(combined["ordered_tags"])
+    for p in ckpt_paths:
+        tag = _tag_of(p)
+        if tag not in seen:
+            combined["ordered_tags"].append(tag)
+            seen.add(tag)
+
+    # ── Loop ────────────────────────────────────────────────────────────
+    for ckpt in ckpt_paths:
+        tag = _tag_of(ckpt)
+        if allow is not None and tag not in allow:
+            continue
+        if skip_existing and tag in combined["results"] and not force:
+            print(f"⏭️  {tag} already in combined JSON — skipping.")
+            continue
+
+        gen_file = os.path.join(gen_root, f"{tag}.jsonl")
+        eval_json = os.path.join(gen_root, f"{tag}_eval_results.json")
+
+        print(f"\n▶ [{tag}] generation → {gen_file}")
+        try:
+            if dataset.lower() == "sb_bench":
+                subprocess.run([
+                    "python", "-m", "modules.inference.generate_sb_bench_answers",
+                    "--data_path", data_path,
+                    "--output_jsonl", gen_file,
+                    "--batch_size", "8",
+                    "--split", "test",
+                    "--split_indices_path", SPLIT_INDICES_PATH,
+                    "--checkpoint_dir", ckpt,
+                ], check=True)
+            elif dataset.lower() == "pope":
+                subprocess.run([
+                    "python", "-m", "modules.inference.generate_answers",
+                    "--data_path", data_path,
+                    "--output_jsonl", gen_file,
+                    "--batch_size", "16",
+                    "--checkpoint_dir", ckpt,
+                ], check=True)
+            else:
+                print(f"❌ Unknown dataset '{dataset}' — skipping {tag}")
+                continue
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Generation failed for {tag}: {e}. Continuing to next ckpt.")
+            continue
+
+        print(f"▶ [{tag}] evaluation → {eval_json}")
+        try:
+            if dataset.lower() == "sb_bench":
+                subprocess.run([
+                    "python", "-m", "modules.evaluation.eval_sb_bench",
+                    "--gen_file", gen_file,
+                    "--output_json", eval_json,
+                ], check=True)
+            else:
+                # POPE eval requires gt_file; user can run it separately.
+                print(f"⚠️  POPE eval needs --gt_file; skipping eval step for {tag}.")
+                continue
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Eval failed for {tag}: {e}. Continuing to next ckpt.")
+            continue
+
+        # Load per-ckpt result and merge into combined.
+        try:
+            with open(eval_json) as f:
+                per_ckpt = json.load(f)
+        except Exception as e:
+            print(f"❌ Could not load {eval_json}: {e}")
+            continue
+
+        combined["results"][tag] = {
+            "metrics": per_ckpt.get("metrics", {}),
+            "per_category": per_ckpt.get("per_category", {}),
+            "checkpoint_dir": ckpt,
+            "gen_file": gen_file,
+            "eval_json": eval_json,
+            "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        _flush()
+        acc = per_ckpt.get("metrics", {}).get("accuracy", float("nan"))
+        print(f"✅ [{tag}] accuracy={acc:.4f} → combined JSON updated.")
+
+    # Final flush (in case nothing was processed, still write summary).
+    _flush()
+    print("\n" + "=" * 60)
+    print(f"SWEEP COMPLETE → {combined_json}")
+    best = combined["summary"].get("best")
+    if best:
+        print(f"Best: {best['tag']}  accuracy={best['accuracy']:.4f}")
+    print("=" * 60)
+
+
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────
 @app.local_entrypoint()
 def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = "", dataset: str = "sb_bench", model_family: str = "qwen", gt_file: str = "", gen_file: str = "", vanilla: bool = False,
