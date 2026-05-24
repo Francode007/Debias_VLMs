@@ -226,6 +226,94 @@ class PPOVLMController:
         returns = advantages + values
         return advantages, returns
 
+    @torch.no_grad()
+    def evaluate_subset(self, eval_dataloader) -> dict:
+        """Greedy constrained generation on a held-out subset → accuracy.
+
+        Mirrors the eval-sweep decoding (first-token allowlist over A/B/C,
+        argmax, no sampling) so the mid-training signal is directly
+        comparable to the post-hoc eval sweep numbers — unlike training-batch
+        `binary_accuracy`, which is sampled at temperature=0.3 with batch=8
+        and is therefore far too noisy to use as an early-stop signal.
+
+        Returns:
+            dict with keys: midtrain_eval_acc, midtrain_eval_n,
+            midtrain_eval_parse_rate, midtrain_eval_pred_dist (A/B/C frac).
+        """
+        if eval_dataloader is None:
+            return {}
+
+        unwrapped_policy = self.accelerator.unwrap_model(self.policy)
+        self.policy.eval()
+        letter_lookup = self._get_letter_token_ids()  # {tok_id: label_idx}
+        allowed_ids = list(letter_lookup.keys())
+
+        n_total = 0
+        n_correct = 0
+        n_parsed = 0
+        pred_counts = [0, 0, 0]  # A, B, C
+
+        for batch in eval_dataloader:
+            prompt_input_ids = batch["input_ids"].to(self.accelerator.device)
+            prompt_attention_mask = batch["attention_mask"].to(self.accelerator.device)
+            pixel_values = batch.get("pixel_values")
+            if pixel_values is not None:
+                pixel_values = pixel_values.to(self.accelerator.device)
+            kwargs = {}
+            for k in ("image_grid_thw", "video_grid_thw", "mm_token_type_ids"):
+                v = batch.get(k)
+                if v is not None:
+                    kwargs[k] = v.to(self.accelerator.device)
+
+            logits_processor = LogitsProcessorList([
+                FirstTokenAllowlistProcessor(
+                    allowed_token_ids=allowed_ids,
+                    prompt_length=prompt_input_ids.shape[1],
+                )
+            ])
+
+            gen_out = unwrapped_policy.generate(
+                prompt_input_ids,
+                attention_mask=prompt_attention_mask,
+                pixel_values=pixel_values,
+                **kwargs,
+                max_new_tokens=self.max_gen_tokens,
+                do_sample=False,  # greedy — deterministic eval
+                use_cache=True,
+                logits_processor=logits_processor,
+            )
+
+            prompt_len = prompt_input_ids.shape[1]
+            gold = batch.get("gold_label")
+            bsz = gen_out.shape[0]
+            for b in range(bsz):
+                gen_tokens = gen_out[b, prompt_len:]
+                pred_label = -1
+                for tok in gen_tokens[:5]:
+                    tok_id = tok.item()
+                    if tok_id in letter_lookup:
+                        pred_label = letter_lookup[tok_id]
+                        break
+                if pred_label >= 0:
+                    n_parsed += 1
+                    pred_counts[pred_label] += 1
+                    g = gold[b].item() if gold is not None else -1
+                    if g >= 0 and pred_label == g:
+                        n_correct += 1
+                n_total += 1
+
+        acc = (n_correct / n_total) if n_total > 0 else 0.0
+        parse_rate = (n_parsed / n_total) if n_total > 0 else 0.0
+        denom = max(1, sum(pred_counts))
+        return {
+            "midtrain_eval_acc": acc,
+            "midtrain_eval_n": n_total,
+            "midtrain_eval_parse_rate": parse_rate,
+            "midtrain_eval_pred_A": pred_counts[0] / denom,
+            "midtrain_eval_pred_B": pred_counts[1] / denom,
+            "midtrain_eval_pred_C": pred_counts[2] / denom,
+        }
+
     def step(self, batch, optimizer_policy, optimizer_value):
         """
         Executes a single token-level dense reward PPO step.
@@ -670,23 +758,32 @@ class PPOVLMController:
                 )
             self._grad_flow_checked = True
 
-        # Phase 3 hygiene: gradient clipping (only on accumulation boundaries).
-        # Also capture pre-clip gradient norms so we can SEE whether any policy
-        # gradient signal is reaching the LoRA params. (Without this, both `pg`
-        # and `ratio` are uninformative: pg=0 because advantages are mean-centered,
-        # ratio=1 because π_old==π_curr in single-epoch on-policy PPO.)
-        policy_grad_norm = 0.0
-        value_grad_norm = 0.0
-        if self.accelerator.sync_gradients:
-            policy_params = [p for p in self.policy.parameters() if p.requires_grad]
-            if self.max_grad_norm is not None:
-                p_norm = self.accelerator.clip_grad_norm_(policy_params, self.max_grad_norm)
-                v_norm = self.accelerator.clip_grad_norm_(
-                    self.value_head.parameters(), self.max_grad_norm,
-                )
-                # clip_grad_norm_ returns the PRE-clip total norm
-                policy_grad_norm = float(p_norm) if p_norm is not None else 0.0
-                value_grad_norm = float(v_norm) if v_norm is not None else 0.0
+        # Phase 3 hygiene: gradient clipping (only on accumulation boundaries),
+        # but capture pre-clip gradient norms on EVERY micro-batch so the
+        # metric is meaningful in the per-step log. (Previously the norm was
+        # only read inside `if sync_gradients:` while metrics.jsonl writes
+        # every micro-batch — so 3/4 logged rows showed 0.0 and the
+        # remaining row could also show 0.0 if the optimizer step had
+        # already cleared the grads. This was the cause of the "pg_gn=0.0
+        # across all 250 steps" telemetry blind-spot in Phase 0.)
+        def _total_grad_norm(params):
+            grads = [p.grad.detach() for p in params if p.grad is not None]
+            if not grads:
+                return 0.0
+            norms = torch.stack([g.norm(2) for g in grads])
+            return float(torch.norm(norms, 2).item())
+
+        policy_params = [p for p in self.policy.parameters() if p.requires_grad]
+        policy_grad_norm = _total_grad_norm(policy_params)
+        value_grad_norm = _total_grad_norm(list(self.value_head.parameters()))
+
+        if self.accelerator.sync_gradients and self.max_grad_norm is not None:
+            # Only the sync-boundary call actually performs the clip in-place;
+            # the per-step norm above is already captured pre-clip.
+            self.accelerator.clip_grad_norm_(policy_params, self.max_grad_norm)
+            self.accelerator.clip_grad_norm_(
+                self.value_head.parameters(), self.max_grad_norm,
+            )
 
         optimizer_policy.step()
         optimizer_value.step()

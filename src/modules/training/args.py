@@ -320,4 +320,47 @@ def parse_training_args() -> argparse.Namespace:
         help="Rolling window size for smoothing binary_accuracy before comparison.",
     )
 
+    # ── Gradient clipping ─────────────────────────────────────────────────────
+    parser.add_argument(
+        "--max_grad_norm",
+        type=float,
+        default=1.0,
+        help=(
+            "Max L2 norm for gradient clipping (policy + value head). "
+            "Lower values (e.g. 0.1) tame the warmup-end policy lurch that "
+            "triggered the Phase 0 KL spike at step ~40."
+        ),
+    )
+
+    # ── Mid-training held-out eval ────────────────────────────────────────────
+    parser.add_argument(
+        "--midtrain_eval_every_steps",
+        type=int,
+        default=0,
+        help=(
+            "Run constrained greedy eval on a held-out subset every N "
+            "micro-batch steps. 0 disables. Result logged to metrics.jsonl "
+            "as `midtrain_eval_acc`."
+        ),
+    )
+    parser.add_argument(
+        "--midtrain_eval_samples",
+        type=int,
+        default=64,
+        help=(
+            "Number of samples to hold out from the training set for the "
+            "mid-training eval signal. Held out from the TAIL of the dataset "
+            "before the train shuffle, so it is deterministic across runs."
+        ),
+    )
+    parser.add_argument(
+        "--use_eval_for_early_stop",
+        action="store_true",
+        help=(
+            "When set, the early-stopping rolling-window signal uses "
+            "`midtrain_eval_acc` instead of noisy training-batch "
+            "`binary_accuracy`. Requires --midtrain_eval_every_steps > 0."
+        ),
+    )
+
     return parser.parse_args()

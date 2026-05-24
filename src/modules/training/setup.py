@@ -158,6 +158,7 @@ def build_ppo_controller(
         kl_beta_min=getattr(args, 'kl_beta_min', 0.05),
         kl_beta_max=getattr(args, 'kl_beta_max', 5.0),
         value_clip_range=getattr(args, 'value_clip_range', 0.0),
+        max_grad_norm=getattr(args, 'max_grad_norm', 1.0),
     )
 
 
@@ -213,6 +214,37 @@ def build_dataloader(
         f"(capped at 12, machine reports {num_cpus} cores)"
     )
 
+    # Optionally hold out the tail of the dataset as a deterministic eval
+    # split for mid-training accuracy signal. This is the same data
+    # distribution as training (intentional — we want a low-variance signal
+    # on the model's current decision surface, not OOD generalisation).
+    eval_dataloader = None
+    midtrain_eval_n = int(getattr(args, "midtrain_eval_samples", 0) or 0)
+    if midtrain_eval_n > 0 and getattr(args, "midtrain_eval_every_steps", 0) > 0:
+        if midtrain_eval_n >= len(train_dataset):
+            logger.warning(
+                f"midtrain_eval_samples={midtrain_eval_n} >= dataset size "
+                f"{len(train_dataset)}; disabling mid-training eval."
+            )
+        else:
+            train_size = len(train_dataset) - midtrain_eval_n
+            eval_dataset = train_dataset.select(
+                range(train_size, len(train_dataset))
+            )
+            train_dataset = train_dataset.select(range(train_size))
+            logger.info(
+                f"Held-out mid-training eval split: "
+                f"train={len(train_dataset)}, eval={len(eval_dataset)}"
+            )
+            eval_dataloader = DataLoader(
+                eval_dataset,
+                batch_size=args.per_device_train_batch_size,
+                collate_fn=collator,
+                shuffle=False,
+                num_workers=min(4, num_workers),
+                pin_memory=True,
+            )
+
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=args.per_device_train_batch_size,
@@ -222,4 +254,4 @@ def build_dataloader(
         pin_memory=True,
     )
 
-    return train_dataset, train_dataloader, collator
+    return train_dataset, train_dataloader, collator, eval_dataloader

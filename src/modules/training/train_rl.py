@@ -99,7 +99,9 @@ def main() -> None:
 
     # ── 8. Dataset + DataLoader ───────────────────────────────────────────────
     logger.info("Building RL dataset and DataLoader...")
-    _, train_dataloader, _ = build_dataloader(args, processor, accelerator, ppo_controller)
+    _, train_dataloader, _, eval_dataloader = build_dataloader(
+        args, processor, accelerator, ppo_controller
+    )
 
     # ── 9. Accelerator prepare ────────────────────────────────────────────────
     (
@@ -115,6 +117,8 @@ def main() -> None:
         optimizer_value,
         train_dataloader,
     )
+    if eval_dataloader is not None:
+        eval_dataloader = accelerator.prepare(eval_dataloader)
 
     # CRITICAL: accelerator.prepare() may wrap/return a new model object.
     # Re-bind ppo_controller.policy to the prepared model so all forward
@@ -216,6 +220,7 @@ def main() -> None:
         optimizer_policy=optimizer_policy,
         optimizer_value=optimizer_value,
         train_dataloader=train_dataloader,
+        eval_dataloader=eval_dataloader,
         fast_rl_node=fast_rl_node,
         start_epoch=start_epoch,
         resume_step=resume_step,

@@ -171,7 +171,12 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
                  value_learning_rate: float = 0.0,
                  early_stop_patience: int = 0,
                  early_stop_threshold: float = 0.05,
-                 early_stop_window: int = 10):
+                 early_stop_window: int = 10,
+                 gradient_accumulation_steps: int = 4,
+                 max_grad_norm: float = 1.0,
+                 midtrain_eval_every_steps: int = 0,
+                 midtrain_eval_samples: int = 64,
+                 use_eval_for_early_stop: bool = False):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
@@ -203,7 +208,8 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--reward_heads_dir", reward_heads_dir,
         "--num_heads", str(num_heads),
         "--per_device_train_batch_size", str(batch_size),
-        "--gradient_accumulation_steps", "4",
+        "--gradient_accumulation_steps", str(gradient_accumulation_steps),
+        "--max_grad_norm", str(max_grad_norm),
         "--max_length", "2048",
         "--epochs", str(epochs),
         "--data_path", os.environ["DATA_PATH"],
@@ -240,6 +246,13 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
             "--early_stop_threshold", str(early_stop_threshold),
             "--early_stop_window", str(early_stop_window),
         ])
+    if midtrain_eval_every_steps > 0:
+        cmd.extend([
+            "--midtrain_eval_every_steps", str(midtrain_eval_every_steps),
+            "--midtrain_eval_samples", str(midtrain_eval_samples),
+        ])
+        if use_eval_for_early_stop:
+            cmd.append("--use_eval_for_early_stop")
     if value_learning_rate and value_learning_rate > 0.0:
         cmd.extend(["--value_learning_rate", str(value_learning_rate)])
     if max_train_samples:

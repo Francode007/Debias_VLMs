@@ -32,6 +32,7 @@ def run_ppo_loop(
     save_checkpoint_fn: Callable,
     lr_scheduler_policy=None,
     lr_scheduler_value=None,
+    eval_dataloader=None,
 ) -> Dict:
     """
     Execute the PPO training loop across all epochs.
@@ -89,6 +90,22 @@ def run_ppo_loop(
             f"Early stopping enabled: patience={early_stop_patience} steps, "
             f"threshold={early_stop_threshold}, window={early_stop_window}"
         )
+
+    # ── Mid-training eval state ──────────────────────────────────────────
+    midtrain_eval_every = int(getattr(args, "midtrain_eval_every_steps", 0) or 0)
+    use_eval_for_early_stop = bool(getattr(args, "use_eval_for_early_stop", False))
+    if midtrain_eval_every > 0 and eval_dataloader is None:
+        logger.warning(
+            "midtrain_eval_every_steps > 0 but no eval_dataloader provided; "
+            "mid-training eval will be skipped."
+        )
+        midtrain_eval_every = 0
+    if midtrain_eval_every > 0:
+        logger.info(
+            f"Mid-training eval: every {midtrain_eval_every} steps, "
+            f"use_eval_for_early_stop={use_eval_for_early_stop}"
+        )
+    last_midtrain_eval_acc = None
 
     t_start_training = time.time()
     batch_times = []
@@ -180,6 +197,43 @@ def run_ppo_loop(
                 global_step += 1
                 step_in_epoch += 1
 
+                # ── Mid-training held-out eval ─────────────────────────────
+                # Runs constrained greedy decoding on the held-out subset.
+                # Logged as midtrain_eval_acc; optionally used as the
+                # early-stop signal in place of noisy training-batch acc.
+                if (
+                    midtrain_eval_every > 0
+                    and step_in_epoch > 0
+                    and step_in_epoch % midtrain_eval_every == 0
+                ):
+                    t_eval0 = time.time()
+                    eval_metrics = ppo_controller.evaluate_subset(eval_dataloader)
+                    eval_time = time.time() - t_eval0
+                    if eval_metrics:
+                        last_midtrain_eval_acc = eval_metrics.get(
+                            "midtrain_eval_acc"
+                        )
+                        logger.info(
+                            f"[midtrain-eval] step={step_in_epoch} "
+                            f"acc={last_midtrain_eval_acc:.4f} "
+                            f"n={eval_metrics.get('midtrain_eval_n')} "
+                            f"parse={eval_metrics.get('midtrain_eval_parse_rate'):.3f} "
+                            f"predA={eval_metrics.get('midtrain_eval_pred_A'):.2f} "
+                            f"predB={eval_metrics.get('midtrain_eval_pred_B'):.2f} "
+                            f"predC={eval_metrics.get('midtrain_eval_pred_C'):.2f} "
+                            f"({eval_time:.1f}s)"
+                        )
+                        if metrics_log_fh is not None:
+                            rec = {
+                                "event": "midtrain_eval",
+                                "epoch": epoch,
+                                "step_in_epoch": step_in_epoch,
+                                "global_step": global_step,
+                                "midtrain_eval_time_s": eval_time,
+                            }
+                            rec.update(eval_metrics)
+                            metrics_log_fh.write(json.dumps(rec) + "\n")
+
                 # Quarter-epoch checkpoint
                 if step_in_epoch in quarter_steps:
                     pct = int(100 * step_in_epoch / total_batches_per_epoch)
@@ -203,9 +257,29 @@ def run_ppo_loop(
                     )
 
                 # ── Early stopping check ────────────────────────────────────
-                if early_stop_patience > 0 and "binary_accuracy" in metrics:
-                    cur_acc = metrics["binary_accuracy"]
-                    es_acc_history.append(cur_acc)
+                # Default signal is rolling training-batch binary_accuracy;
+                # when --use_eval_for_early_stop is set, we instead drive
+                # the rolling window from the held-out eval acc (much lower
+                # variance, but only updated every midtrain_eval_every steps).
+                if early_stop_patience > 0:
+                    if use_eval_for_early_stop:
+                        if last_midtrain_eval_acc is None:
+                            cur_acc = None
+                        else:
+                            cur_acc = last_midtrain_eval_acc
+                            # Only push to rolling history when a NEW eval
+                            # value arrived, to avoid pinning the window.
+                            if (
+                                step_in_epoch > 0
+                                and step_in_epoch % midtrain_eval_every == 0
+                            ):
+                                es_acc_history.append(cur_acc)
+                    else:
+                        cur_acc = metrics.get("binary_accuracy")
+                        if cur_acc is not None:
+                            es_acc_history.append(cur_acc)
+
+                if early_stop_patience > 0 and es_acc_history:
                     if len(es_acc_history) > early_stop_window:
                         es_acc_history.pop(0)
                     rolling_acc = sum(es_acc_history) / len(es_acc_history)

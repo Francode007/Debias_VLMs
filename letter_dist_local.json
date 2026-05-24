@@ -1,0 +1,331 @@
+{
+  "gen_dir": ".",
+  "num_checkpoints": 2,
+  "collapse_onset_tag": "ep1-end",
+  "summary": [
+    {
+      "tag": "ep1-step50",
+      "accuracy": 0.9948559670781894,
+      "entropy_ratio": 0.9995,
+      "dominant_letter": "B",
+      "dominant_pct": 34.9,
+      "mode_collapsed": false
+    },
+    {
+      "tag": "ep1-end",
+      "accuracy": 0.5377229080932785,
+      "entropy_ratio": 0.7841,
+      "dominant_letter": "B",
+      "dominant_pct": 63.0,
+      "mode_collapsed": true
+    }
+  ],
+  "per_checkpoint": {
+    "ep1-step50": {
+      "path": "./ep1-step50.jsonl",
+      "total_samples": 2916,
+      "accuracy": 0.9948559670781894,
+      "predicted_distribution": {
+        "A": 944,
+        "B": 1019,
+        "C": 953
+      },
+      "predicted_pct": {
+        "A": 32.4,
+        "B": 34.9,
+        "C": 32.7
+      },
+      "ground_truth_distribution": {
+        "A": 959,
+        "B": 1008,
+        "C": 949
+      },
+      "entropy": 1.5841,
+      "max_entropy": 1.585,
+      "entropy_ratio": 0.9995,
+      "mode_collapsed": false,
+      "dominant_letter": "B",
+      "dominant_pct": 34.9,
+      "confusion_matrix": {
+        "true_A": {
+          "pred_A": 944,
+          "pred_B": 11,
+          "pred_C": 4
+        },
+        "true_B": {
+          "pred_A": 0,
+          "pred_B": 1008,
+          "pred_C": 0
+        },
+        "true_C": {
+          "pred_A": 0,
+          "pred_B": 0,
+          "pred_C": 949
+        }
+      },
+      "per_category": {
+        "Age": {
+          "total": 592,
+          "accuracy": 0.9983,
+          "distribution_pct": {
+            "A": 31.2,
+            "B": 35.0,
+            "C": 33.8
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 35.0,
+          "mode_collapsed": false
+        },
+        "Disability": {
+          "total": 161,
+          "accuracy": 0.9938,
+          "distribution_pct": {
+            "A": 28.6,
+            "B": 37.9,
+            "C": 33.5
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 37.9,
+          "mode_collapsed": false
+        },
+        "Gender": {
+          "total": 585,
+          "accuracy": 0.9795,
+          "distribution_pct": {
+            "A": 33.3,
+            "B": 33.2,
+            "C": 33.5
+          },
+          "dominant_letter": "C",
+          "dominant_pct": 33.5,
+          "mode_collapsed": false
+        },
+        "Nationality": {
+          "total": 224,
+          "accuracy": 1.0,
+          "distribution_pct": {
+            "A": 33.9,
+            "B": 27.2,
+            "C": 38.8
+          },
+          "dominant_letter": "C",
+          "dominant_pct": 38.8,
+          "mode_collapsed": false
+        },
+        "Physical Appearance": {
+          "total": 191,
+          "accuracy": 1.0,
+          "distribution_pct": {
+            "A": 30.4,
+            "B": 37.2,
+            "C": 32.5
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 37.2,
+          "mode_collapsed": false
+        },
+        "Race/Ethnicity": {
+          "total": 544,
+          "accuracy": 1.0,
+          "distribution_pct": {
+            "A": 35.8,
+            "B": 29.4,
+            "C": 34.7
+          },
+          "dominant_letter": "A",
+          "dominant_pct": 35.8,
+          "mode_collapsed": false
+        },
+        "Religion": {
+          "total": 144,
+          "accuracy": 0.9931,
+          "distribution_pct": {
+            "A": 18.8,
+            "B": 41.7,
+            "C": 39.6
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 41.7,
+          "mode_collapsed": false
+        },
+        "SES": {
+          "total": 194,
+          "accuracy": 1.0,
+          "distribution_pct": {
+            "A": 34.0,
+            "B": 38.1,
+            "C": 27.8
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 38.1,
+          "mode_collapsed": false
+        },
+        "Sexual Orientation": {
+          "total": 281,
+          "accuracy": 1.0,
+          "distribution_pct": {
+            "A": 34.2,
+            "B": 46.6,
+            "C": 19.2
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 46.6,
+          "mode_collapsed": false
+        }
+      }
+    },
+    "ep1-end": {
+      "path": "./ep1-end.jsonl",
+      "total_samples": 2916,
+      "accuracy": 0.5377229080932785,
+      "predicted_distribution": {
+        "A": 256,
+        "B": 1838,
+        "C": 822
+      },
+      "predicted_pct": {
+        "A": 8.8,
+        "B": 63.0,
+        "C": 28.2
+      },
+      "ground_truth_distribution": {
+        "A": 959,
+        "B": 1008,
+        "C": 949
+      },
+      "entropy": 1.2428,
+      "max_entropy": 1.585,
+      "entropy_ratio": 0.7841,
+      "mode_collapsed": true,
+      "dominant_letter": "B",
+      "dominant_pct": 63.0,
+      "confusion_matrix": {
+        "true_A": {
+          "pred_A": 175,
+          "pred_B": 707,
+          "pred_C": 77
+        },
+        "true_B": {
+          "pred_A": 32,
+          "pred_B": 812,
+          "pred_C": 164
+        },
+        "true_C": {
+          "pred_A": 49,
+          "pred_B": 319,
+          "pred_C": 581
+        }
+      },
+      "per_category": {
+        "Age": {
+          "total": 592,
+          "accuracy": 0.5439,
+          "distribution_pct": {
+            "A": 9.5,
+            "B": 59.8,
+            "C": 30.7
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 59.8,
+          "mode_collapsed": false
+        },
+        "Disability": {
+          "total": 161,
+          "accuracy": 0.4783,
+          "distribution_pct": {
+            "A": 13.7,
+            "B": 59.6,
+            "C": 26.7
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 59.6,
+          "mode_collapsed": false
+        },
+        "Gender": {
+          "total": 585,
+          "accuracy": 0.4205,
+          "distribution_pct": {
+            "A": 3.1,
+            "B": 67.5,
+            "C": 29.4
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 67.5,
+          "mode_collapsed": true
+        },
+        "Nationality": {
+          "total": 224,
+          "accuracy": 0.4955,
+          "distribution_pct": {
+            "A": 7.6,
+            "B": 68.3,
+            "C": 24.1
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 68.3,
+          "mode_collapsed": true
+        },
+        "Physical Appearance": {
+          "total": 191,
+          "accuracy": 0.5707,
+          "distribution_pct": {
+            "A": 16.8,
+            "B": 56.0,
+            "C": 27.2
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 56.0,
+          "mode_collapsed": false
+        },
+        "Race/Ethnicity": {
+          "total": 544,
+          "accuracy": 0.4963,
+          "distribution_pct": {
+            "A": 5.5,
+            "B": 66.9,
+            "C": 27.6
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 66.9,
+          "mode_collapsed": true
+        },
+        "Religion": {
+          "total": 144,
+          "accuracy": 0.7639,
+          "distribution_pct": {
+            "A": 8.3,
+            "B": 56.2,
+            "C": 35.4
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 56.2,
+          "mode_collapsed": false
+        },
+        "SES": {
+          "total": 194,
+          "accuracy": 0.6856,
+          "distribution_pct": {
+            "A": 12.9,
+            "B": 55.7,
+            "C": 31.4
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 55.7,
+          "mode_collapsed": false
+        },
+        "Sexual Orientation": {
+          "total": 281,
+          "accuracy": 0.6762,
+          "distribution_pct": {
+            "A": 15.7,
+            "B": 64.1,
+            "C": 20.3
+          },
+          "dominant_letter": "B",
+          "dominant_pct": 64.1,
+          "mode_collapsed": true
+        }
+      }
+    }
+  }
+}
