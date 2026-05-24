@@ -76,6 +76,20 @@ def run_ppo_loop(
             f"step_in_epoch={resume_step}"
         )
 
+    # ── Early stopping state ─────────────────────────────────────────────
+    early_stop_patience = int(getattr(args, "early_stop_patience", 0) or 0)
+    early_stop_threshold = float(getattr(args, "early_stop_threshold", 0.05))
+    early_stop_window = int(getattr(args, "early_stop_window", 10))
+    es_best_acc = 0.0
+    es_patience_counter = 0
+    es_acc_history: list = []  # rolling window of binary_accuracy values
+    early_stopped = False
+    if early_stop_patience > 0:
+        logger.info(
+            f"Early stopping enabled: patience={early_stop_patience} steps, "
+            f"threshold={early_stop_threshold}, window={early_stop_window}"
+        )
+
     t_start_training = time.time()
     batch_times = []
 
@@ -188,12 +202,60 @@ def run_ppo_loop(
                         step_in_epoch=step_in_epoch,
                     )
 
-        # End-of-epoch checkpoint
-        save_checkpoint_fn(
-            tag=f"ep{epoch + 1}-end",
-            epoch=epoch + 1,
-            step_in_epoch=0,
-        )
+                # ── Early stopping check ────────────────────────────────────
+                if early_stop_patience > 0 and "binary_accuracy" in metrics:
+                    cur_acc = metrics["binary_accuracy"]
+                    es_acc_history.append(cur_acc)
+                    if len(es_acc_history) > early_stop_window:
+                        es_acc_history.pop(0)
+                    rolling_acc = sum(es_acc_history) / len(es_acc_history)
+
+                    if rolling_acc > es_best_acc:
+                        es_best_acc = rolling_acc
+                        es_patience_counter = 0
+                        # Save best checkpoint
+                        save_checkpoint_fn(
+                            tag=f"ep{epoch + 1}-best",
+                            epoch=epoch,
+                            step_in_epoch=step_in_epoch,
+                        )
+                    elif rolling_acc < es_best_acc - early_stop_threshold:
+                        es_patience_counter += 1
+                        if es_patience_counter >= early_stop_patience:
+                            logger.warning(
+                                f"Early stopping triggered at epoch {epoch+1}, "
+                                f"step {step_in_epoch}: rolling_acc={rolling_acc:.4f} "
+                                f"< best={es_best_acc:.4f} - {early_stop_threshold} "
+                                f"for {early_stop_patience} consecutive steps."
+                            )
+                            # Write a marker to metrics log
+                            if metrics_log_fh is not None:
+                                metrics_log_fh.write(json.dumps({
+                                    "event": "early_stop",
+                                    "epoch": epoch,
+                                    "step_in_epoch": step_in_epoch,
+                                    "global_step": global_step,
+                                    "rolling_acc": rolling_acc,
+                                    "best_acc": es_best_acc,
+                                }) + "\n")
+                            early_stopped = True
+                            break
+                    else:
+                        es_patience_counter = 0
+
+            if early_stopped:
+                break
+
+        # End-of-epoch checkpoint (skip if early-stopped since best is already saved)
+        if not early_stopped:
+            save_checkpoint_fn(
+                tag=f"ep{epoch + 1}-end",
+                epoch=epoch + 1,
+                step_in_epoch=0,
+            )
+
+        if early_stopped:
+            break
 
     total_training_time = time.time() - t_start_training
     avg_batch_time = sum(batch_times) / len(batch_times) if batch_times else 0.0

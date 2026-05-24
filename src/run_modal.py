@@ -168,7 +168,10 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
                  min_lr_ratio: float = 0.2,
                  warmup_ratio: float = 0.05,
                  ckpt_every_steps: int = 0,
-                 value_learning_rate: float = 0.0):
+                 value_learning_rate: float = 0.0,
+                 early_stop_patience: int = 0,
+                 early_stop_threshold: float = 0.05,
+                 early_stop_window: int = 10):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
@@ -231,6 +234,12 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--warmup_ratio", str(warmup_ratio),
         "--ckpt_every_steps", str(ckpt_every_steps),
     ]
+    if early_stop_patience > 0:
+        cmd.extend([
+            "--early_stop_patience", str(early_stop_patience),
+            "--early_stop_threshold", str(early_stop_threshold),
+            "--early_stop_window", str(early_stop_window),
+        ])
     if value_learning_rate and value_learning_rate > 0.0:
         cmd.extend(["--value_learning_rate", str(value_learning_rate)])
     if max_train_samples:

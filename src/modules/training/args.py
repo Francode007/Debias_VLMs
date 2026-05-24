@@ -296,4 +296,28 @@ def parse_training_args() -> argparse.Namespace:
         help="Override value-head LR. Defaults to 5x --learning_rate.",
     )
 
+    # ── Early stopping (eval-driven, based on rolling training accuracy) ──────
+    parser.add_argument(
+        "--early_stop_patience",
+        type=int,
+        default=0,
+        help=(
+            "Stop training if rolling binary_accuracy stays more than "
+            "--early_stop_threshold below best for this many consecutive "
+            "batch steps. 0 disables."
+        ),
+    )
+    parser.add_argument(
+        "--early_stop_threshold",
+        type=float,
+        default=0.05,
+        help="Fraction below best accuracy that triggers patience countdown.",
+    )
+    parser.add_argument(
+        "--early_stop_window",
+        type=int,
+        default=10,
+        help="Rolling window size for smoothing binary_accuracy before comparison.",
+    )
+
     return parser.parse_args()
