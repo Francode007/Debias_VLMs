@@ -26,6 +26,39 @@ Per-checkpoint greedy SB-Bench accuracy (binary reward, Qwen2.5-VL-3B, max_train
 
 **Implication for the rest of this report.** Any method that adds extra reward signal (DRM heads, FastRL composition) or extra loss terms (CAA) on top of the same un-controlled KL drift will just collapse faster. KL stabilisation is the foundation, not an afterthought.
 
+### 1.1 Phase 0 outcome — collapse persisted, mechanism identified
+
+After implementing the §2 playbook (adaptive KL controller, cosine LR with warmup, value-loss clipping, dense per-10-step checkpoints), we re-ran the binary-PPO baseline with `max_train=2000`, kl_beta=0.1, target_kl=0.02, lr=1e-4 cosine. **The collapse persisted but the trajectory now lets us read the exact mechanism off `metrics.jsonl`:**
+
+| Step (batch) | Eval acc (29-ckpt sweep) | Per-token KL | kl_beta | Notes |
+| --- | --- | --- | --- | --- |
+| 30 | 0.96 | 0.07 | 0.06 | end of warmup, controller still loosening β |
+| **40** | 0.99 | **0.76** | 0.18 | **11× KL spike in 10 steps** — warmup-end policy lurch |
+| 50 | **0.9949** (peak) | 0.68 | 0.63 | controller chasing, still 36× behind |
+| 60 | 0.975 | 0.82 | **5.0 (ceiling)** | β saturated; loss explodes to 4.16; batch acc 0.125 |
+| 80–250 | 0.97 → 0.54 | 0.6 → 0.03 | 5.0 (pinned) | KL relaxes but β stuck → over-regularised, mode collapses to "B" |
+| ep1-end | 0.5377 | — | — | model outputs "B" 63% of the time (vs GT 34.6%) |
+
+**Mode collapse evidence.** Per-checkpoint letter-distribution analysis (`scripts/phase0_letter_distribution.py`): entropy ratio over the {A,B,C} prediction distribution drops from 0.9995 at step 50 to 0.7841 at ep1-end. When ground truth = A, model says B in 74 % of cases. Per-category breakdown shows the collapse is sharpest on Gender (B=67.5 %, acc=42.1 %), Nationality (B=68.3 %, acc=49.6 %) and Race/Ethnicity (B=66.9 %, acc=49.6 %).
+
+**Why the §2 mitigations did not prevent it.**
+1. **Adaptive controller is too slow for warmup-end spikes.** The per-step clamp `β *= clip(1 + 0.1·err, 0.5, 2.0)` can only triple β per step. The KL went 0.07 → 0.76 in 10 steps (83× faster than β could react). By the time β catches up at step 60 it is already pinned at the global ceiling `kl_beta_max=5.0`.
+2. **`kl_beta_max=5.0` is too low.** Once β saturates the controller is dead. KL subsequently relaxes to ~0.03 but β stays near 5.0 → policy is over-penalised against an already-broken distribution and cannot recover.
+3. **Value clipping is inert in single-epoch on-policy PPO.** With `v_old = curr_values.detach()` from the same forward pass, the clip term never fires. The value head still trains via unclipped MSE.
+4. **Cosine LR does not help at the eruption point.** Step 40 is still in the warmup-to-peak region (LR ≈ 1e-4).
+5. **`ratio_mean = 1.0000` throughout 250 steps** — expected for single-epoch on-policy PPO (`old_logp == new_logp` from the same forward pass). **The PPO clip term is doing nothing**; the algorithm is effectively REINFORCE + KL penalty. Either accept this honestly or add multiple inner epochs per rollout.
+
+### 1.2 Why this is fundamentally a reward-shape problem
+
+Binary ±1 reward on a 3-way action space gives PPO the worst-case reward landscape:
+- **Sparse** — one reward per sample, one token position
+- **Step function** — tiny logit shift flips the predicted letter; reward is discontinuous in policy space
+- **Symmetric** — after mean-centering, advantages are exactly ±1; "almost right" is identical to "totally wrong"
+
+Under this regime, **policy gradient becomes entropy-minimisation in disguise**: the lowest-variance gradient is achieved by collapsing onto whichever letter has the highest prior. For SB-Bench that letter is "B" (the *"Cannot be determined"* unbiased option, which is also the model's pre-trained default under uncertainty *and* the correct answer ~35 % of the time). Collapse onto B therefore looks like 0.35 accuracy — not zero — which is why it is invisible from training-batch acc alone.
+
+**The fix is not "more KL regularisation" alone. It is reward-shape engineering** — covered in Phase 1 below.
+
 ---
 
 ## 2. Collapse-mitigation playbook (apply *before* enabling DRM/CAA/FastRL)
@@ -65,6 +98,35 @@ with `eps_v ≈ 0.2`. This is in the original Schulman PPO and prevents the valu
 If `token_kl.mean() > 5 × target` for two consecutive steps, restore the last-saved checkpoint and halve the LR. This is a poor-person's trust region, but cheap and very effective for the kind of cliff we are seeing.
 
 **Acceptance gate before moving to §3:** A binary-PPO run that holds ≥0.90 SB-Bench accuracy for ≥3 consecutive checkpoints across ≥150 PPO steps.
+
+### 2.6 Phase 0.5 — revised mitigations after the Phase 0 diagnosis
+
+§2.1–2.5 alone did not prevent collapse (see §1.1). The revised ablation matrix in [scripts/phase05_ablation.sh](../scripts/phase05_ablation.sh) targets the specific failure modes:
+
+| Exp | Hypothesis | Knobs |
+| --- | --- | --- |
+| **A — aggressive KL controller** | The warmup-end KL spike (0.07 → 0.76 in 10 steps) outpaced the controller. Raise the floor + ceiling + adapt-rate so β can react in time. | `kl_beta=1.0`, `kl_beta_min=1.0`, `kl_beta_max=50.0`, `kl_adapt_rate=0.5`, `target_kl=0.005` |
+| **B — early stop on held-out eval** | Training-batch acc at bs=8 with temp=0.3 has range 0.125–0.625 even at peak eval=0.99; unusable as an early-stop signal. Replace with greedy held-out eval every 10 steps. | `--midtrain_eval_every_steps 10 --midtrain_eval_samples 64 --use_eval_for_early_stop --early_stop_patience 3` |
+| **C — reduced LR** | Orthogonal control — tests whether the step-40 spike requires smaller weight updates. | `lr=5e-5`, value_lr=2.5e-4 |
+| **D — larger effective batch** | Reduce reward-signal variance entering the controller. | `gradient_accumulation_steps=8` (effective BS=64) |
+| **E — tight gradient clipping (new)** | Cap the single-step weight delta that triggered the eruption. | `max_grad_norm=0.1` (was 1.0) |
+
+**Infrastructure changes shipped alongside (Phase 0.5 commit `025088c`):**
+- **Grad-norm logging bug fix.** Phase 0 `metrics.jsonl` showed `policy_grad_norm = value_grad_norm = 0.0` across all 250 steps because the norm was only captured inside `if accelerator.sync_gradients:` and 3 of 4 logged rows fell outside the sync boundary. Trainer now computes the pre-clip norm on every micro-batch; clipping still runs only on sync boundaries.
+- **Mid-training held-out eval hook.** `PPOVLMController.evaluate_subset()` runs constrained greedy decoding on a deterministic tail-slice of the training set (n=64 default) every N steps. Result logged as `event=midtrain_eval` rows in `metrics.jsonl`; optionally drives the early-stop rolling window via `--use_eval_for_early_stop`. This is the only training-time signal that is directly comparable to the post-hoc eval sweep.
+- **`--max_grad_norm` CLI flag.** Was hardcoded at 1.0; now plumbed through `args.py → setup.py → PPOVLMController → run_modal.run_training` so Exp E can drive it.
+
+**Acceptance gate:** ≥0.90 sustained across ≥150 batch steps on the held-out eval signal (not training-batch acc).
+
+### 2.7 Reward-shape lever (deferred to Phase 1, not 0.5)
+
+Independent of KL/clip/LR tuning, the binary ±1 reward is the root structural issue (§1.2). Three reward-shape options exist and should be tried in order *after* Phase 0.5 establishes a stable trainer:
+
+1. **Raise `logit_reward_coef`** from 0.1 to ~0.5. Already wired. Mixes a smooth `log π(correct)` component into the otherwise step-function reward.
+2. **Margin reward** = `logit(correct) − max(logit(other letters))`. Always non-zero, smooth, directly aligned with "make correct the argmax". ~20-line change to the binary branch.
+3. **Switch to continuous DRM reward** (`reward_mode=svm` or `pca`). This is what the rest of the pipeline (§3) is built for. Use *after* Phase 0.5 stabilises the trainer to avoid confounding "reward shaping bug" with "PPO instability".
+
+The SB-Bench dataset itself is **not** to blame and should not be changed — it is the evaluation target. The instability is reward-shape × PPO-dynamics × small-LoRA-on-strong-base, not a data quality problem.
 
 ---
 
@@ -213,8 +275,9 @@ Each phase has a single, falsifiable success criterion. Do not start phase `k+1`
 
 | Phase | What | Success criterion |
 | --- | --- | --- |
-| **0** | Re-run binary PPO with §2 fixes (adaptive KL, LR decay, dense ckpts, value clip, KL tripwire) on max_train=2000. | Held-out SB-Bench ≥ 0.90 sustained over ≥150 steps with no >5pt drop. |
-| **1** | Same as Phase 0 on **full** train set (11,662 samples, ≥2 epochs). | Same criterion holds; final-checkpoint accuracy ≥ 0.90. |
+| **0 ✗** | Re-run binary PPO with §2 fixes (adaptive KL, LR decay, dense ckpts, value clip, KL tripwire) on max_train=2000. | **Failed.** Peak 0.9949 at step 50, monotonic decay to 0.5377 at ep1-end. Mode collapse onto letter "B" (63 % of predictions). Diagnosis in §1.1. |
+| **0.5** | Phase-0.5 ablation matrix (§2.6) — aggressive KL controller (A), held-out-eval early stop (B), reduced LR (C), larger batch (D), tight grad clip (E). Driven by [scripts/phase05_ablation.sh](../scripts/phase05_ablation.sh). | At least one experiment holds ≥0.90 SB-Bench across ≥150 batch steps on the held-out eval signal. |
+| **1** | Best Phase-0.5 config + reward-shape upgrade (§2.7): raise `logit_reward_coef` or switch to margin reward. Run on full train set (11,662 samples, ≥2 epochs). | Same criterion holds; final-checkpoint accuracy ≥ 0.90. |
 | **2** | Rebuild DRM heads with frozen `φ` at the post-letter token position. Run `evaluate_drm_heads.py` Phase-0 gate; keep only heads with chosen>rejected > 0.6 *per category*. | ≥ 30 heads survive the gate, each SB-Bench category covered by ≥ 1 head. |
 | **3** | Enable SVM/DRM mode with **paper-correct FastRL** composition (§5.4), no CAA. KL anchoring from Phase 1 still active. | Held-out SB-Bench ≥ Phase-1 result (no regression from added complexity). |
 | **4** | Add **paper-correct CAA** (§4.4) on top: one extra rollout from LoRA-disabled model per batch, `\|r_init − r\|`-weighted PPO loss. | Held-out SB-Bench improves by ≥ 1pt over Phase 3, **per-category min** improves by ≥ 2pt. |
