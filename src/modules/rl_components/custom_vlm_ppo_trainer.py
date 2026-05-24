@@ -70,6 +70,11 @@ class PPOVLMController:
         max_gen_tokens: int = 8,
         max_grad_norm: float = 1.0,
         reward_mode: str = "svm",
+        target_kl: float = 0.0,
+        kl_adapt_rate: float = 0.1,
+        kl_beta_min: float = 0.05,
+        kl_beta_max: float = 5.0,
+        value_clip_range: float = 0.0,
     ):
         """
         Args:
@@ -110,6 +115,13 @@ class PPOVLMController:
         self.max_gen_tokens = max_gen_tokens
         self.max_grad_norm = max_grad_norm
         self.reward_mode = reward_mode  # "svm" or "binary"
+
+        # Phase 0 collapse-mitigation knobs.
+        self.target_kl = target_kl              # >0 enables adaptive KL
+        self.kl_adapt_rate = kl_adapt_rate
+        self.kl_beta_min = kl_beta_min
+        self.kl_beta_max = kl_beta_max
+        self.value_clip_range = value_clip_range  # >0 enables value clipping
 
         # Running normalization for task reward (keeps r_task in same scale as KL/logit components)
         self._r_task_running_mean = torch.tensor(0.0, device=accelerator.device)
@@ -601,8 +613,23 @@ class PPOVLMController:
         seq_pg_loss = (torch.max(pg_loss1, pg_loss2) * loss_mask).sum(dim=1) / loss_mask.sum(dim=1)
         pg_loss = seq_pg_loss.mean()
         
-        # 11. VALUE LOSS
-        v_loss = 0.5 * ((curr_values_aligned - returns) ** 2) * loss_mask
+        # 11. VALUE LOSS (optionally clipped per Schulman PPO)
+        if self.value_clip_range > 0.0:
+            # Snapshot of v_old at rollout time. In single-epoch on-policy PPO
+            # the value head has not been updated yet within this batch, so the
+            # detached current prediction IS v_old. The clip then prevents the
+            # value head from chasing transient reward spikes inside the
+            # current minibatch, which is the standard precursor to policy
+            # collapse (cf. CRITICAL_REVIEW_v4.md, B2/C1).
+            v_old = curr_values_aligned.detach()
+            v_clipped = v_old + (curr_values_aligned - v_old).clamp(
+                -self.value_clip_range, self.value_clip_range
+            )
+            v_loss_unclipped = (curr_values_aligned - returns) ** 2
+            v_loss_clipped = (v_clipped - returns) ** 2
+            v_loss = 0.5 * torch.max(v_loss_unclipped, v_loss_clipped) * loss_mask
+        else:
+            v_loss = 0.5 * ((curr_values_aligned - returns) ** 2) * loss_mask
         v_loss = v_loss.sum(dim=1) / loss_mask.sum(dim=1)
         v_loss = v_loss.mean()
         
@@ -666,6 +693,24 @@ class PPOVLMController:
         optimizer_policy.zero_grad()
         optimizer_value.zero_grad()
 
+        # ── Adaptive KL controller (Schulman / Ouyang 2022) ─────────────────
+        # After the optimizer step we observe the *post-update* KL. If it is
+        # above the per-token target we tighten kl_beta; if below, we loosen.
+        # This is the standard recipe and removes the manual kl_beta tuning
+        # that was the proximate cause of the ep1-end collapse documented in
+        # the research report (§2.1).
+        kl_observed = (
+            token_kl[loss_mask.bool()].mean().item() if loss_mask.any() else 0.0
+        )
+        if self.target_kl > 0.0 and self.accelerator.sync_gradients:
+            err = kl_observed / self.target_kl - 1.0
+            step_factor = float(
+                max(0.5, min(2.0, 1.0 + self.kl_adapt_rate * err))
+            )
+            new_beta = self.kl_beta * step_factor
+            new_beta = max(self.kl_beta_min, min(self.kl_beta_max, new_beta))
+            self.kl_beta = new_beta
+
         # Honest signal-magnitude metric: how big are the advantages at the
         # reward-bearing positions (i.e. the answer-letter logit positions)?
         # This is what the LoRA gradient is actually proportional to.
@@ -689,6 +734,7 @@ class PPOVLMController:
             "adv_abs_mean": adv_abs_mean,
             "policy_grad_norm": policy_grad_norm,
             "value_grad_norm": value_grad_norm,
+            "kl_beta": float(self.kl_beta),
         }
         if self.reward_mode == "binary":
             # Track accuracy from the *pre-KL* per-sample reward (dense_rewards now

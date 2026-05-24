@@ -157,7 +157,18 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
                  delta_margin: float = 1.0, lambda_dispersive: float = 0.01,
                  logit_reward_coef: float = 0.1, head_type: str = "svm",
                  max_gen_tokens: int = 256, batch_size: int = 12,
-                 reward_mode: str = "svm"):
+                 reward_mode: str = "svm",
+                 # Phase 0 collapse-mitigation knobs.
+                 target_kl: float = 0.0,
+                 kl_adapt_rate: float = 0.1,
+                 kl_beta_min: float = 0.05,
+                 kl_beta_max: float = 5.0,
+                 value_clip_range: float = 0.0,
+                 lr_schedule: str = "linear_warmup",
+                 min_lr_ratio: float = 0.2,
+                 warmup_ratio: float = 0.05,
+                 ckpt_every_steps: int = 0,
+                 value_learning_rate: float = 0.0):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
@@ -168,6 +179,11 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
           f"logit_reward_coef={logit_reward_coef}, head_type={head_type}, "
           f"max_gen_tokens={max_gen_tokens}, batch_size={batch_size}, "
           f"reward_mode={reward_mode}")
+    print(f"   Phase0: target_kl={target_kl}, kl_adapt_rate={kl_adapt_rate}, "
+          f"kl_beta_min={kl_beta_min}, kl_beta_max={kl_beta_max}, "
+          f"value_clip_range={value_clip_range}, lr_schedule={lr_schedule}, "
+          f"min_lr_ratio={min_lr_ratio}, warmup_ratio={warmup_ratio}, "
+          f"ckpt_every_steps={ckpt_every_steps}")
 
     # Select reward heads directory based on head type
     if head_type == "svm":
@@ -204,7 +220,19 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--logit_reward_coef", str(logit_reward_coef),
         "--max_gen_tokens", str(max_gen_tokens),
         "--reward_mode", reward_mode,
+        # Phase 0 collapse-mitigation flags.
+        "--target_kl", str(target_kl),
+        "--kl_adapt_rate", str(kl_adapt_rate),
+        "--kl_beta_min", str(kl_beta_min),
+        "--kl_beta_max", str(kl_beta_max),
+        "--value_clip_range", str(value_clip_range),
+        "--lr_schedule", lr_schedule,
+        "--min_lr_ratio", str(min_lr_ratio),
+        "--warmup_ratio", str(warmup_ratio),
+        "--ckpt_every_steps", str(ckpt_every_steps),
     ]
+    if value_learning_rate and value_learning_rate > 0.0:
+        cmd.extend(["--value_learning_rate", str(value_learning_rate)])
     if max_train_samples:
         cmd.extend(["--max_train_samples", str(max_train_samples)])
     if resume_from:

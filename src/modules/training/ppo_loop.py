@@ -58,9 +58,13 @@ def run_ppo_loop(
     quarter_steps: Set[int] = {
         int(total_batches_per_epoch * q) for q in [0.25, 0.50, 0.75]
     }
+    # Phase 0: optionally checkpoint every N steps (in addition to quarter-epoch
+    # cadence). Used to densely capture the pre-collapse window in the first epoch.
+    ckpt_every_steps = int(getattr(args, "ckpt_every_steps", 0) or 0)
     logger.info(
         f"Quarter-epoch checkpoints at steps: {sorted(quarter_steps)} "
-        f"(total batches/epoch: {total_batches_per_epoch})"
+        f"(total batches/epoch: {total_batches_per_epoch}); "
+        f"ckpt_every_steps={ckpt_every_steps}"
     )
 
     # Resolve epoch/step for old-style checkpoints (no training_progress.json)
@@ -167,6 +171,19 @@ def run_ppo_loop(
                     pct = int(100 * step_in_epoch / total_batches_per_epoch)
                     save_checkpoint_fn(
                         tag=f"ep{epoch + 1}-{pct}pct",
+                        epoch=epoch,
+                        step_in_epoch=step_in_epoch,
+                    )
+
+                # Phase 0: optional dense per-N-step checkpoint cadence.
+                if (
+                    ckpt_every_steps > 0
+                    and step_in_epoch > 0
+                    and step_in_epoch % ckpt_every_steps == 0
+                    and step_in_epoch not in quarter_steps  # avoid dup
+                ):
+                    save_checkpoint_fn(
+                        tag=f"ep{epoch + 1}-step{step_in_epoch}",
                         epoch=epoch,
                         step_in_epoch=step_in_epoch,
                     )

@@ -122,7 +122,10 @@ def main() -> None:
     # that the optimizer is actually updating.
     ppo_controller.policy = active_policy
 
-    # Phase 3 hygiene: linear LR warmup over `warmup_ratio` of total updates.
+    # Phase 0 hygiene: configurable LR schedule.
+    #   - linear_warmup (legacy): warmup then linear decay to 0
+    #   - cosine: warmup then cosine decay to min_lr_ratio*peak (Phase 0 recommended)
+    #   - constant: warmup then flat
     from transformers import get_linear_schedule_with_warmup
     total_update_steps = max(
         1,
@@ -130,16 +133,45 @@ def main() -> None:
     )
     warmup_ratio = getattr(args, "warmup_ratio", 0.05)
     warmup_steps = int(total_update_steps * warmup_ratio)
+    lr_schedule = getattr(args, "lr_schedule", "linear_warmup")
+    min_lr_ratio = float(getattr(args, "min_lr_ratio", 0.2))
     logger.info(
-        f"LR schedule: linear warmup over {warmup_steps}/{total_update_steps} updates "
-        f"(warmup_ratio={warmup_ratio})"
+        f"LR schedule: {lr_schedule} (warmup {warmup_steps}/{total_update_steps}, "
+        f"min_lr_ratio={min_lr_ratio})"
     )
-    lr_scheduler_policy = get_linear_schedule_with_warmup(
-        optimizer_policy, num_warmup_steps=warmup_steps, num_training_steps=total_update_steps
-    )
-    lr_scheduler_value = get_linear_schedule_with_warmup(
-        optimizer_value, num_warmup_steps=warmup_steps, num_training_steps=total_update_steps
-    )
+
+    def _build_scheduler(opt):
+        if lr_schedule == "linear_warmup":
+            return get_linear_schedule_with_warmup(
+                opt,
+                num_warmup_steps=warmup_steps,
+                num_training_steps=total_update_steps,
+            )
+        if lr_schedule == "constant":
+            from transformers import get_constant_schedule_with_warmup
+            return get_constant_schedule_with_warmup(
+                opt, num_warmup_steps=warmup_steps
+            )
+        if lr_schedule == "cosine":
+            # Cosine decay from peak -> min_lr_ratio*peak after warmup.
+            # We implement directly via LambdaLR so we can pin the floor.
+            import math
+            from torch.optim.lr_scheduler import LambdaLR
+
+            def lr_lambda(step):
+                if step < warmup_steps:
+                    return float(step) / max(1, warmup_steps)
+                progress = (step - warmup_steps) / max(
+                    1, total_update_steps - warmup_steps
+                )
+                cos = 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
+                return min_lr_ratio + (1.0 - min_lr_ratio) * cos
+
+            return LambdaLR(opt, lr_lambda=lr_lambda)
+        raise ValueError(f"Unknown lr_schedule: {lr_schedule}")
+
+    lr_scheduler_policy = _build_scheduler(optimizer_policy)
+    lr_scheduler_value = _build_scheduler(optimizer_value)
     lr_scheduler_policy, lr_scheduler_value = accelerator.prepare(
         lr_scheduler_policy, lr_scheduler_value
     )

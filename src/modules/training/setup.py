@@ -153,6 +153,11 @@ def build_ppo_controller(
         logit_reward_coef=getattr(args, 'logit_reward_coef', 0.1),
         max_gen_tokens=getattr(args, 'max_gen_tokens', 256),
         reward_mode=getattr(args, 'reward_mode', 'svm'),
+        target_kl=getattr(args, 'target_kl', 0.0),
+        kl_adapt_rate=getattr(args, 'kl_adapt_rate', 0.1),
+        kl_beta_min=getattr(args, 'kl_beta_min', 0.05),
+        kl_beta_max=getattr(args, 'kl_beta_max', 5.0),
+        value_clip_range=getattr(args, 'value_clip_range', 0.0),
     )
 
 

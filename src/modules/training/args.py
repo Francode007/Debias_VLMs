@@ -219,4 +219,81 @@ def parse_training_args() -> argparse.Namespace:
         help="Reward signal: 'svm' (dense SVM projection) or 'binary' (+1/-1 correctness)",
     )
 
+    # ── Phase 0 (collapse-mitigation) controls ────────────────────────────
+    parser.add_argument(
+        "--target_kl",
+        type=float,
+        default=0.0,
+        help=(
+            "If >0, enable adaptive KL controller targeting this per-token KL "
+            "(Schulman PPO/Ouyang 2022 recipe). 0.02 is the typical RLHF target. "
+            "0 disables; kl_beta stays fixed at --kl_beta."
+        ),
+    )
+    parser.add_argument(
+        "--kl_adapt_rate",
+        type=float,
+        default=0.1,
+        help="Step size of the adaptive KL controller (fraction per update).",
+    )
+    parser.add_argument(
+        "--kl_beta_min",
+        type=float,
+        default=0.05,
+        help="Floor for the adaptive kl_beta.",
+    )
+    parser.add_argument(
+        "--kl_beta_max",
+        type=float,
+        default=5.0,
+        help="Ceiling for the adaptive kl_beta.",
+    )
+    parser.add_argument(
+        "--value_clip_range",
+        type=float,
+        default=0.0,
+        help=(
+            "If >0, clip value-function updates to |v_new - v_old| <= "
+            "value_clip_range (Schulman PPO). 0 disables. 0.2 is typical."
+        ),
+    )
+    parser.add_argument(
+        "--lr_schedule",
+        type=str,
+        default="linear_warmup",
+        choices=["linear_warmup", "cosine", "constant"],
+        help=(
+            "LR schedule. 'linear_warmup' (default, existing behaviour): warmup "
+            "then linear decay to 0. 'cosine': warmup then cosine decay to "
+            "min_lr_ratio*lr. 'constant': flat after warmup."
+        ),
+    )
+    parser.add_argument(
+        "--min_lr_ratio",
+        type=float,
+        default=0.2,
+        help="Floor LR as a fraction of peak LR (only used by --lr_schedule cosine).",
+    )
+    parser.add_argument(
+        "--warmup_ratio",
+        type=float,
+        default=0.05,
+        help="Fraction of total update steps used as linear LR warmup.",
+    )
+    parser.add_argument(
+        "--ckpt_every_steps",
+        type=int,
+        default=0,
+        help=(
+            "If >0, save a checkpoint every N PPO steps (in addition to "
+            "end-of-epoch). 0 keeps the legacy quarter-epoch cadence."
+        ),
+    )
+    parser.add_argument(
+        "--value_learning_rate",
+        type=float,
+        default=None,
+        help="Override value-head LR. Defaults to 5x --learning_rate.",
+    )
+
     return parser.parse_args()
