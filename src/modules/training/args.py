@@ -50,6 +50,13 @@ def parse_training_args() -> argparse.Namespace:
         default=9,
         help="Number of PCA components (DRM heads) to load (9 = one per SB-Bench bias category)",
     )
+    parser.add_argument(
+        "--kept_heads_filter",
+        type=str,
+        default=None,
+        help="Phase 0.6 D2: path to kept_heads.json produced by evaluate_drm_heads.py. "
+             "When set, only heads whose original index is in kept_indices are loaded.",
+    )
 
     # Fast-RL arguments
     parser.add_argument(
@@ -217,6 +224,14 @@ def parse_training_args() -> argparse.Namespace:
         default="svm",
         choices=["svm", "binary"],
         help="Reward signal: 'svm' (dense SVM projection) or 'binary' (+1/-1 correctness)",
+    )
+    parser.add_argument(
+        "--use_frozen_phi",
+        action="store_true",
+        help="Phase 0.6 D1: project DRM reward heads against the LoRA-disabled "
+             "(frozen) penultimate hidden state \u03c6_ref instead of the active "
+             "\u03c6_active. Required for SVM/PCA rewards whose heads were fit on "
+             "the un-adapted base model, to prevent representation hacking.",
     )
 
     # ── Phase 0 (collapse-mitigation) controls ────────────────────────────

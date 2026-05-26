@@ -31,3 +31,7 @@ Thumbs.db
 
 # Misc
 /tmp/
+Phase0.5_*
+Phase0.6_*
+phase05_*
+*.jsonl

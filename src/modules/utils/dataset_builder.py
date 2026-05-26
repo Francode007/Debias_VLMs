@@ -193,23 +193,33 @@ class DatasetBuilder:
         num_chunks = (total + chunk_size - 1) // chunk_size
         
         cache_key = hashlib.md5(
-            f"{data_path}_{total}_{self.script_args.max_length}_{self.script_args.use_smallset}_{split_mode}".encode()
+            f"{data_path}_{total}_{self.script_args.max_length}_{self.script_args.use_smallset}_{split_mode}_"
+            f"{getattr(self.script_args, 'completion_format', 'free_text')}".encode()
         ).hexdigest()[:12]
         chunks_dir = os.path.join(os.path.dirname(data_path), f"chunks_{cache_key}")
         os.makedirs(chunks_dir, exist_ok=True)
         
         logger.info(f"Processing {total} examples in {num_chunks} chunks of {chunk_size} (saving to {chunks_dir})")
         
-        processed_chunks = []
         for chunk_idx in range(num_chunks):
             chunk_path = os.path.join(chunks_dir, f"chunk_{chunk_idx:04d}")
             
-            # Resumability: skip already-processed chunks
-            if os.path.exists(chunk_path):
-                logger.info(f"Chunk {chunk_idx+1}/{num_chunks} already exists, loading from disk")
-                chunk_ds = load_from_disk(chunk_path)
-                processed_chunks.append(chunk_ds)
+            # Resumability: skip already-processed chunks (but only if the
+            # chunk is a complete HF Dataset directory — a Modal worker that
+            # died mid-write can leave a half-populated dir without
+            # dataset_info.json, which would cause load_from_disk to fail at
+            # concat time. Treat such dirs as needing re-processing.)
+            marker = os.path.join(chunk_path, "dataset_info.json")
+            if os.path.exists(marker):
+                logger.info(f"Chunk {chunk_idx+1}/{num_chunks} already exists, skipping")
                 continue
+            if os.path.isdir(chunk_path):
+                logger.warning(
+                    f"Chunk {chunk_idx+1}/{num_chunks} at {chunk_path} is incomplete "
+                    f"(no dataset_info.json) — removing and re-processing"
+                )
+                import shutil
+                shutil.rmtree(chunk_path, ignore_errors=True)
             
             start = chunk_idx * chunk_size
             end = min(start + chunk_size, total)
@@ -226,16 +236,30 @@ class DatasetBuilder:
             
             # Save chunk to disk immediately (small enough to not hang)
             chunk_ds.save_to_disk(chunk_path)
-            processed_chunks.append(chunk_ds)
             logger.info(f"Chunk {chunk_idx+1}/{num_chunks} done: {len(chunk_ds)} samples (saved to disk)")
             
             # Free memory from raw chunk data
+            del chunk_ds
             import gc
             gc.collect()
         
-        # Concatenate all chunks
+        # Concatenate all chunks from disk (load lazily one at a time to limit
+        # peak memory — concatenate_datasets memory-maps the underlying Arrow
+        # files rather than copying into RAM).
         from datasets import concatenate_datasets
-        logger.info(f"Concatenating {len(processed_chunks)} chunks...")
+        logger.info(f"Concatenating {num_chunks} chunks from {chunks_dir}...")
+        processed_chunks = []
+        for chunk_idx in range(num_chunks):
+            chunk_path = os.path.join(chunks_dir, f"chunk_{chunk_idx:04d}")
+            marker = os.path.join(chunk_path, "dataset_info.json")
+            if os.path.exists(marker):
+                processed_chunks.append(load_from_disk(chunk_path))
+            else:
+                logger.error(
+                    f"Chunk {chunk_idx+1}/{num_chunks} at {chunk_path} missing or "
+                    f"incomplete at concat time — aborting. Re-run preprocess to rebuild."
+                )
+                raise FileNotFoundError(f"Incomplete chunk: {chunk_path}")
         ds = concatenate_datasets(processed_chunks)
         del processed_chunks
         
@@ -284,8 +308,14 @@ class DatasetBuilder:
                 image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
                 all_images.append(image)
                 
-                # Extract chosen/rejected
-                chosen, rejected = self.dataset_adapter.get_chosen_rejected(example)
+                # Extract chosen/rejected.
+                # Phase 0.6 D3: when completion_format=='letter', condition the head-build
+                # forward on a single A/B/C completion (matching PPO generation), not the
+                # full free-text answer.
+                if getattr(self.script_args, "completion_format", "free_text") == "letter":
+                    chosen, rejected = self.dataset_adapter.get_chosen_rejected_letter(example)
+                else:
+                    chosen, rejected = self.dataset_adapter.get_chosen_rejected(example)
                 
                 prompt_text = self.dataset_adapter.get_prompt_text(example)
                 
@@ -344,8 +374,12 @@ class DatasetBuilder:
         for idx_in_valid, orig_idx in enumerate(valid_indices):
             example = {k: examples[k][orig_idx] for k in examples.keys()}
             
-            # Extract chosen/rejected again for metadata
-            chosen, rejected = self.dataset_adapter.get_chosen_rejected(example)
+            # Extract chosen/rejected again for metadata (must mirror the variant
+            # used above for the actual tokenized inputs).
+            if getattr(self.script_args, "completion_format", "free_text") == "letter":
+                chosen, rejected = self.dataset_adapter.get_chosen_rejected_letter(example)
+            else:
+                chosen, rejected = self.dataset_adapter.get_chosen_rejected(example)
             prompt_text = self.dataset_adapter.get_prompt_text(example)
             pair_idx = int(example.get('pair_idx', 0))
             
@@ -380,8 +414,15 @@ class DatasetBuilder:
             results["attention_mask_rejected"].append(inputs_rejected["attention_mask"][idx_in_valid])
             results["pixel_values_rejected"].append(pv_rejected_splits[idx_in_valid])
             
-            # Qwen2-VL grid tokens - preserve shape
-            for k in ["image_grid_thw", "video_grid_thw"]:
+            # Qwen2-VL grid tokens — use the already-split grid lists (mirrors
+            # extract_pixel_values which handles the concatenated-array case).
+            results["image_grid_thw_chosen"].append(
+                grid_chosen_list[idx_in_valid] if grid_chosen_list else None
+            )
+            results["image_grid_thw_rejected"].append(
+                grid_rejected_list[idx_in_valid] if grid_rejected_list else None
+            )
+            for k in ["video_grid_thw"]:
                 results[f"{k}_chosen"].append(
                     inputs_chosen[k][idx_in_valid] if k in inputs_chosen else None
                 )

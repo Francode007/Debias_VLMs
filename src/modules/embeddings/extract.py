@@ -262,9 +262,51 @@ def main():
         # Reward models must output a single scalar; tell TRL num_labels=1
         model.config.num_labels = 1
 
-        # Create custom forward function
-        custom_forward_func = create_custom_forward(model, model_loader.dtype)
+        # Resolve A/B/C token IDs once for token_position={pre,post}_letter.
+        # Mirrors PPOVLMController._get_letter_token_ids() — try multiple encodings
+        # (bare, leading-space, leading-newline) and keep any single-token match
+        # plus the last-token of any multi-token encoding.
+        letter_token_ids = None
+        if script_args.token_position in ("pre_letter", "post_letter"):
+            tok = processor.tokenizer
+            ids = set()
+            for letter in ["A", "B", "C"]:
+                for prefix in ["", " ", "\n"]:
+                    enc = tok.encode(f"{prefix}{letter}", add_special_tokens=False)
+                    if len(enc) == 1:
+                        ids.add(enc[0])
+                    elif len(enc) > 1:
+                        ids.add(enc[-1])
+                for t_id in tok.encode(letter, add_special_tokens=False):
+                    ids.add(t_id)
+            letter_token_ids = sorted(ids)
+            logger.info(
+                f"Resolved letter_token_ids for token_position={script_args.token_position!r}: "
+                f"{letter_token_ids}"
+            )
+            if script_args.completion_format != "letter":
+                logger.warning(
+                    f"token_position={script_args.token_position!r} expects "
+                    "completion_format='letter'; with 'free_text' the last-letter search "
+                    "may match a letter buried inside the free-text answer."
+                )
+
+        # Create custom forward function (Phase 0.6 D3: per-sample slice index)
+        custom_forward_func = create_custom_forward(
+            model, model_loader.dtype,
+            token_position=script_args.token_position,
+            letter_token_ids=letter_token_ids,
+        )
         model.forward = custom_forward_func.__get__(model, type(model))
+        
+        # Auto-suffix the embeddings output path when running with non-default
+        # extraction settings, so the legacy free-text/eos artifacts at
+        # ./embeddings_output/ are never silently clobbered.
+        if (script_args.completion_format != "free_text") or (script_args.token_position != "eos"):
+            suffix = f"_{script_args.completion_format}_{script_args.token_position}"
+            if not script_args.cls_embs_path.rstrip("/").endswith(suffix):
+                script_args.cls_embs_path = script_args.cls_embs_path.rstrip("/") + suffix
+                logger.info(f"Auto-suffixed cls_embs_path → {script_args.cls_embs_path}")
         
         # Build dataset
         logger.info("Building dataset...")

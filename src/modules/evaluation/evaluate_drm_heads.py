@@ -107,6 +107,9 @@ def main():
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--split_indices_path", type=str, default=None, help="Path to split_indices.json for filtering to test split")
     parser.add_argument("--split", type=str, default="all", choices=["train", "test", "all"], help="Which split to evaluate on (default: all)")
+    parser.add_argument("--head_type", type=str, default="svm", choices=["svm", "pca"], help="Head construction. SVM heads map 1:1 to SB-Bench categories; PCA heads do not.")
+    parser.add_argument("--keep_threshold", type=float, default=0.55, help="Phase 0.6 D2: minimum accuracy for a head to be kept in kept_heads.json. SVM: per-category accuracy of the matching head. PCA: overall per-head accuracy.")
+    parser.add_argument("--kept_heads_json", type=str, default=None, help="Path to write kept_heads.json. Defaults to <output_json dir>/kept_heads.json")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -194,6 +197,51 @@ def main():
     print(f"Overall accuracy (mean over heads): {results['overall_mean']:.4f}")
     for cat, v in per_category.items():
         print(f"  {cat}: {v['accuracy_mean']:.4f} (n={v['count']})")
+
+    # ── Phase 0.6 D2: select kept heads ────────────────────────────────────
+    # SVM: head_i corresponds 1:1 to SB_BENCH_CATEGORIES[i] (per generate_drm_heads.py).
+    #      Keep head i iff its own category's accuracy_mean >= threshold.
+    # PCA: heads are unordered linear axes. Keep head i iff overall_per_head[i] >= threshold.
+    kept_indices = []
+    category_coverage = {cat: [] for cat in SB_BENCH_CATEGORIES}
+    if args.head_type == "svm":
+        for i, cat_name in enumerate(SB_BENCH_CATEGORIES):
+            if i >= num_heads:
+                break
+            cat_info = per_category.get(cat_name)
+            if cat_info is not None and cat_info["accuracy_mean"] >= args.keep_threshold:
+                kept_indices.append(i)
+                category_coverage[cat_name].append(i)
+    else:  # pca
+        for i in range(num_heads):
+            if overall_per_head[i] >= args.keep_threshold:
+                kept_indices.append(i)
+            # Best category that head i actually helps with (per-category acc >= threshold)
+            for cat_name in SB_BENCH_CATEGORIES:
+                cat_info = per_category.get(cat_name)
+                if cat_info is None:
+                    continue
+                if cat_info["accuracy_per_head"][i] >= args.keep_threshold:
+                    category_coverage[cat_name].append(i)
+
+    kept_heads_payload = {
+        "head_type": args.head_type,
+        "threshold": args.keep_threshold,
+        "kept_indices": kept_indices,
+        "kept_count": len(kept_indices),
+        "num_heads_total": num_heads,
+        "category_coverage": category_coverage,
+        "split": args.split,
+    }
+    kept_path = args.kept_heads_json or os.path.join(
+        os.path.dirname(args.output_json) or ".", "kept_heads.json"
+    )
+    with open(kept_path, "w") as f:
+        json.dump(kept_heads_payload, f, indent=2)
+    missing = [c for c, v in category_coverage.items() if not v]
+    print(f"Kept {len(kept_indices)}/{num_heads} heads (threshold={args.keep_threshold}) -> {kept_path}")
+    if missing:
+        print(f"  WARNING: no kept head covers categories: {missing}")
 
 
 if __name__ == "__main__":

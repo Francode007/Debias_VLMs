@@ -195,3 +195,21 @@ class ScriptArguments:
         metadata={"help": "Path to split_indices.json. If None, auto-detected next to data_path. "
                   "Generated on first use with seed=42."}
     )
+
+    # Phase 0.6 D3 — head-build / PPO scoring alignment
+    completion_format: Optional[str] = field(
+        default="free_text",
+        metadata={"help": "Format of the chosen/rejected completion fed into the reward-model forward pass. "
+                  "'free_text' (default, backcompat) uses the full answer string (e.g. 'The man with the briefcase'). "
+                  "'letter' uses a single A/B/C letter, matching what PPO generates at training time. "
+                  "Requires the dataset adapter to implement get_chosen_rejected_letter()."}
+    )
+    token_position: Optional[str] = field(
+        default="eos",
+        metadata={"help": "Which token's penultimate-layer hidden state to extract as the reward-model embedding. "
+                  "'eos' (default, backcompat): last non-pad token (today's behaviour). "
+                  "'post_letter': the A/B/C letter token itself. "
+                  "'pre_letter': the token immediately before the letter — its logit is what predicts the letter, "
+                  "matching PPO's binary-mode `ans_pos` exactly. "
+                  "'all_letters_mean': average pre_letter hidden states across 3 forced completions (A/B/C); NOT YET IMPLEMENTED."}
+    )

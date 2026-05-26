@@ -16,13 +16,23 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 logger = logging.getLogger(__name__)
 
 
-def create_custom_forward(model, dtype):
+def create_custom_forward(model, dtype, token_position: str = "eos", letter_token_ids=None):
     """
     Create custom forward function for reward model training.
     
     Input:
         model: The base vision-language model
         dtype: Target data type for computations
+        token_position (str): Which token's penultimate-layer hidden state to return.
+            'eos'         — last non-pad token (legacy / backcompat).
+            'post_letter' — the A/B/C letter token itself.
+            'pre_letter'  — the token immediately BEFORE the letter; its logit is
+                            what predicts the letter, matching PPO's binary-mode
+                            `ans_pos` exactly (Phase 0.6 D3 fix).
+        letter_token_ids: Iterable of token IDs that represent the answer letters
+            A, B, or C under the model's tokenizer (any encoding variant — see
+            extract.py for the resolution logic). Required when token_position is
+            'post_letter' or 'pre_letter'; ignored for 'eos'.
     
     Output:
         function: Custom forward function bound to the model
@@ -42,6 +52,24 @@ def create_custom_forward(model, dtype):
         to support reward model training with proper loss computation,
         embedding extraction, and sequence-aware pooling.
     """
+    if token_position not in ("eos", "post_letter", "pre_letter"):
+        raise ValueError(
+            f"create_custom_forward: token_position={token_position!r} not supported. "
+            "Must be one of 'eos', 'post_letter', 'pre_letter'. "
+            "('all_letters_mean' is reserved for a future implementation.)"
+        )
+    if token_position in ("post_letter", "pre_letter"):
+        if not letter_token_ids:
+            raise ValueError(
+                f"create_custom_forward: token_position={token_position!r} requires "
+                "letter_token_ids (the tokenizer IDs for the A/B/C answer letters). "
+                "Resolve them once at model-creation time and pass them in."
+            )
+        # Resolve to a single 1D long tensor for vectorised lookup inside the forward.
+        _letter_token_ids_tensor = torch.tensor(sorted(set(int(t) for t in letter_token_ids)), dtype=torch.long)
+    else:
+        _letter_token_ids_tensor = None
+
     def custom_forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -163,11 +191,48 @@ def create_custom_forward(model, dtype):
             else:
                 sequence_lengths = -1
 
-        # Extract the hidden states for the last non-padding token
-        if isinstance(sequence_lengths, int) and sequence_lengths == -1:
+        # Choose the per-sample index into the penultimate layer.
+        #
+        # Phase 0.6 D3: when the chosen/rejected completion is a single A/B/C
+        # letter, the head-build basis must be aligned with the position that
+        # PPO scores at training time. PPO places the binary reward at
+        # `ans_pos = gen_starts_shifted + k`, where `k` is the offset of the
+        # parsed letter token within the generated suffix. In full-sequence
+        # coordinates this is `(letter_pos - 1)` (the predictor of the letter)
+        # for the typical k=0 case. We mirror that selection here.
+        if token_position == "eos" or (isinstance(sequence_lengths, int) and sequence_lengths == -1):
+            slice_indices = sequence_lengths  # int sentinel handled below
+        elif input_ids is None:
+            # Defensive: cannot find letter positions without input_ids.
+            slice_indices = sequence_lengths
+        else:
+            device = penultimate_layer.device
+            letter_ids_dev = _letter_token_ids_tensor.to(device)
+            # (B, T) bool: True where token is one of the answer letters.
+            is_letter = torch.isin(input_ids.to(device), letter_ids_dev)
+            # Find the LAST occurrence of any letter token per row.
+            # argmax on a reversed mask gives offset-from-end of the first True.
+            T = input_ids.shape[-1]
+            rev = torch.flip(is_letter.int(), dims=[-1])
+            any_letter = is_letter.any(dim=-1)
+            offset_from_end = rev.argmax(dim=-1)  # 0 if no True (also when row is all False)
+            letter_pos = (T - 1 - offset_from_end).to(device)
+            # Samples with no letter token fall back to the EOS position to
+            # avoid silent indexing errors; they will be visible as outliers in
+            # the embedding distribution and can be filtered downstream.
+            letter_pos = torch.where(any_letter, letter_pos, sequence_lengths.to(letter_pos.dtype))
+            if token_position == "post_letter":
+                slice_indices = letter_pos
+            else:  # pre_letter
+                slice_indices = (letter_pos - 1).clamp(min=0)
+
+        # Extract the hidden states at the chosen per-sample index.
+        if isinstance(slice_indices, int) and slice_indices == -1:
             hidden_states = penultimate_layer[:, -1, :]
         else:
-            hidden_states = penultimate_layer[torch.arange(batch_size, device=penultimate_layer.device), sequence_lengths]
+            hidden_states = penultimate_layer[
+                torch.arange(batch_size, device=penultimate_layer.device), slice_indices
+            ]
 
         # Phase 1: no score head; use dummy logits so trainer interface still works
         pooled_logits = torch.zeros(batch_size, 1, device=hidden_states.device, dtype=hidden_states.dtype)

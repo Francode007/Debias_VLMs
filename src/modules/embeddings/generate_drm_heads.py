@@ -81,29 +81,44 @@ def generate_orthogonal_heads(args):
         emb_files = [f for f in emb_files if _get_data_index(f) in valid_data_indices]
         print(f"Filtered to {len(emb_files)} embedding files for '{split_mode}' split")
 
-    print(f"Loading {len(emb_files)} embedding files (parallel I/O)...")
-    
-    def _load_one(path):
-        try:
-            return np.load(path)
-        except Exception as e:
-            print(f"Error loading {path}: {e}")
-            return None
-    
-    arrays = [None] * len(emb_files)
-    with ThreadPoolExecutor(max_workers=32) as executor:
-        futures = {executor.submit(_load_one, f): i for i, f in enumerate(emb_files)}
-        for future in tqdm.tqdm(as_completed(futures), total=len(emb_files), desc="Loading embeddings"):
-            idx = futures[future]
-            result = future.result()
-            if result is not None:
-                arrays[idx] = result
-    
-    # Filter out failed loads (None entries)
-    arrays = [a for a in arrays if a is not None]
+    # ── Fast path: load from consolidated cache if available ──────────────
+    consolidated_path = os.path.join(input_dir, f"_consolidated_{split_mode}.npy")
+    if os.path.exists(consolidated_path):
+        print(f"Loading consolidated embeddings from {consolidated_path} ...")
+        merged = np.load(consolidated_path)
+        print(f"Loaded consolidated array: shape={merged.shape}")
+    else:
+        print(f"Loading {len(emb_files)} embedding files (parallel I/O, 128 workers)...")
 
-    # Merge: each file is (1, 3, hidden_dim) or (3, hidden_dim) -> chosen, rejected, prompt
-    merged = np.concatenate(arrays, axis=0)
+        def _load_one(path):
+            try:
+                return np.load(path)
+            except Exception as e:
+                print(f"Error loading {path}: {e}")
+                return None
+
+        arrays = [None] * len(emb_files)
+        with ThreadPoolExecutor(max_workers=128) as executor:
+            futures = {executor.submit(_load_one, f): i for i, f in enumerate(emb_files)}
+            for future in tqdm.tqdm(as_completed(futures), total=len(emb_files), desc="Loading embeddings"):
+                idx = futures[future]
+                result = future.result()
+                if result is not None:
+                    arrays[idx] = result
+
+        # Filter out failed loads (None entries)
+        arrays = [a for a in arrays if a is not None]
+
+        # Merge: each file is (1, 3, hidden_dim) or (3, hidden_dim) -> chosen, rejected, prompt
+        merged = np.concatenate(arrays, axis=0)
+        del arrays
+
+        # Save consolidated cache for fast reload next time
+        try:
+            np.save(consolidated_path, merged)
+            print(f"Saved consolidated embeddings to {consolidated_path} ({merged.nbytes / 1e6:.1f} MB)")
+        except Exception as e:
+            print(f"Warning: could not save consolidated cache: {e}")
     if merged.ndim == 3:
         vectors = merged  # (N, 3, hidden_dim)
     else:

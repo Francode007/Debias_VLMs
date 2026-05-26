@@ -48,10 +48,18 @@ def _setup_env():
     timeout=86400,
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
-def run_preprocess(dataset: str = "sb_bench", model_family: str = "qwen"):
-    """Build and cache the preprocessed dataset chunks (CPU only)."""
+def run_preprocess(dataset: str = "sb_bench", model_family: str = "qwen",
+                   completion_format: str = "free_text", split: str = "train"):
+    """Build and cache the preprocessed dataset chunks (CPU only).
+
+    Phase 0.6 D3: pass --completion-format letter to cache a separate
+    chunked dataset that conditions on a single-letter assistant turn instead
+    of the free-text answer. The dataset cache key includes completion_format
+    and split_mode, so train/test and free_text/letter caches coexist.
+    """
     _setup_env()
-    print(f"📦 Phase 1a: Dataset Preprocessing (CPU only) for {dataset}...")
+    print(f"📦 Phase 1a: Dataset Preprocessing (CPU only) for {dataset} "
+          f"[completion_format={completion_format}, split={split}]...")
     subprocess.run([
         "python", "-m", "modules.embeddings.extract",
         "--preprocess_only",
@@ -59,8 +67,9 @@ def run_preprocess(dataset: str = "sb_bench", model_family: str = "qwen"):
         "--model_family", model_family,
         "--data_path", os.environ["DATA_PATH"],
         "--max_length", "2048",
-        "--split", "train",
+        "--split", split,
         "--split_indices_path", SPLIT_INDICES_PATH,
+        "--completion_format", completion_format,
     ], check=True)
     volume.commit()
     print("✅ Preprocessing complete. Chunks cached on volume.")
@@ -76,10 +85,21 @@ def run_preprocess(dataset: str = "sb_bench", model_family: str = "qwen"):
     timeout=86400,
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
-def run_inference(dataset: str = "sb_bench", model_family: str = "qwen"):
-    """Load model + cached dataset, extract embeddings via forward pass."""
+def run_inference(dataset: str = "sb_bench", model_family: str = "qwen",
+                  completion_format: str = "free_text", token_position: str = "eos",
+                  split: str = "train"):
+    """Load model + cached dataset, extract embeddings via forward pass.
+
+    Phase 0.6 D3: pass --completion-format letter --token-position post_letter to
+    extract embeddings aligned with what PPO scores at training time. The
+    extract script auto-suffixes the output path to avoid clobbering legacy
+    embeddings_output/. Pass --split test to produce held-out emb files for
+    run_drm_eval (train and test files coexist in the same emb dir because
+    their data_indices are disjoint).
+    """
     _setup_env()
-    print(f"🚀 Phase 1b: Embedding Extraction (A100-80GB) for {dataset}...")
+    print(f"🚀 Phase 1b: Embedding Extraction (A100-80GB) for {dataset} "
+          f"[completion_format={completion_format}, token_position={token_position}, split={split}]...")
     subprocess.run([
         "python", "-m", "modules.embeddings.extract",
         "--dataset_name", dataset,
@@ -90,8 +110,10 @@ def run_inference(dataset: str = "sb_bench", model_family: str = "qwen"):
         "--batch_size", "16",
         "--max_length", "2048",
         "--dataloader_num_workers", "6",
-        "--split", "train",
+        "--split", split,
         "--split_indices_path", SPLIT_INDICES_PATH,
+        "--completion_format", completion_format,
+        "--token_position", token_position,
     ], check=True)
     volume.commit()
     print("✅ Embedding extraction complete.")
@@ -107,17 +129,32 @@ def run_inference(dataset: str = "sb_bench", model_family: str = "qwen"):
     timeout=14400,           # 4h — loading 21k files from volume is I/O-bound
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
-def run_drm_generation():
-    """Run PCA and SVM on embeddings to generate DRM reward heads."""
+def run_drm_generation(completion_format: str = "free_text", token_position: str = "eos"):
+    """Run PCA and SVM on embeddings to generate DRM reward heads.
+
+    Reads embeddings from the same auto-suffixed path produced by run_inference
+    for the given (completion_format, token_position) combo, and writes heads
+    into a parallel suffixed dir under /mnt/data/generated_heads/.
+    """
     _setup_env()
-    print("🧬 Phase 2: DRM Head Generation (CPU only)...")
+    print(f"🧬 Phase 2: DRM Head Generation (CPU only) "
+          f"[completion_format={completion_format}, token_position={token_position}]...")
+
+    # Mirror extract.py's auto-suffixing rule so head-build reads the right
+    # embeddings dir and writes into a parallel heads dir.
+    input_dir = os.environ["OUTPUT_PATH"]
+    heads_root = "/mnt/data/generated_heads"
+    if (completion_format != "free_text") or (token_position != "eos"):
+        suffix = f"_{completion_format}_{token_position}"
+        input_dir = input_dir.rstrip("/") + suffix
+        heads_root = heads_root.rstrip("/") + suffix
 
     # Generate PCA heads (legacy, kept for comparison)
-    print("  → PCA heads...")
+    print(f"  → PCA heads (input_dir={input_dir}, output_dir={heads_root})...")
     subprocess.run([
         "python", "-m", "modules.embeddings.generate_drm_heads",
-        "--input_dir", os.environ["OUTPUT_PATH"],
-        "--output_dir", "/mnt/data/generated_heads",
+        "--input_dir", input_dir,
+        "--output_dir", heads_root,
         "--n_components", "50",
         "--head_type", "pca",
         "--split", "train",
@@ -125,11 +162,11 @@ def run_drm_generation():
     ], check=True)
 
     # Generate SVM heads (category-specific boundary normals)
-    print("  → SVM heads...")
+    print(f"  → SVM heads (input_dir={input_dir}, output_dir={heads_root})...")
     subprocess.run([
         "python", "-m", "modules.embeddings.generate_drm_heads",
-        "--input_dir", os.environ["OUTPUT_PATH"],
-        "--output_dir", "/mnt/data/generated_heads",
+        "--input_dir", input_dir,
+        "--output_dir", heads_root,
         "--head_type", "svm",
         "--data_path", os.environ["DATA_PATH"],
         "--split", "train",
@@ -138,6 +175,61 @@ def run_drm_generation():
 
     volume.commit()
     print("✅ DRM heads generated (PCA + SVM).")
+
+
+# ─── Phase 3: DRM Head Evaluation (held-out test split) ──────────────────────
+@app.function(
+    image=vlm_image,
+    gpu="A100-40GB",         # GPU just for fast matmul; CPU works too
+    cpu=8.0,
+    memory=32768,
+    volumes={"/mnt/data": volume},
+    timeout=3600,
+    secrets=[modal.Secret.from_name("huggingface-secret")],
+)
+def run_drm_eval(completion_format: str = "free_text",
+                 token_position: str = "eos",
+                 head_type: str = "svm",
+                 split: str = "test"):
+    """Evaluate DRM heads on held-out split.
+
+    For each head, reports fraction of (chosen, rejected) pairs where
+    w·φ_chosen > w·φ_rejected. Acceptance gate #1 requires
+    overall_mean ≥ 0.65 AND per-category min ≥ 0.55 on split=test.
+    """
+    _setup_env()
+    print(f"📊 Phase 3: DRM Head Evaluation "
+          f"[completion_format={completion_format}, token_position={token_position}, "
+          f"head_type={head_type}, split={split}]...")
+
+    emb_dir = os.environ["OUTPUT_PATH"]
+    heads_root = "/mnt/data/generated_heads"
+    if (completion_format != "free_text") or (token_position != "eos"):
+        suffix = f"_{completion_format}_{token_position}"
+        emb_dir = emb_dir.rstrip("/") + suffix
+        heads_root = heads_root.rstrip("/") + suffix
+
+    head_subdir = "sb_bench-SVM-component" if head_type.lower() == "svm" else "sb_bench-PCA-component"
+    score_head_weight = os.path.join(heads_root, head_subdir)
+    output_json = os.path.join(heads_root, f"drm_head_eval_{head_type}_{split}.json")
+
+    print(f"  → emb_dir={emb_dir}")
+    print(f"  → score_head_weight={score_head_weight}")
+    print(f"  → output_json={output_json}")
+
+    subprocess.run([
+        "python", "-m", "modules.evaluation.evaluate_drm_heads",
+        "--emb_dir", emb_dir,
+        "--score_head_weight", score_head_weight,
+        "--data_path", os.environ["DATA_PATH"],
+        "--output_json", output_json,
+        "--split", split,
+        "--split_indices_path", SPLIT_INDICES_PATH,
+        "--head_type", head_type,
+    ], check=True)
+
+    volume.commit()
+    print(f"✅ DRM head eval written to {output_json}")
 
 
 # ─── Phase 4: PPO Training (A100-80GB) ───────────────────────────────────────
@@ -176,7 +268,11 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
                  max_grad_norm: float = 1.0,
                  midtrain_eval_every_steps: int = 0,
                  midtrain_eval_samples: int = 64,
-                 use_eval_for_early_stop: bool = False):
+                 use_eval_for_early_stop: bool = False,
+                 # Phase 0.6 D-blocker flags.
+                 use_frozen_phi: bool = False,
+                 kept_heads_filter: str = None,
+                 heads_suffix: str = ""):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
@@ -194,10 +290,11 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
           f"ckpt_every_steps={ckpt_every_steps}")
 
     # Select reward heads directory based on head type
+    heads_root = "/mnt/data/generated_heads" + (heads_suffix or "")
     if head_type == "svm":
-        reward_heads_dir = "/mnt/data/generated_heads/sb_bench-SVM-component"
+        reward_heads_dir = os.path.join(heads_root, "sb_bench-SVM-component")
     else:
-        reward_heads_dir = "/mnt/data/generated_heads/sb_bench-PCA-component"
+        reward_heads_dir = os.path.join(heads_root, "sb_bench-PCA-component")
 
     cmd = [
         "python", "-m", "modules.training.train_rl",
@@ -259,6 +356,11 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         cmd.extend(["--max_train_samples", str(max_train_samples)])
     if resume_from:
         cmd.extend(["--resume_from_checkpoint", resume_from])
+    # Phase 0.6 D1 / D2 flags.
+    if use_frozen_phi:
+        cmd.append("--use_frozen_phi")
+    if kept_heads_filter:
+        cmd.extend(["--kept_heads_filter", kept_heads_filter])
     subprocess.run(cmd, check=True)
     volume.commit()
     print("✅ PPO training complete.")

@@ -159,6 +159,7 @@ def build_ppo_controller(
         kl_beta_max=getattr(args, 'kl_beta_max', 5.0),
         value_clip_range=getattr(args, 'value_clip_range', 0.0),
         max_grad_norm=getattr(args, 'max_grad_norm', 1.0),
+        use_frozen_phi=getattr(args, 'use_frozen_phi', False),
     )
 
 

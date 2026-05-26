@@ -63,7 +63,10 @@ def main() -> None:
     logger.info("Loading Phase 1 PCA DRM heads...")
     try:
         reward_heads_weight = load_pca_components(
-            args.reward_heads_dir, args.num_heads, accelerator.device
+            args.reward_heads_dir,
+            args.num_heads,
+            accelerator.device,
+            kept_heads_filter=getattr(args, "kept_heads_filter", None),
         )
         args.num_heads = reward_heads_weight.shape[0]   # actual count after load
     except Exception as e:

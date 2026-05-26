@@ -46,6 +46,11 @@ class QwenModelWrapper(BaseModelWrapper):
         """
         Extract pixel_values and image_grid_thw from Qwen processor outputs.
         Returns per-sample splits since Qwen concatenates all images into one tensor.
+
+        The Qwen2-VL/2.5-VL processor concatenates all patch embeddings into a
+        single flat array of shape (total_patches, C, H, W). To get per-image
+        arrays we split along dim-0 using the per-image patch counts derived
+        from image_grid_thw (each row is [t, h, w]; patches = t*h*w).
         """
         pixel_values = inputs.get("pixel_values")
         grid_thw = inputs.get("image_grid_thw")
@@ -53,11 +58,21 @@ class QwenModelWrapper(BaseModelWrapper):
         if pixel_values is None:
             return [], []
 
-        # For batched processing, pixel_values may already be a list
+        # For batched processing, pixel_values may already be a list (one per image)
         if isinstance(pixel_values, list):
             return pixel_values, grid_thw if grid_thw else [None] * len(pixel_values)
 
-        # Single tensor — return as list of one
+        # Single concatenated array/tensor — split per image using grid_thw.
+        if grid_thw is not None and hasattr(grid_thw, '__len__') and len(grid_thw) > 1:
+            patch_counts = [int(row[0]) * int(row[1]) * int(row[2]) for row in grid_thw]
+            cum = [0]
+            for c in patch_counts:
+                cum.append(cum[-1] + c)
+            splits = [pixel_values[cum[i]:cum[i + 1]] for i in range(len(patch_counts))]
+            grid_list = [grid_thw[i:i + 1] for i in range(len(grid_thw))]
+            return splits, grid_list
+
+        # Single image (or no grid info) — wrap as length-1 list.
         return [pixel_values], [grid_thw] if grid_thw is not None else [None]
 
 

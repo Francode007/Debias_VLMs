@@ -18,6 +18,15 @@ class BaseDatasetAdapter:
     def get_chosen_rejected(self, example: dict) -> Tuple[str, str]:
         raise NotImplementedError
 
+    def get_chosen_rejected_letter(self, example: dict) -> Tuple[str, str]:
+        """Return the (chosen, rejected) pair as single-letter answers (e.g. ("A", "B")).
+
+        Used when extracting reward-model embeddings with `--completion_format letter`,
+        so the head-build forward pass conditions on the same single-letter completion
+        that PPO scores at training time (D3 fix; see Phase 0.6 plan).
+        """
+        raise NotImplementedError
+
     def get_prompt_text(self, example: dict) -> str:
         raise NotImplementedError
 
@@ -43,6 +52,16 @@ class SBBenchAdapter(BaseDatasetAdapter):
         if flat_bytes is not None:
             return flat_bytes
         return None
+
+    def get_chosen_rejected_letter(self, example: dict) -> Tuple[str, str]:
+        # Mirror get_chosen_rejected's "first wrong" selection but return the
+        # letter (A/B/C) instead of the free-text answer.
+        label = int(example.get("label", 0))
+        letters = ["A", "B", "C"]
+        chosen = letters[label]
+        rejected_options = [l for i, l in enumerate(letters) if i != label]
+        rejected = rejected_options[0] if rejected_options else ""
+        return chosen, rejected
 
     def get_chosen_rejected(self, example: dict) -> Tuple[str, str]:
         label = int(example.get("label", 0))

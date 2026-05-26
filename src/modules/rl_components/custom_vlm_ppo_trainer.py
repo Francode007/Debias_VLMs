@@ -75,6 +75,7 @@ class PPOVLMController:
         kl_beta_min: float = 0.05,
         kl_beta_max: float = 5.0,
         value_clip_range: float = 0.0,
+        use_frozen_phi: bool = False,
     ):
         """
         Args:
@@ -122,6 +123,16 @@ class PPOVLMController:
         self.kl_beta_min = kl_beta_min
         self.kl_beta_max = kl_beta_max
         self.value_clip_range = value_clip_range  # >0 enables value clipping
+
+        # Phase 0.6 D1: project reward heads against the FROZEN (LoRA-off)
+        # penultimate representation φ_ref instead of the trainable φ_active.
+        # The DRM SVM/PCA heads were fit on φ from the un-adapted base model;
+        # projecting against the moving φ_active lets PPO "hack" the reward
+        # by drifting φ itself rather than changing the policy's answer
+        # distribution. With use_frozen_phi=True the reward signal is grounded
+        # in a fixed feature space, and policy improvement is forced through
+        # the logit / sampling path.
+        self.use_frozen_phi = use_frozen_phi
 
         # Running normalization for task reward (keeps r_task in same scale as KL/logit components)
         self._r_task_running_mean = torch.tensor(0.0, device=accelerator.device)
@@ -621,8 +632,13 @@ class PPOVLMController:
 
         else:
             # ─── SVM REWARD MODE (original dense reward) ─────────────────────
+            # Phase 0.6 D1: optionally use frozen φ (ref_penultimate) for the
+            # reward projection so the heads stay grounded in the feature
+            # space they were trained on. Causal penalty below still compares
+            # h_active vs h_ref — we want to detect drift, not feed it back.
+            h_reward = h_ref if self.use_frozen_phi else h_active
             # Project ALL token hidden states onto reward heads: (B, T, D) @ (D, K) → (B, T, K)
-            r_token_k = torch.matmul(h_active, self.reward_heads_weight.T)  # (B, T, K)
+            r_token_k = torch.matmul(h_reward, self.reward_heads_weight.T)  # (B, T, K)
             
             # Mean-pool over sequence for FastRL alpha update (global head importance)
             # Only pool over valid (non-padding) positions
@@ -823,6 +839,10 @@ class PPOVLMController:
             "causal_penalty": causal_penalty.mean().item(),
             "reward_dense_mean": dense_rewards.sum(dim=1).mean().item(),
             "reward_task": r_task_dense[loss_mask.bool()].mean().item() if loss_mask.any() else 0.0,
+            # Phase 0.6 smoke-test gate: per-token reward_task variance across the
+            # valid (generated) positions in this batch. std > 0.01 confirms the
+            # DRM heads produce a non-degenerate token-level reward signal.
+            "reward_task_std": r_task_dense[loss_mask.bool()].std().item() if loss_mask.sum() > 1 else 0.0,
             "logit_reward": logit_reward[loss_mask.bool()].mean().item() if loss_mask.any() else 0.0,
             "kl": token_kl[loss_mask.bool()].mean().item() if loss_mask.any() else 0.0,
             "mean_abs_logprob_diff": logprob_diff[loss_mask.bool()].abs().mean().item() if loss_mask.any() else 0.0,
