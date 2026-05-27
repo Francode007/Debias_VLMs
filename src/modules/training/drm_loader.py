@@ -30,6 +30,8 @@ def load_pca_components(
         heads_dir:          Directory containing component*.pth files.
         num_heads:          Maximum number of components to consider (taken from
                             sorted-by-index file list before any filtering).
+                            Pass 0 (or any value <= 0) to auto-detect and load
+                            ALL component files present in heads_dir.
         device:             Target torch device.
         kept_heads_filter:  Optional path to kept_heads.json produced by
                             evaluate_drm_heads.py (Phase 0.6 D2). When given,
@@ -52,7 +54,10 @@ def load_pca_components(
         m = re.search(r"component(\d+)\.pth$", f)
         return int(m.group(1)) if m else 0
 
-    pth_files = sorted(pth_files, key=_extract_index)[:num_heads]
+    pth_files = sorted(pth_files, key=_extract_index)
+    if num_heads and num_heads > 0:
+        pth_files = pth_files[:num_heads]
+    # else: auto-detect — load every component file present.
 
     # Apply kept_heads filter if provided.
     if kept_heads_filter:

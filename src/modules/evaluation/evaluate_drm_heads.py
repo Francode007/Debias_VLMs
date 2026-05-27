@@ -109,7 +109,7 @@ def main():
     parser.add_argument("--split", type=str, default="all", choices=["train", "test", "all"], help="Which split to evaluate on (default: all)")
     parser.add_argument("--head_type", type=str, default="svm", choices=["svm", "pca"], help="Head construction. SVM heads map 1:1 to SB-Bench categories; PCA heads do not.")
     parser.add_argument("--keep_threshold", type=float, default=0.55, help="Phase 0.6 D2: minimum accuracy for a head to be kept in kept_heads.json. SVM: per-category accuracy of the matching head. PCA: overall per-head accuracy.")
-    parser.add_argument("--kept_heads_json", type=str, default=None, help="Path to write kept_heads.json. Defaults to <output_json dir>/kept_heads.json")
+    parser.add_argument("--kept_heads_json", type=str, default=None, help="Path to write kept_heads file. Defaults to <output_json dir>/kept_heads_{head_type}.json so SVM and PCA filters coexist.")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -234,7 +234,7 @@ def main():
         "split": args.split,
     }
     kept_path = args.kept_heads_json or os.path.join(
-        os.path.dirname(args.output_json) or ".", "kept_heads.json"
+        os.path.dirname(args.output_json) or ".", f"kept_heads_{args.head_type}.json"
     )
     with open(kept_path, "w") as f:
         json.dump(kept_heads_payload, f, indent=2)

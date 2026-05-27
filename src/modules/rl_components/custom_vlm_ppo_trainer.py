@@ -676,23 +676,28 @@ class PPOVLMController:
             token_kl = torch.exp(logprob_diff) - 1.0 - logprob_diff
             token_kl = token_kl.clamp(max=10.0)
             
-            # 7. CAUSAL PENALTY (mean-token embedding drift)
+            # 7. CAUSAL PENALTY (mean-token embedding drift) — METRIC ONLY
+            # Phase 0.6 analysis: with D1/D2/D3 fixes the SVM reward signal is
+            # real, so the policy legitimately changes e_active. The unrectified
+            # causal penalty interpreted this as drift and grew to O(-100),
+            # dominating r_task (~O(1)) and blowing up the value head (v_loss
+            # > 4000 by step 40 of the Phase 0.6 SVM run). Dropped from
+            # dense_rewards composition; will be reintroduced in a rectified
+            # form in a later phase. We still COMPUTE it for visibility in
+            # metrics.jsonl so the drift magnitude is observable.
             e_active_mean = (h_active.float() * mask_expanded).sum(dim=1) / valid_counts  # (B, D)
             e_ref_mean = (h_ref.float() * mask_expanded).sum(dim=1) / valid_counts  # (B, D)
-            
+
             causal_penalty = compute_causal_reward_penalty(
                 e_ref_mean, e_active_mean,
                 lambda_causal=self.lambda_causal,
                 delta_margin=self.delta_margin,
             )
-            
-            # Distribute causal penalty evenly across valid tokens
-            seq_lens = loss_mask.sum(dim=1).clamp(min=1).float()
-            causal_per_token = (causal_penalty / seq_lens).unsqueeze(1).expand_as(r_task_dense)
-            
-            # 8. COMPOSE DENSE REWARD (Phase 1 fix: KL & logit_reward removed)
-            dense_rewards = (r_task_dense + causal_per_token) * loss_mask
-            
+
+            # 8. COMPOSE DENSE REWARD (Phase 0.6: causal_per_token dropped;
+            # KL & logit_reward already removed in Phase 1).
+            dense_rewards = r_task_dense * loss_mask
+
             # 12. DISPERSIVE REGULARIZATION (mean-pooled embeddings, O(B^2))
             e_active_mean_disp = (h_active.float() * mask_expanded).sum(dim=1) / valid_counts
             dispersive_loss = compute_dispersive_loss(e_active_mean_disp)

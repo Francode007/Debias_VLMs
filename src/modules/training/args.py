@@ -47,8 +47,11 @@ def parse_training_args() -> argparse.Namespace:
     parser.add_argument(
         "--num_heads",
         type=int,
-        default=9,
-        help="Number of PCA components (DRM heads) to load (9 = one per SB-Bench bias category)",
+        default=0,
+        help="Number of DRM reward heads to load. 0 (default) = auto-detect "
+             "and load ALL component*.pth files present in --reward_heads_dir "
+             "(9 for SB-Bench SVM, 50 for PCA). Set a positive integer to "
+             "truncate to the first N sorted components.",
     )
     parser.add_argument(
         "--kept_heads_filter",
