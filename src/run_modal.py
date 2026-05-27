@@ -837,7 +837,6 @@ def run_pope_eval(
     defaults to basename(checkpoint_dir) or "base" if vanilla.
     """
     _setup_env()
-    os.chdir("/root/debias-vlms")
     os.makedirs(output_dir, exist_ok=True)
 
     if not tag:

@@ -119,10 +119,10 @@ The exact 0.0000 against original positions confirms the policy followed the gol
 
 ---
 
-## 3. P3 — POPE regression  ⏳ in progress
+## 3. P3 — POPE regression  ✅ **G3 PASS**
 
 ### 3.1 Design
-Run POPE (yes/no object-hallucination probe) on:
+Run POPE (yes/no object-hallucination probe, 9000 items) on:
 1. **Base** Qwen2.5-VL-3B-Instruct (one-time baseline).
 2. `ep1-step70` (peak SB-Bench checkpoint).
 3. `ep1-end` (final checkpoint).
@@ -158,7 +158,23 @@ modal volume get debias-vlm-persistent-storage phase07_pope/phase06F_end_pope_re
 ```
 
 ### 3.4 Results
-*(to be filled in once Modal runs complete)*
+
+| ckpt | acc | Δacc | F1 | ΔF1 | precision | recall | yes_prop | unknown |
+|---|---|---|---|---|---|---|---|---|
+| **base** Qwen2.5-VL-3B-Instruct | 0.8714 | — | 0.8746 | — | 0.8538 | 0.8964 | 0.5200 | 0.0068 |
+| `ep1-step70` | 0.8636 | **−0.79 pp** | 0.8693 | −0.53 pp | 0.8340 | 0.9078 | 0.5433 | 0.0016 |
+| `ep1-end`    | 0.8668 | **−0.47 pp** | 0.8718 | −0.28 pp | 0.8400 | 0.9062 | 0.5388 | 0.0012 |
+
+All n=9000. Both checkpoints far inside the 5 pp tolerance.
+
+### 3.5 Interpretation
+- **Capability tax is negligible** (< 1 pp acc / F1 on both checkpoints). The Phase 0.6 F policy did *not* trade general VQA for SB-Bench reward fit — POPE is a different task family (yes/no object grounding, no multiple-choice letters) and the LoRA delta is small enough to be transparent to it.
+- The slight shifts (recall +1 pp, precision −1 to −2 pp, `yes_proportion` 0.52 → 0.54) indicate the trained policy is marginally more likely to say "yes". This is a known side-effect of PPO with KL-anchoring around a chatty base — small enough to be cosmetic. Unknown-rate **dropped** (0.68% → 0.12 / 0.16%), which is a strict improvement (model is more decisive without sacrificing accuracy).
+- `ep1-end` (Δacc −0.47 pp) is slightly better than `ep1-step70` (Δacc −0.79 pp), consistent with the SB-Bench eval-sweep observation that the policy continues quiescent fine-tuning past the saturation point without drift.
+
+### 3.6 What G3 PASS implies for Phase 0.8
+- The rectified causal penalty (deferred to Phase 0.8) is **not needed for capability preservation** at the current LoRA rank / KL budget. It remains worth implementing for the *reward-hacking* concern (D1 only blocks one form of representation drift), but the capability-tax motivation is now weak.
+- If T1 BBQ comes back negative (oracle-only), revisit the reward-head training corpus rather than the causal penalty.
 
 ---
 
@@ -174,8 +190,8 @@ modal volume get debias-vlm-persistent-storage phase07_pope/phase06F_end_pope_re
 |---|---|---|---|
 | G1 | P1: polarity & gold-is-unknown splits | ✅ PASS | 1.0000 on all 4 cells incl. 618 named-gold items |
 | G2 | P2: cyclic-1 letter perturbation | ✅ PASS | 1.0000 perturbed, 0.0000 vs original letter — content-routing confirmed |
-| G3 | P3: POPE regression | ⏳ pending | base + step70 + end runs queued |
-| G4 | T1: BBQ transfer | ⏳ pending | design after G3 |
+| G3 | P3: POPE regression | ✅ PASS | Δacc = −0.79 / −0.47 pp (step70 / end), ΔF1 ≤ 0.53 pp — capability tax negligible |
+| G4 | T1: BBQ transfer | ⏳ pending | next experiment |
 
 **Combined P1+P2 verdict:** the Phase 0.6 F policy is genuinely reading the (image, context, question, answer-text) input and producing the gold answer — not pattern-matching on letter position or question polarity. This rules out all *in-distribution* shortcut hypotheses but does not yet demonstrate transferable debiasing (the SVM heads were fit on the same distribution as eval).
 
