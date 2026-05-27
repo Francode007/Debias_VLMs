@@ -617,6 +617,7 @@ def run_phase0_eval_sweep(
     only_tags: str = "",   # comma-separated list of tags to evaluate; empty = all
     skip_existing: bool = True,
     force: bool = False,
+    shuffle_answers: str = "none",  # Phase 0.7 P2: {none, cyclic_1, cyclic_2}
 ):
     """
     Sweep every `checkpoint-*` under `train_output_dir`, run generation + eval
@@ -749,6 +750,7 @@ def run_phase0_eval_sweep(
                     "--split", "test",
                     "--split_indices_path", SPLIT_INDICES_PATH,
                     "--checkpoint_dir", ckpt,
+                    "--shuffle_answers", shuffle_answers,
                 ], check=True)
             elif dataset.lower() == "pope":
                 subprocess.run([
