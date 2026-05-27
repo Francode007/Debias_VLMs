@@ -813,6 +813,65 @@ def run_phase0_eval_sweep(
     print("=" * 60)
 
 
+# ─── Phase 0.7 P3: POPE regression eval (A100-80GB) ─────────────────────────
+@app.function(
+    image=vlm_image,
+    gpu="A100-80GB",
+    cpu=8.0,
+    memory=65536,
+    volumes={"/mnt/data": volume},
+    timeout=7200,
+    secrets=[modal.Secret.from_name("huggingface-secret")],
+)
+def run_pope_eval(
+    checkpoint_dir: str = "",
+    output_dir: str = "/mnt/data/phase07_pope",
+    tag: str = "",
+    data_path: str = "/mnt/data/pope_data/pope_data.parquet",
+    gt_file: str = "/mnt/data/pope_data/pope_data.jsonl",
+    batch_size: int = 16,
+):
+    """Phase 0.7 P3: generate POPE answers from a (LoRA) checkpoint and score.
+
+    Pass --checkpoint-dir "" (empty) to score the vanilla base model. The tag
+    defaults to basename(checkpoint_dir) or "base" if vanilla.
+    """
+    _setup_env()
+    os.chdir("/root/debias-vlms")
+    os.makedirs(output_dir, exist_ok=True)
+
+    if not tag:
+        tag = os.path.basename(checkpoint_dir.rstrip("/")) if checkpoint_dir else "base"
+    gen_file = os.path.join(output_dir, f"{tag}_pope_gen.jsonl")
+    summary_json = os.path.join(output_dir, f"{tag}_pope_results.json")
+
+    print(f"▶ POPE generation [{tag}] → {gen_file}")
+    gen_cmd = [
+        "python", "-m", "modules.inference.generate_answers",
+        "--data_path", data_path,
+        "--output_jsonl", gen_file,
+        "--batch_size", str(batch_size),
+    ]
+    if checkpoint_dir:
+        gen_cmd += ["--checkpoint_dir", checkpoint_dir]
+    subprocess.run(gen_cmd, check=True)
+
+    print(f"▶ POPE eval [{tag}] → {summary_json}")
+    # eval_pope.py auto-writes <gen_file>.replace('.jsonl','_pope_results.json')
+    subprocess.run([
+        "python", "-m", "modules.evaluation.eval_pope",
+        "--gt_files", gt_file,
+        "--gen_files", gen_file,
+    ], check=True)
+
+    # Move the auto-named output to the canonical summary path
+    auto_out = gen_file.replace(".jsonl", "_pope_results.json")
+    if os.path.exists(auto_out) and auto_out != summary_json:
+        os.replace(auto_out, summary_json)
+    volume.commit()
+    print(f"✅ POPE eval [{tag}] complete → {summary_json}")
+
+
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────
 @app.local_entrypoint()
 def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str = "", dataset: str = "sb_bench", model_family: str = "qwen", gt_file: str = "", gen_file: str = "", vanilla: bool = False,

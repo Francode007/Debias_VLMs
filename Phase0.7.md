@@ -61,7 +61,7 @@ All 18 (category × polarity) cells also 1.0000. Smallest cell: Religion-negativ
 
 ---
 
-## 2. P2 — letter-order perturbation (cyclic-1)  ⏳ in progress
+## 2. P2 — letter-order perturbation (cyclic-1)  ✅ **G2 PASS**
 
 ### 2.1 Design
 Rotate `(ans0, ans1, ans2)` by one position before generation. The originally-correct answer text moves from old position `L` to new position `(L − 1) mod 3`; the eval gold label is updated to match. If the policy is reasoning about answer **content**, accuracy holds; if it is reading the **position** the heads taught it, accuracy collapses to ~0.33.
@@ -79,7 +79,6 @@ Rotate `(ans0, ans1, ans2)` by one position before generation. The originally-co
 - [src/run_modal.py](../src/run_modal.py): `run_phase0_eval_sweep` gained `shuffle_answers` kwarg, plumbed into the generator subprocess.
 
 ### 2.3 Modal run
-Only the two informative checkpoints (peak + final), written to a separate `gen_subdir` so the original `generations/` tree is untouched:
 
 ```bash
 modal run src/run_modal.py::run_phase0_eval_sweep \
@@ -91,16 +90,92 @@ modal run src/run_modal.py::run_phase0_eval_sweep \
 ```
 
 ### 2.4 Results
-*(to be filled in once Modal run completes)*
+
+| ckpt | perturbed acc | acc if scored vs ORIGINAL label |
+|---|---|---|
+| `ep1-step70` | **1.0000** (n=2916) | 0.0000 |
+| `ep1-end`    | **1.0000** (n=2916) | 0.0000 |
+
+Per-category: all 9 categories at 1.0000 on both checkpoints.
+
+**Letter distribution sanity** — predicted letters track the rotated gold positions exactly:
+
+| | A | B | C |
+|---|---|---|---|
+| orig gold (pre-rotation) | 959 | 1008 | 949 |
+| new gold (post-rotation) | 1008 | 949 | 959 |
+| **predicted (both ckpts)** | **1008** | **949** | **959** |
+
+The exact 0.0000 against original positions confirms the policy followed the gold text into its new position, not the previously-correct letter slot.
+
+### 2.5 Hypotheses ruled out
+- "Policy memorised letter-position cues from the SVM heads" — rejected. Acc would have collapsed to ~0.33 (chance under permutation) if true.
+- "Policy ignores the answer strings and reads only A/B/C distribution learned from training" — rejected.
+- Combined with P1: the policy is reading the **answer text** and routing it to the correct letter even under permutation. This is the strongest in-distribution evidence achievable without a held-out benchmark.
+
+### 2.6 What remains open
+- Capability tax: did fitting the SVM reward break general VQA? → P3 (POPE).
+- True transfer: does this hold off-distribution (BBQ)? → T1.
 
 ---
 
-## 3. P3 — POPE regression  ⏳ pending
+## 3. P3 — POPE regression  ⏳ in progress
 
-*(design TBD after P2 results)*
+### 3.1 Design
+Run POPE (yes/no object-hallucination probe) on:
+1. **Base** Qwen2.5-VL-3B-Instruct (one-time baseline).
+2. `ep1-step70` (peak SB-Bench checkpoint).
+3. `ep1-end` (final checkpoint).
+
+Compare accuracy / F1 to base. **G3 passes** if drop ≤ 5 pp on both.
+
+### 3.2 Implementation
+New Modal entrypoint [run_pope_eval in src/run_modal.py](../src/run_modal.py): loads (optional) LoRA checkpoint onto base Qwen2.5-VL-3B-Instruct, generates against `/mnt/data/pope_data/pope_data.parquet`, scores against `/mnt/data/pope_data/pope_data.jsonl` via `modules.evaluation.eval_pope`, writes `{tag}_pope_results.json` to `/mnt/data/phase07_pope/`.
+
+### 3.3 Modal commands
+
+```bash
+# (a) base model baseline — pass empty --checkpoint-dir for vanilla
+modal run src/run_modal.py::run_pope_eval --checkpoint-dir "" --tag base
+
+# (b) peak SB-Bench checkpoint
+modal run src/run_modal.py::run_pope_eval \
+  --checkpoint-dir /mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step70 \
+  --tag phase06F_step70
+
+# (c) final checkpoint
+modal run src/run_modal.py::run_pope_eval \
+  --checkpoint-dir /mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-end \
+  --tag phase06F_end
+```
+
+Pull results locally with:
+
+```bash
+modal volume get debias-vlm-persistent-storage phase07_pope/base_pope_results.json            /tmp/pope_base.json --force
+modal volume get debias-vlm-persistent-storage phase07_pope/phase06F_step70_pope_results.json /tmp/pope_step70.json --force
+modal volume get debias-vlm-persistent-storage phase07_pope/phase06F_end_pope_results.json    /tmp/pope_end.json --force
+```
+
+### 3.4 Results
+*(to be filled in once Modal runs complete)*
 
 ---
 
 ## 4. T1 — BBQ transfer  ⏳ pending
 
 *(only after G1 + G2 + G3 are all reported)*
+
+---
+
+## 5. Phase 0.7 running summary
+
+| Gate | Test | Status | Observed |
+|---|---|---|---|
+| G1 | P1: polarity & gold-is-unknown splits | ✅ PASS | 1.0000 on all 4 cells incl. 618 named-gold items |
+| G2 | P2: cyclic-1 letter perturbation | ✅ PASS | 1.0000 perturbed, 0.0000 vs original letter — content-routing confirmed |
+| G3 | P3: POPE regression | ⏳ pending | base + step70 + end runs queued |
+| G4 | T1: BBQ transfer | ⏳ pending | design after G3 |
+
+**Combined P1+P2 verdict:** the Phase 0.6 F policy is genuinely reading the (image, context, question, answer-text) input and producing the gold answer — not pattern-matching on letter position or question polarity. This rules out all *in-distribution* shortcut hypotheses but does not yet demonstrate transferable debiasing (the SVM heads were fit on the same distribution as eval).
+
