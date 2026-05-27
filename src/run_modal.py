@@ -129,7 +129,8 @@ def run_inference(dataset: str = "sb_bench", model_family: str = "qwen",
     timeout=14400,           # 4h — loading 21k files from volume is I/O-bound
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
-def run_drm_generation(completion_format: str = "free_text", token_position: str = "eos"):
+def run_drm_generation(completion_format: str = "free_text", token_position: str = "eos",
+                       n_components: int = 50):
     """Run PCA and SVM on embeddings to generate DRM reward heads.
 
     Reads embeddings from the same auto-suffixed path produced by run_inference
@@ -155,7 +156,7 @@ def run_drm_generation(completion_format: str = "free_text", token_position: str
         "python", "-m", "modules.embeddings.generate_drm_heads",
         "--input_dir", input_dir,
         "--output_dir", heads_root,
-        "--n_components", "50",
+        "--n_components", str(n_components),
         "--head_type", "pca",
         "--split", "train",
         "--split_indices_path", SPLIT_INDICES_PATH,
