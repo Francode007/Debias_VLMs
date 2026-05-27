@@ -1,0 +1,1663 @@
+{
+  "train_output_dir": "/mnt/data/output_ppo_phase06_F_no_causal",
+  "dataset": "sb_bench",
+  "data_path": "/mnt/data/sb_bench_data/sb_bench_data.parquet",
+  "results": {
+    "ep1-step10": {
+      "metrics": {
+        "accuracy": 0.6159122085048011,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 1796,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 0.6300675675675675,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 0.639751552795031,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 0.47863247863247865,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 0.6383928571428571,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 0.6282722513089005,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 0.5808823529411765,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 0.8263888888888888,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 0.7525773195876289,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 0.697508896797153,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step10",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step10.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step10_eval_results.json",
+      "completed_at": "2026-05-27T11:24:20Z"
+    },
+    "ep1-step20": {
+      "metrics": {
+        "accuracy": 0.6831275720164609,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 1992,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 0.6925675675675675,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 0.7204968944099379,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 0.5658119658119658,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 0.7142857142857143,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 0.7120418848167539,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 0.6305147058823529,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 0.8611111111111112,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 0.8195876288659794,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 0.7580071174377224,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step20",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step20.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step20_eval_results.json",
+      "completed_at": "2026-05-27T11:26:36Z"
+    },
+    "ep1-step30": {
+      "metrics": {
+        "accuracy": 0.8010973936899863,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2336,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 0.8209459459459459,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 0.8198757763975155,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 0.6854700854700855,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 0.8035714285714286,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 0.8743455497382199,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 0.7591911764705882,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 0.9513888888888888,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 0.9072164948453608,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 0.8683274021352313,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step30",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step30.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step30_eval_results.json",
+      "completed_at": "2026-05-27T11:28:52Z"
+    },
+    "ep1-step40": {
+      "metrics": {
+        "accuracy": 0.9482167352537723,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2765,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 0.9493243243243243,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 0.9440993788819876,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 0.8905982905982905,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 0.9732142857142857,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 0.9581151832460733,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 0.9558823529411765,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 0.9861111111111112,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 0.9896907216494846,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 0.9786476868327402,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step40",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step40.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step40_eval_results.json",
+      "completed_at": "2026-05-27T11:31:10Z"
+    },
+    "ep1-step50": {
+      "metrics": {
+        "accuracy": 0.9958847736625515,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2904,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 0.9966216216216216,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 0.9937888198757764,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 0.9846153846153847,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step50",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step50.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step50_eval_results.json",
+      "completed_at": "2026-05-27T11:33:25Z"
+    },
+    "ep1-step70": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step70",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step70.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step70_eval_results.json",
+      "completed_at": "2026-05-27T11:35:44Z"
+    },
+    "ep1-step80": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step80",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step80.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step80_eval_results.json",
+      "completed_at": "2026-05-27T11:40:23Z"
+    },
+    "ep1-step90": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step90",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step90.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step90_eval_results.json",
+      "completed_at": "2026-05-27T11:42:37Z"
+    },
+    "ep1-step100": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step100",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step100.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step100_eval_results.json",
+      "completed_at": "2026-05-27T11:44:50Z"
+    },
+    "ep1-step110": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step110",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step110.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step110_eval_results.json",
+      "completed_at": "2026-05-27T11:47:03Z"
+    },
+    "ep1-step120": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step120",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step120.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step120_eval_results.json",
+      "completed_at": "2026-05-27T11:49:20Z"
+    },
+    "ep1-step130": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step130",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step130.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step130_eval_results.json",
+      "completed_at": "2026-05-27T11:51:36Z"
+    },
+    "ep1-step140": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step140",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step140.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step140_eval_results.json",
+      "completed_at": "2026-05-27T11:53:50Z"
+    },
+    "ep1-step150": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step150",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step150.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step150_eval_results.json",
+      "completed_at": "2026-05-27T11:56:03Z"
+    },
+    "ep1-step160": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step160",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step160.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step160_eval_results.json",
+      "completed_at": "2026-05-27T11:58:15Z"
+    },
+    "ep1-step170": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step170",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step170.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step170_eval_results.json",
+      "completed_at": "2026-05-27T12:00:27Z"
+    },
+    "ep1-step180": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step180",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step180.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step180_eval_results.json",
+      "completed_at": "2026-05-27T12:02:41Z"
+    },
+    "ep1-step190": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step190",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step190.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step190_eval_results.json",
+      "completed_at": "2026-05-27T12:04:54Z"
+    },
+    "ep1-step200": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step200",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step200.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step200_eval_results.json",
+      "completed_at": "2026-05-27T12:07:07Z"
+    },
+    "ep1-step210": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step210",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step210.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step210_eval_results.json",
+      "completed_at": "2026-05-27T12:09:21Z"
+    },
+    "ep1-step220": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step220",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step220.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step220_eval_results.json",
+      "completed_at": "2026-05-27T12:11:35Z"
+    },
+    "ep1-step230": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step230",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step230.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step230_eval_results.json",
+      "completed_at": "2026-05-27T12:13:49Z"
+    },
+    "ep1-step240": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-step240",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step240.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-step240_eval_results.json",
+      "completed_at": "2026-05-27T12:16:06Z"
+    },
+    "ep1-24pct": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-24pct",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-24pct.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-24pct_eval_results.json",
+      "completed_at": "2026-05-27T12:18:22Z"
+    },
+    "ep1-50pct": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-50pct",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-50pct.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-50pct_eval_results.json",
+      "completed_at": "2026-05-27T12:20:34Z"
+    },
+    "ep1-74pct": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-74pct",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-74pct.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-74pct_eval_results.json",
+      "completed_at": "2026-05-27T12:22:47Z"
+    },
+    "ep1-end": {
+      "metrics": {
+        "accuracy": 1.0,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2916,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 1.0,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 1.0,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 1.0,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 1.0,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 1.0,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 1.0,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 1.0,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 1.0,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 1.0,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase06_F_no_causal/checkpoint-ep1-end",
+      "gen_file": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-end.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase06_F_no_causal/generations/ep1-end_eval_results.json",
+      "completed_at": "2026-05-27T12:25:01Z"
+    }
+  },
+  "ordered_tags": [
+    "ep1-step10",
+    "ep1-step20",
+    "ep1-step30",
+    "ep1-step40",
+    "ep1-step50",
+    "ep1-step70",
+    "ep1-step80",
+    "ep1-step90",
+    "ep1-step100",
+    "ep1-step110",
+    "ep1-step120",
+    "ep1-step130",
+    "ep1-step140",
+    "ep1-step150",
+    "ep1-step160",
+    "ep1-step170",
+    "ep1-step180",
+    "ep1-step190",
+    "ep1-step200",
+    "ep1-step210",
+    "ep1-step220",
+    "ep1-step230",
+    "ep1-step240",
+    "ep1-24pct",
+    "ep1-50pct",
+    "ep1-74pct",
+    "ep1-end"
+  ],
+  "summary": {
+    "best": {
+      "tag": "ep1-step70",
+      "accuracy": 1.0
+    },
+    "last_updated": "2026-05-27T12:25:01Z"
+  }
+}
