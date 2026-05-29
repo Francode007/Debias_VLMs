@@ -1034,6 +1034,86 @@ def run_vlbias_offline_score(
     print(f"✅ Offline reward scoring complete for variant={variant}")
 
 
+# ─── Phase 0.8 A1: Per-layer linear probes on hidden states (A100-80GB) ─────
+@app.function(
+    image=vlm_image,
+    gpu="A100-80GB",
+    cpu=8.0,
+    memory=65536,
+    volumes={"/mnt/data": volume},
+    timeout=10800,
+    secrets=[modal.Secret.from_name("huggingface-secret")],
+)
+def run_layer_probe(
+    variant: str = "base",
+    gen_dir: str = "/mnt/data/phase07_vlbiasbench",
+    output_dir: str = "/mnt/data/phase08_probe_results",
+    reward_base: str = "Qwen/Qwen2.5-VL-3B-Instruct",
+    parquet: str = "/mnt/data/vlbiasbench_data/vlbiasbench_close_ended.parquet",
+    image_root: str = "/mnt/data/vlbiasbench_data/unpacked/close_ended/images",
+    batch_size: int = 4,
+    max_per_cell: int = 30,           # 10 axes x 3 conds x 30 = 900 records on primary
+    max_pixels: int = 0,
+    holdout_tag: str = "base_qformat_text",  # gen JSONL tag for the qformat=text holdout
+    max_holdout: int = 100,
+    token_position: str = "post_letter",
+    cv_folds: int = 5,
+    save_plot: bool = True,
+    cache_npz: str = "",              # set to a path to cache hidden states
+):
+    """Phase 0.8 A1: extract per-LM-layer hidden states at `post_letter` and
+    run 3 logistic-regression probes per layer (P1/P2/P3). Decisive metric
+    is `p3_acc_holdout` evaluated on a separate `qformat=text` gen JSONL.
+
+    Pre-req: a primary gen JSONL at <gen_dir>/<variant>_vlbias_gen.jsonl
+    (already produced by phase07_g4_vlbiasbench.sh). For the holdout, the
+    caller is responsible for first running run_vlbiasbench_eval with
+    qformat='text' and tag=<holdout_tag>; if that file is missing the probe
+    runs without holdout and prints a warning.
+    """
+    _setup_env()
+    os.makedirs(output_dir, exist_ok=True)
+
+    gen_jsonl = os.path.join(gen_dir, f"{variant}_vlbias_gen.jsonl")
+    if not os.path.exists(gen_jsonl):
+        raise FileNotFoundError(f"primary gen_jsonl missing: {gen_jsonl}")
+
+    holdout_jsonl = os.path.join(gen_dir, f"{holdout_tag}_vlbias_gen.jsonl")
+    if not os.path.exists(holdout_jsonl):
+        print(f"⚠  holdout missing: {holdout_jsonl} — proceeding without it. "
+              "Run `run_vlbiasbench_eval(tag='{holdout_tag}', qformat='text', "
+              "checkpoint_dir='')` first to enable bias-blind selection.")
+        holdout_jsonl = ""
+
+    print(f"▶ Layer probe [variant={variant}]  primary={gen_jsonl}  holdout={holdout_jsonl or '<none>'}")
+
+    cmd = [
+        "python", "-m", "modules.evaluation.probe_layers",
+        "--gen_jsonl", gen_jsonl,
+        "--parquet", parquet,
+        "--image_root", image_root,
+        "--reward_base", reward_base,
+        "--variant", variant,
+        "--output_dir", output_dir,
+        "--batch_size", str(batch_size),
+        "--max_per_cell", str(max_per_cell),
+        "--max_pixels", str(max_pixels),
+        "--token_position", token_position,
+        "--cv_folds", str(cv_folds),
+    ]
+    if holdout_jsonl:
+        cmd += ["--holdout_gen_jsonl", holdout_jsonl,
+                "--max_holdout", str(max_holdout)]
+    if save_plot:
+        cmd += ["--save_plot"]
+    if cache_npz:
+        cmd += ["--cache_npz", cache_npz]
+
+    subprocess.run(cmd, check=True)
+
+    volume.commit()
+    print(f"✅ Layer probe complete for variant={variant}")
+
 
 # ─── Phase 0.7 G4a: VLBiasBench EDA (CPU only) ──────────────────────────────
 @app.function(

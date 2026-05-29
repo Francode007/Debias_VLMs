@@ -41,7 +41,8 @@ The user's constraint: **layers must not be cherry-picked from A1/A2 outputs.** 
 ### A1 — Per-layer probe accuracy (read-only, ~2 GPU-hrs)
 
 - **Input:** the 5 existing `*_vlbias_gen.jsonl` from Phase 0.7 (covers all variants).
-- **Forward pass:** Qwen2.5-VL-3B with `output_hidden_states=True`. Capture hidden state at the `post_letter` position from every layer (vision encoder + LM = ~24 + 36 = 60 candidate layers; final list comes from the model config).
+- **Forward pass:** Qwen2.5-VL-3B with `output_hidden_states=True`. Capture hidden state at the `post_letter` position from every **LM-decoder** layer (embeddings + 36 transformer blocks = 37 layers for the 3B model).
+  - **Vision-encoder caveat:** the `post_letter` position lives in the text token stream; vision-encoder layers operate on image patches and have no comparable per-record probe target. A1 therefore probes LM-decoder layers only. Vision-side bias probing is a separate Tier-B experiment.
 - **Probes:** three binary logistic regressions per layer, trained with 5-fold CV on the **base** variant only:
   - P1: `condition ∈ {ambig, disambig}` — sanity check (should be high everywhere)
   - P2: `correctness ∈ {correct, incorrect}` on disambig items only
