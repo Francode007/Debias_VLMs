@@ -31,6 +31,7 @@ def _setup_env():
     os.environ["HF_HOME"] = "/mnt/data/huggingface"
     os.environ["DATA_PATH"] = "/mnt/data/sb_bench_data"
     os.environ["POPE_DATA_PATH"] = "/mnt/data/pope_data"
+    os.environ["VLBIAS_DATA_PATH"] = "/mnt/data/vlbiasbench_data"
     os.environ["OUTPUT_PATH"] = "/mnt/data/embeddings_output"
     os.environ["SPLIT_INDICES_PATH"] = SPLIT_INDICES_PATH
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -391,6 +392,18 @@ def run_setup():
         subprocess.run(["python", "-m", "modules.data.load_pope"], check=True)
     else:
         print("✅ POPE Data already exists.")
+
+    vlbias_parquet = os.path.join(os.environ["VLBIAS_DATA_PATH"], "vlbiasbench_close_ended.parquet")
+    # Rebuild if missing OR if the old embedded-images parquet exists (>1 GB).
+    needs_rebuild = not os.path.exists(vlbias_parquet)
+    if not needs_rebuild and os.path.getsize(vlbias_parquet) > 1_000_000_000:
+        print("⚠️  Old embedded-images parquet detected (>1 GB). Removing and rebuilding...")
+        os.remove(vlbias_parquet)
+        needs_rebuild = True
+    if needs_rebuild:
+        subprocess.run(["python", "-u", "-m", "modules.data.load_vlbiasbench"], check=True)
+    else:
+        print("✅ VLBiasBench data already exists.")
     
     # Generate train/test split (80/20) if not already present
     if not os.path.exists(SPLIT_INDICES_PATH):
@@ -870,6 +883,328 @@ def run_pope_eval(
         os.replace(auto_out, summary_json)
     volume.commit()
     print(f"✅ POPE eval [{tag}] complete → {summary_json}")
+
+
+# ─── Phase 0.7 G4a: VLBiasBench transfer eval (A100-80GB) ───────────────────
+@app.function(
+    image=vlm_image,
+    gpu="A100-80GB",
+    cpu=8.0,
+    memory=65536,
+    volumes={"/mnt/data": volume},
+    timeout=14400,
+    secrets=[modal.Secret.from_name("huggingface-secret")],
+)
+def run_vlbiasbench_eval(
+    checkpoint_dir: str = "",
+    output_dir: str = "/mnt/data/phase07_vlbiasbench",
+    tag: str = "",
+    data_path: str = "/mnt/data/vlbiasbench_data/vlbiasbench_close_ended.parquet",
+    batch_size: int = 8,
+    num_samples: int = 2000,
+    condition: str = "all",
+    qformat: str = "base,scene,scene_text",
+    seed: int = 42,
+):
+    """Phase 0.7 G4a: VLBiasBench close-ended transfer eval.
+
+    Pass --checkpoint-dir "" (empty) to score the vanilla base model. The tag
+    defaults to basename(checkpoint_dir) or "base" if vanilla.
+    """
+    _setup_env()
+    os.makedirs(output_dir, exist_ok=True)
+
+    if not os.path.exists(data_path):
+        print(f"📥 VLBiasBench parquet missing → building it now ({data_path})")
+        subprocess.run(["python", "-m", "modules.data.load_vlbiasbench"], check=True)
+        volume.commit()
+
+    if not tag:
+        tag = os.path.basename(checkpoint_dir.rstrip("/")) if checkpoint_dir else "base"
+    gen_file = os.path.join(output_dir, f"{tag}_vlbias_gen.jsonl")
+    summary_json = os.path.join(output_dir, f"{tag}_vlbias_results.json")
+
+    print(f"▶ VLBiasBench generation [{tag}] (n={num_samples}, cond={condition}, qf={qformat}) → {gen_file}")
+    gen_cmd = [
+        "python", "-m", "modules.inference.generate_vlbiasbench_answers",
+        "--data_path", data_path,
+        "--image_root", "/mnt/data/vlbiasbench_data/unpacked/close_ended/images",
+        "--output_jsonl", gen_file,
+        "--batch_size", str(batch_size),
+        "--num_samples", str(num_samples),
+        "--condition", condition,
+        "--qformat", qformat,
+        "--seed", str(seed),
+    ]
+    if checkpoint_dir:
+        gen_cmd += ["--checkpoint_dir", checkpoint_dir]
+    subprocess.run(gen_cmd, check=True)
+
+    print(f"▶ VLBiasBench eval [{tag}] → {summary_json}")
+    subprocess.run([
+        "python", "-m", "modules.evaluation.eval_vlbiasbench",
+        "--gen_file", gen_file,
+        "--output_json", summary_json,
+    ], check=True)
+
+    volume.commit()
+    print(f"✅ VLBiasBench eval [{tag}] complete → {summary_json}")
+
+
+# ─── Phase 0.7 T1.1: Offline reward scoring on VLBiasBench (A100-80GB) ──────
+@app.function(
+    image=vlm_image,
+    gpu="A100-80GB",
+    cpu=8.0,
+    memory=65536,
+    volumes={"/mnt/data": volume},
+    timeout=7200,
+    secrets=[modal.Secret.from_name("huggingface-secret")],
+)
+def run_vlbias_offline_score(
+    variant: str = "base",
+    head_type: str = "svm,pca",
+    gen_dir: str = "/mnt/data/phase07_vlbiasbench",
+    heads_root: str = "/mnt/data/generated_heads_letter_post_letter",
+    use_kept_heads: bool = True,
+    output_dir: str = "/mnt/data/phase07_offline_reward",
+    reward_base: str = "Qwen/Qwen2.5-VL-3B-Instruct",
+    parquet: str = "/mnt/data/vlbiasbench_data/vlbiasbench_close_ended.parquet",
+    image_root: str = "/mnt/data/vlbiasbench_data/unpacked/close_ended/images",
+    batch_size: int = 4,
+    max_samples: int = 0,
+    max_per_cell: int = 0,
+    max_pixels: int = 0,   # 0 = uncapped, matches generate_vlbiasbench_answers.py
+    token_position: str = "post_letter",
+):
+    """Phase 0.7 T1.1: score an existing <variant>_vlbias_gen.jsonl with the
+    reward heads. No PPO, no new training. Scores with ALL head types in one
+    forward pass (one model load, one embedding extraction, multiple head matmuls).
+
+    --head-type accepts comma-separated list: "svm,pca" (default) to score both
+    in a single ~60min GPU session rather than 2x ~60min each.
+    """
+    _setup_env()
+    os.makedirs(output_dir, exist_ok=True)
+
+    gen_jsonl = os.path.join(gen_dir, f"{variant}_vlbias_gen.jsonl")
+    if not os.path.exists(gen_jsonl):
+        raise FileNotFoundError(f"gen_jsonl missing: {gen_jsonl}")
+
+    # Parse comma-separated head types
+    head_types = [h.strip() for h in head_type.split(",") if h.strip()]
+    heads_dirs = []
+    kept_heads_args = []
+    for ht in head_types:
+        subdir = "sb_bench-SVM-component" if ht.lower() == "svm" else "sb_bench-PCA-component"
+        heads_dirs.append(os.path.join(heads_root, subdir))
+        if use_kept_heads:
+            cand = (os.path.join(heads_root, "kept_heads.json")
+                    if ht.lower() == "svm"
+                    else os.path.join(heads_root, "kept_heads_pca.json"))
+            kept_heads_args.append(cand if os.path.exists(cand) else "none")
+        else:
+            kept_heads_args.append("none")
+
+    print(f"▶ Offline reward scoring [variant={variant} heads={head_types}]")
+    print(f"  gen_jsonl={gen_jsonl}")
+    for ht, hd, kh in zip(head_types, heads_dirs, kept_heads_args):
+        print(f"  [{ht}] dir={hd}  kept={kh}")
+
+    cmd = [
+        "python", "-m", "modules.evaluation.score_vlbias_offline",
+        "--gen_jsonl", gen_jsonl,
+        "--parquet", parquet,
+        "--image_root", image_root,
+        "--reward_base", reward_base,
+        "--heads_dir", *heads_dirs,
+        "--head_type", *head_types,
+        "--variant", variant,
+        "--output_dir", output_dir,
+        "--batch_size", str(batch_size),
+        "--max_samples", str(max_samples),
+        "--max_per_cell", str(max_per_cell),
+        "--max_pixels", str(max_pixels),
+        "--token_position", token_position,
+        "--kept_heads", *kept_heads_args,
+    ]
+    subprocess.run(cmd, check=True)
+
+    volume.commit()
+    print(f"✅ Offline reward scoring complete for variant={variant}")
+
+
+
+# ─── Phase 0.7 G4a: VLBiasBench EDA (CPU only) ──────────────────────────────
+@app.function(
+    image=vlm_image,
+    gpu=None,
+    cpu=2.0,
+    memory=8192,
+    volumes={"/mnt/data": volume},
+    timeout=1800,
+)
+def run_vlbiasbench_eda(
+    unpacked_root: str = "/mnt/data/vlbiasbench_data/unpacked/close_ended",
+    n_sample_records: int = 3,
+):
+    """Inspect the VLBiasBench close-ended unpacked tree on the volume.
+
+    Prints: directory structure, JSON file inventory, per-file record counts,
+    per-record schema (keys + types), sample records, condition/label
+    distributions, image-path format examples. Read-only.
+    """
+    _setup_env()
+    import json as _json
+    from collections import Counter, defaultdict
+    from pathlib import Path
+
+    root = Path(unpacked_root)
+    if not root.exists():
+        print(f"❌ Unpacked root does not exist: {root}")
+        return
+
+    json_root = root / "json"
+    img_root = root / "images"
+    print(f"\n{'='*72}")
+    print(f"VLBiasBench EDA — {root}")
+    print(f"{'='*72}\n")
+
+    # ── 1. Top-level dirs ──────────────────────────────────────────────
+    print("── Top-level under close_ended/ ────────────────────────────")
+    for p in sorted(root.iterdir()):
+        kind = "DIR " if p.is_dir() else "FILE"
+        print(f"  {kind}  {p.name}")
+    print()
+
+    # ── 2. JSON dir structure ──────────────────────────────────────────
+    print("── json/ subdirs ──────────────────────────────────────────")
+    if not json_root.exists():
+        print(f"  ❌ Missing {json_root}")
+        return
+    json_dirs = sorted([d for d in json_root.iterdir() if d.is_dir()])
+    for d in json_dirs:
+        files = sorted(d.glob("*.json"))
+        print(f"  {d.name:20s}  {len(files):3d} JSON files")
+        for f in files[:3]:
+            print(f"      e.g. {f.name}")
+        if len(files) > 3:
+            print(f"      ... ({len(files) - 3} more)")
+    print()
+
+    # ── 3. Per-file record counts + first-record schema ────────────────
+    print("── First record per JSON file ─────────────────────────────")
+    all_keys = Counter()
+    all_records = []
+    file_inventory = []
+    for d in json_dirs:
+        for jf in sorted(d.glob("*.json")):
+            with open(jf, "r") as f:
+                data = _json.load(f)
+            if isinstance(data, dict):
+                data = [data]
+            file_inventory.append((d.name, jf.name, len(data)))
+            all_records.extend([(d.name, r) for r in data])
+            for r in data:
+                all_keys.update(r.keys())
+
+    # File inventory table
+    print(f"{'subdir':22s} {'file':40s} {'records':>10s}")
+    print("-" * 75)
+    for sub, fn, n in file_inventory:
+        print(f"{sub:22s} {fn:40s} {n:>10d}")
+    total_records = sum(n for _, _, n in file_inventory)
+    print(f"{'TOTAL':22s} {'':40s} {total_records:>10d}")
+    print()
+
+    # ── 4. Key frequency across all records ────────────────────────────
+    print("── Key frequency across all records ───────────────────────")
+    for k, cnt in all_keys.most_common():
+        pct = 100 * cnt / total_records
+        print(f"  {k:30s}  {cnt:>7d}  ({pct:5.1f}%)")
+    print()
+
+    # ── 5. Sample records ──────────────────────────────────────────────
+    print(f"── {n_sample_records} sample records (first from each of first {n_sample_records} files) ──")
+    shown = 0
+    for sub, rec in all_records:
+        if shown >= n_sample_records:
+            break
+        print(f"\n[from subdir={sub}]")
+        for k, v in rec.items():
+            vs = str(v)
+            if len(vs) > 200:
+                vs = vs[:200] + " ...[truncated]"
+            print(f"  {k}: {vs}")
+        shown += 1
+    print()
+
+    # ── 6. Distributions on key fields ─────────────────────────────────
+    print("── condition distribution ──────────────────────────────────")
+    cond_counter = Counter(r.get("condition", "<MISSING>") for _, r in all_records)
+    for k, v in cond_counter.most_common():
+        print(f"  {k:20s}  {v:>7d}")
+    print()
+
+    print("── category distribution (internal field) ─────────────────")
+    cat_counter = Counter(r.get("category", "<MISSING>") for _, r in all_records)
+    for k, v in cat_counter.most_common(20):
+        print(f"  {str(k):30s}  {v:>7d}")
+    if len(cat_counter) > 20:
+        print(f"  ... ({len(cat_counter) - 20} more)")
+    print()
+
+    print("── label distribution ──────────────────────────────────────")
+    label_counter = Counter(r.get("label", "<MISSING>") for _, r in all_records)
+    for k, v in sorted(label_counter.items(), key=lambda x: str(x[0])):
+        print(f"  label={str(k):15s}  {v:>7d}")
+    print()
+
+    # ── 7. label × condition cross-tab ─────────────────────────────────
+    print("── label × condition cross-tab ────────────────────────────")
+    cross = defaultdict(int)
+    for _, r in all_records:
+        cross[(r.get("condition", "<MISSING>"), r.get("label", "<MISSING>"))] += 1
+    conds = sorted({c for c, _ in cross.keys()}, key=str)
+    labs = sorted({l for _, l in cross.keys()}, key=str)
+    header = f"{'condition':15s} " + " ".join(f"label={str(l):>8s}" for l in labs)
+    print(header)
+    for c in conds:
+        row = f"{str(c):15s} " + " ".join(f"{cross[(c, l)]:>14d}" for l in labs)
+        print(row)
+    print()
+
+    # ── 8. image_path examples + existence check ──────────────────────
+    print("── image_path examples (first 5) ──────────────────────────")
+    img_examples = []
+    for _, r in all_records[:200]:
+        if "image_path" in r:
+            img_examples.append(r["image_path"])
+        if len(img_examples) >= 5:
+            break
+    for p in img_examples:
+        full = img_root / p
+        exists = "✅" if full.exists() else "❌"
+        print(f"  {exists}  {p}")
+    print()
+
+    # ── 9. Sample images on disk ───────────────────────────────────────
+    print("── images/ subdir layout (depth 1) ────────────────────────")
+    if img_root.exists():
+        sub_imgs = sorted([p for p in img_root.iterdir() if p.is_dir()])[:10]
+        for p in sub_imgs:
+            count = sum(1 for _ in p.rglob("*"))
+            print(f"  {p.name}/  ({count} entries)")
+        loose = sorted([p for p in img_root.iterdir() if p.is_file()])[:5]
+        if loose:
+            print(f"  + {len(loose)} loose files at root, e.g. {[p.name for p in loose[:3]]}")
+    else:
+        print(f"  ❌ {img_root} missing")
+    print()
+
+    print(f"{'='*72}")
+    print("EDA complete.")
+    print(f"{'='*72}\n")
 
 
 # ─── Local Entrypoint ─────────────────────────────────────────────────────────

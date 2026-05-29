@@ -1,0 +1,163 @@
+{
+  "train_output_dir": "/mnt/data/output_ppo_phase07_pca_drm",
+  "dataset": "sb_bench",
+  "data_path": "/mnt/data/sb_bench_data/sb_bench_data.parquet",
+  "results": {
+    "ep1-step70": {
+      "metrics": {
+        "accuracy": 0.9506172839506173,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2772,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 0.9712837837837838,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 0.9316770186335404,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 0.9196581196581196,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 0.9642857142857143,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 0.9476439790575916,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 0.9503676470588235,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 0.9513888888888888,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 0.9845360824742269,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 0.9501779359430605,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase07_pca_drm/checkpoint-ep1-step70",
+      "gen_file": "/mnt/data/output_ppo_phase07_pca_drm/generations_perturbed_cyclic1/ep1-step70.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase07_pca_drm/generations_perturbed_cyclic1/ep1-step70_eval_results.json",
+      "completed_at": "2026-05-27T19:18:44Z"
+    },
+    "ep1-end": {
+      "metrics": {
+        "accuracy": 0.909122085048011,
+        "unknown_rate": 0.0,
+        "total_samples": 2916,
+        "correct": 2651,
+        "unknown": 0
+      },
+      "per_category": {
+        "Age": {
+          "accuracy": 0.9425675675675675,
+          "count": 592,
+          "unknown_rate": 0.0
+        },
+        "Disability": {
+          "accuracy": 0.8633540372670807,
+          "count": 161,
+          "unknown_rate": 0.0
+        },
+        "Gender": {
+          "accuracy": 0.852991452991453,
+          "count": 585,
+          "unknown_rate": 0.0
+        },
+        "Nationality": {
+          "accuracy": 0.90625,
+          "count": 224,
+          "unknown_rate": 0.0
+        },
+        "Physical Appearance": {
+          "accuracy": 0.8952879581151832,
+          "count": 191,
+          "unknown_rate": 0.0
+        },
+        "Race/Ethnicity": {
+          "accuracy": 0.9264705882352942,
+          "count": 544,
+          "unknown_rate": 0.0
+        },
+        "Religion": {
+          "accuracy": 0.8541666666666666,
+          "count": 144,
+          "unknown_rate": 0.0
+        },
+        "SES": {
+          "accuracy": 0.979381443298969,
+          "count": 194,
+          "unknown_rate": 0.0
+        },
+        "Sexual Orientation": {
+          "accuracy": 0.9395017793594306,
+          "count": 281,
+          "unknown_rate": 0.0
+        }
+      },
+      "checkpoint_dir": "/mnt/data/output_ppo_phase07_pca_drm/checkpoint-ep1-end",
+      "gen_file": "/mnt/data/output_ppo_phase07_pca_drm/generations_perturbed_cyclic1/ep1-end.jsonl",
+      "eval_json": "/mnt/data/output_ppo_phase07_pca_drm/generations_perturbed_cyclic1/ep1-end_eval_results.json",
+      "completed_at": "2026-05-27T19:20:57Z"
+    }
+  },
+  "ordered_tags": [
+    "ep1-step10",
+    "ep1-step20",
+    "ep1-step30",
+    "ep1-step40",
+    "ep1-step50",
+    "ep1-step70",
+    "ep1-step80",
+    "ep1-step90",
+    "ep1-step100",
+    "ep1-step110",
+    "ep1-step120",
+    "ep1-step130",
+    "ep1-step140",
+    "ep1-step150",
+    "ep1-step160",
+    "ep1-step170",
+    "ep1-step180",
+    "ep1-step190",
+    "ep1-step200",
+    "ep1-step210",
+    "ep1-step220",
+    "ep1-step230",
+    "ep1-step240",
+    "ep1-24pct",
+    "ep1-50pct",
+    "ep1-74pct",
+    "ep1-end"
+  ],
+  "summary": {
+    "best": {
+      "tag": "ep1-step70",
+      "accuracy": 0.9506172839506173
+    },
+    "last_updated": "2026-05-27T19:20:59Z"
+  }
+}

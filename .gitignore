@@ -36,3 +36,6 @@ Phase0.6_*
 phase05_*
 *.jsonl
 deep_research_*
+# Phase 0.7 — bulky raw generation JSONLs (results JSONs kept)
+Phase0.7/vlbiasbench/phase07_vlbiasbench/*_gen.jsonl
+phase07_pca/*.jsonl

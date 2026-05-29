@@ -12,11 +12,13 @@ gold_is_unknown=True.
 
 import json
 import glob
+import os
 import re
+import sys
 import collections
 import pandas as pd
 
-GEN_PATH = "/tmp/ep1-end.jsonl"
+DEFAULT_GEN_PATH = "/tmp/ep1-end.jsonl"
 SPLIT_INDICES_PATH = "/tmp/split_indices.json"
 PARQUET_GLOB = "sb_bench_data/data/test-*.parquet"
 
@@ -39,9 +41,16 @@ def is_unknown_text(s: str) -> bool:
 
 
 def main() -> None:
-    # Generations
-    gens = [json.loads(l) for l in open(GEN_PATH)]
-    print(f"Loaded {len(gens)} generations from {GEN_PATH}")
+    # Generations — accept path from argv, no silent fallback to /tmp.
+    if len(sys.argv) >= 2:
+        gen_path = sys.argv[1]
+    else:
+        gen_path = DEFAULT_GEN_PATH
+        print(f"⚠  no path given, defaulting to {DEFAULT_GEN_PATH}")
+    if not os.path.exists(gen_path):
+        sys.exit(f"✗ generations file not found: {gen_path}")
+    gens = [json.loads(l) for l in open(gen_path)]
+    print(f"Loaded {len(gens)} generations from {gen_path}")
 
     # Parquet
     files = sorted(glob.glob(PARQUET_GLOB))

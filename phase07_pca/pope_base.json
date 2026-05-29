@@ -1,0 +1,19 @@
+{
+    "metrics": {
+        "accuracy": 0.8718888888888889,
+        "precision": 0.8540300401946266,
+        "recall": 0.8971111111111111,
+        "f1": 0.875040641595318,
+        "yes_proportion": 0.5198888888888888,
+        "unknown_rate": 0.007,
+        "total_samples": 9000,
+        "true_pos": 4037,
+        "true_neg": 3810,
+        "false_pos": 690,
+        "false_neg": 463
+    },
+    "config": {
+        "gt_file": "/mnt/data/pope_data/pope_data.jsonl",
+        "gen_file": "/mnt/data/output_ppo_phase07_pca_drm/pope/base_pope_gen.jsonl"
+    }
+}
