@@ -154,8 +154,8 @@ def find_letter_positions(input_ids: torch.Tensor, letter_ids: torch.Tensor,
     T = input_ids.shape[-1]
     rev = torch.flip(is_letter.int(), dims=[-1])
     any_letter = is_letter.any(dim=-1)
-    offset_from_end = rev.argmax(dim=-1)
-    letter_pos = (T - 1).long() - offset_from_end.long()
+    offset_from_end = rev.argmax(dim=-1).long()
+    letter_pos = (T - 1) - offset_from_end
     # Default fallback = last token index (T-1). Rows with no letter are
     # filtered upstream, but we keep a safe index here.
     fallback = torch.full_like(letter_pos, T - 1)
