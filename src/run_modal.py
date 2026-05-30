@@ -88,7 +88,7 @@ def run_preprocess(dataset: str = "sb_bench", model_family: str = "qwen",
 )
 def run_inference(dataset: str = "sb_bench", model_family: str = "qwen",
                   completion_format: str = "free_text", token_position: str = "eos",
-                  split: str = "train"):
+                  split: str = "train", layer_idx: int = -2):
     """Load model + cached dataset, extract embeddings via forward pass.
 
     Phase 0.6 D3: pass --completion-format letter --token-position post_letter to
@@ -97,10 +97,16 @@ def run_inference(dataset: str = "sb_bench", model_family: str = "qwen",
     embeddings_output/. Pass --split test to produce held-out emb files for
     run_drm_eval (train and test files coexist in the same emb dir because
     their data_indices are disjoint).
+
+    Phase 0.8 A2: pass --layer-idx 9 / 11 / 13 to extract from a non-penultimate
+    LM layer. Output is auto-suffixed with _L{N} (in addition to the
+    completion-format/token-position suffix) so layer sweeps don't clobber
+    Phase 0.7 heads at L=-2.
     """
     _setup_env()
     print(f"🚀 Phase 1b: Embedding Extraction (A100-80GB) for {dataset} "
-          f"[completion_format={completion_format}, token_position={token_position}, split={split}]...")
+          f"[completion_format={completion_format}, token_position={token_position}, "
+          f"layer_idx={layer_idx}, split={split}]...")
     subprocess.run([
         "python", "-m", "modules.embeddings.extract",
         "--dataset_name", dataset,
@@ -115,6 +121,7 @@ def run_inference(dataset: str = "sb_bench", model_family: str = "qwen",
         "--split_indices_path", SPLIT_INDICES_PATH,
         "--completion_format", completion_format,
         "--token_position", token_position,
+        "--layer_idx", str(layer_idx),
     ], check=True)
     volume.commit()
     print("✅ Embedding extraction complete.")
@@ -131,16 +138,17 @@ def run_inference(dataset: str = "sb_bench", model_family: str = "qwen",
     secrets=[modal.Secret.from_name("huggingface-secret")]
 )
 def run_drm_generation(completion_format: str = "free_text", token_position: str = "eos",
-                       n_components: int = 50):
+                       n_components: int = 50, layer_idx: int = -2):
     """Run PCA and SVM on embeddings to generate DRM reward heads.
 
     Reads embeddings from the same auto-suffixed path produced by run_inference
-    for the given (completion_format, token_position) combo, and writes heads
-    into a parallel suffixed dir under /mnt/data/generated_heads/.
+    for the given (completion_format, token_position, layer_idx) combo, and
+    writes heads into a parallel suffixed dir under /mnt/data/generated_heads/.
     """
     _setup_env()
     print(f"🧬 Phase 2: DRM Head Generation (CPU only) "
-          f"[completion_format={completion_format}, token_position={token_position}]...")
+          f"[completion_format={completion_format}, token_position={token_position}, "
+          f"layer_idx={layer_idx}]...")
 
     # Mirror extract.py's auto-suffixing rule so head-build reads the right
     # embeddings dir and writes into a parallel heads dir.
@@ -150,6 +158,10 @@ def run_drm_generation(completion_format: str = "free_text", token_position: str
         suffix = f"_{completion_format}_{token_position}"
         input_dir = input_dir.rstrip("/") + suffix
         heads_root = heads_root.rstrip("/") + suffix
+    if layer_idx != -2:
+        layer_suffix = f"_L{layer_idx}"
+        input_dir = input_dir.rstrip("/") + layer_suffix
+        heads_root = heads_root.rstrip("/") + layer_suffix
 
     # Generate PCA heads (legacy, kept for comparison)
     print(f"  → PCA heads (input_dir={input_dir}, output_dir={heads_root})...")
@@ -192,7 +204,8 @@ def run_drm_generation(completion_format: str = "free_text", token_position: str
 def run_drm_eval(completion_format: str = "free_text",
                  token_position: str = "eos",
                  head_type: str = "svm",
-                 split: str = "test"):
+                 split: str = "test",
+                 layer_idx: int = -2):
     """Evaluate DRM heads on held-out split.
 
     For each head, reports fraction of (chosen, rejected) pairs where
@@ -202,7 +215,7 @@ def run_drm_eval(completion_format: str = "free_text",
     _setup_env()
     print(f"📊 Phase 3: DRM Head Evaluation "
           f"[completion_format={completion_format}, token_position={token_position}, "
-          f"head_type={head_type}, split={split}]...")
+          f"layer_idx={layer_idx}, head_type={head_type}, split={split}]...")
 
     emb_dir = os.environ["OUTPUT_PATH"]
     heads_root = "/mnt/data/generated_heads"
@@ -210,6 +223,10 @@ def run_drm_eval(completion_format: str = "free_text",
         suffix = f"_{completion_format}_{token_position}"
         emb_dir = emb_dir.rstrip("/") + suffix
         heads_root = heads_root.rstrip("/") + suffix
+    if layer_idx != -2:
+        layer_suffix = f"_L{layer_idx}"
+        emb_dir = emb_dir.rstrip("/") + layer_suffix
+        heads_root = heads_root.rstrip("/") + layer_suffix
 
     head_subdir = "sb_bench-SVM-component" if head_type.lower() == "svm" else "sb_bench-PCA-component"
     score_head_weight = os.path.join(heads_root, head_subdir)
@@ -976,6 +993,7 @@ def run_vlbias_offline_score(
     max_per_cell: int = 0,
     max_pixels: int = 0,   # 0 = uncapped, matches generate_vlbiasbench_answers.py
     token_position: str = "post_letter",
+    layer_idx: int = -2,
 ):
     """Phase 0.7 T1.1: score an existing <variant>_vlbias_gen.jsonl with the
     reward heads. No PPO, no new training. Scores with ALL head types in one
@@ -1026,6 +1044,7 @@ def run_vlbias_offline_score(
         "--max_per_cell", str(max_per_cell),
         "--max_pixels", str(max_pixels),
         "--token_position", token_position,
+        "--layer_idx", str(layer_idx),
         "--kept_heads", *kept_heads_args,
     ]
     subprocess.run(cmd, check=True)

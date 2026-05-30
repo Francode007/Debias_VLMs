@@ -206,10 +206,17 @@ class ScriptArguments:
     )
     token_position: Optional[str] = field(
         default="eos",
-        metadata={"help": "Which token's penultimate-layer hidden state to extract as the reward-model embedding. "
+        metadata={"help": "Which token's hidden state to extract as the reward-model embedding. "
                   "'eos' (default, backcompat): last non-pad token (today's behaviour). "
                   "'post_letter': the A/B/C letter token itself. "
                   "'pre_letter': the token immediately before the letter — its logit is what predicts the letter, "
                   "matching PPO's binary-mode `ans_pos` exactly. "
                   "'all_letters_mean': average pre_letter hidden states across 3 forced completions (A/B/C); NOT YET IMPLEMENTED."}
+    )
+    layer_idx: Optional[int] = field(
+        default=-2,
+        metadata={"help": "Which entry of transformer_outputs.hidden_states to extract as the embedding. "
+                  "-2 (default, backcompat) = penultimate, matching Phase 0.6/0.7. "
+                  "Phase 0.8 A2 sweeps {9, 11, 13} per Phase0.8/PREREG.md. "
+                  "Output paths are auto-suffixed with _L{layer_idx} when layer_idx != -2."}
     )

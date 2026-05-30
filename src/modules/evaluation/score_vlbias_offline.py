@@ -110,6 +110,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--token_position", default="post_letter",
                    choices=["post_letter", "pre_letter"],
                    help="Embedding extraction position. Must match how the heads were built.")
+    p.add_argument("--layer_idx", type=int, default=-2,
+                   help="Which entry of hidden_states to extract the embedding from. "
+                        "-2 (default) = penultimate, matching Phase 0.6/0.7 heads. "
+                        "Phase 0.8 A2 uses {9, 11, 13}. MUST match the layer the heads_dir was built at.")
     p.add_argument("--completion_format", default="letter",
                    choices=["letter"],
                    help="Reserved; only 'letter' is currently supported (assistant turn = single A/B/C).")
@@ -282,6 +286,7 @@ def main():
         model, dtype=torch.bfloat16,
         token_position=args.token_position,
         letter_token_ids=letter_ids,
+        layer_idx=args.layer_idx,
     )
     model.forward = forward_fn.__get__(model, type(model))
 
@@ -436,13 +441,18 @@ def main():
                 out[k] = entry
             return out
 
-        output_json = os.path.join(args.output_dir, f"{args.variant}__{ht}__offline_reward.json")
+        # Phase 0.8 A2: tag output with _L{layer_idx} so multi-layer sweeps
+        # don't clobber Phase 0.7 penultimate (-2) results.
+        layer_tag = "" if args.layer_idx == -2 else f"_L{args.layer_idx}"
+        output_json = os.path.join(args.output_dir, f"{args.variant}__{ht}{layer_tag}__offline_reward.json")
         summary = {
             "variant": args.variant,
             "head_type": ht,
             "heads_dir": args.heads_dir[i],
             "kept_heads": kept_heads_list[i],
             "num_heads": int(K),
+            "token_position": args.token_position,
+            "layer_idx": int(args.layer_idx),
             "num_samples_scored": len(scored_records),
             "num_samples_input": len(records),
             "by_cell": _finalise(by_cell, include_per_head=True),

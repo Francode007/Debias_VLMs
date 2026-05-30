@@ -16,14 +16,15 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 logger = logging.getLogger(__name__)
 
 
-def create_custom_forward(model, dtype, token_position: str = "eos", letter_token_ids=None):
+def create_custom_forward(model, dtype, token_position: str = "eos", letter_token_ids=None,
+                          layer_idx: int = -2):
     """
     Create custom forward function for reward model training.
     
     Input:
         model: The base vision-language model
         dtype: Target data type for computations
-        token_position (str): Which token's penultimate-layer hidden state to return.
+        token_position (str): Which token's hidden state to return (see below).
             'eos'         — last non-pad token (legacy / backcompat).
             'post_letter' — the A/B/C letter token itself.
             'pre_letter'  — the token immediately BEFORE the letter; its logit is
@@ -33,6 +34,15 @@ def create_custom_forward(model, dtype, token_position: str = "eos", letter_toke
             A, B, or C under the model's tokenizer (any encoding variant — see
             extract.py for the resolution logic). Required when token_position is
             'post_letter' or 'pre_letter'; ignored for 'eos'.
+        layer_idx (int): Which entry of `transformer_outputs.hidden_states` to
+            extract the per-sample embedding from. Defaults to -2 (penultimate),
+            matching pre-Phase-0.8 behaviour. The HuggingFace convention is
+            `hidden_states[0]` = embedding layer, `hidden_states[k]` (k≥1) =
+            output of LM block k-1; the final entry [-1] is the post-norm
+            output. Phase 0.8 A2 sweeps L9, L11, L13 (=hidden_states[9], [11],
+            [13]) per the pre-registered PREREG.md. Accepts any int in
+            `[-len(hidden_states), len(hidden_states)-1]`; out-of-range raises
+            IndexError at forward time.
     
     Output:
         function: Custom forward function bound to the model
@@ -156,7 +166,11 @@ def create_custom_forward(model, dtype, token_position: str = "eos", letter_toke
             else:
                 raise
 
-        # Extract penultimate layer (-2) from full hidden states
+        # Extract the selected layer from full hidden states.
+        # Variable kept as `penultimate_layer` for diff-minimisation against
+        # pre-Phase-0.8 code; despite the name it is `hidden_states[layer_idx]`,
+        # which defaults to the penultimate (-2) but is configurable by the
+        # `layer_idx` arg of create_custom_forward (Phase 0.8 A2).
         if hasattr(transformer_outputs, 'hidden_states') and transformer_outputs.hidden_states is not None:
             all_hidden_states = transformer_outputs.hidden_states
         elif isinstance(transformer_outputs, tuple) and len(transformer_outputs) > 2:
@@ -168,8 +182,8 @@ def create_custom_forward(model, dtype, token_position: str = "eos", letter_toke
             logger.error(f"Missing hidden_states. Output type: {out_type}, Keys: {out_keys}")
             raise ValueError(f"hidden_states not found in model output ({out_type}). Make sure output_hidden_states=True is effective.")
         
-        # Extract the penultimate layer (3D Tensor: [Batch, Seq, Dim])
-        penultimate_layer = all_hidden_states[-2]
+        # Extract the chosen layer (3D Tensor: [Batch, Seq, Dim]).
+        penultimate_layer = all_hidden_states[layer_idx]
 
         # Slice to get only the final token's embedding (2D Tensor: [Batch, Dim])
         if input_ids is not None:

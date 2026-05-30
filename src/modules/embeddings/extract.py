@@ -291,22 +291,30 @@ def main():
                     "may match a letter buried inside the free-text answer."
                 )
 
-        # Create custom forward function (Phase 0.6 D3: per-sample slice index)
+        # Create custom forward function (Phase 0.6 D3: per-sample slice index;
+        # Phase 0.8 A2: configurable layer_idx for multi-layer head sweeps)
         custom_forward_func = create_custom_forward(
             model, model_loader.dtype,
             token_position=script_args.token_position,
             letter_token_ids=letter_token_ids,
+            layer_idx=script_args.layer_idx,
         )
         model.forward = custom_forward_func.__get__(model, type(model))
         
         # Auto-suffix the embeddings output path when running with non-default
         # extraction settings, so the legacy free-text/eos artifacts at
-        # ./embeddings_output/ are never silently clobbered.
+        # ./embeddings_output/ are never silently clobbered. Phase 0.8 A2 adds
+        # a _L{N} suffix when layer_idx != -2 (penultimate).
         if (script_args.completion_format != "free_text") or (script_args.token_position != "eos"):
             suffix = f"_{script_args.completion_format}_{script_args.token_position}"
             if not script_args.cls_embs_path.rstrip("/").endswith(suffix):
                 script_args.cls_embs_path = script_args.cls_embs_path.rstrip("/") + suffix
                 logger.info(f"Auto-suffixed cls_embs_path → {script_args.cls_embs_path}")
+        if script_args.layer_idx != -2:
+            layer_suffix = f"_L{script_args.layer_idx}"
+            if not script_args.cls_embs_path.rstrip("/").endswith(layer_suffix):
+                script_args.cls_embs_path = script_args.cls_embs_path.rstrip("/") + layer_suffix
+                logger.info(f"Auto-suffixed cls_embs_path (layer_idx={script_args.layer_idx}) → {script_args.cls_embs_path}")
         
         # Build dataset
         logger.info("Building dataset...")
