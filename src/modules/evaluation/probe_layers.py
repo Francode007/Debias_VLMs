@@ -511,6 +511,22 @@ def main():
         print(f"⚠  Only {n_p3} model-emitted-C records — P3 will be statistically thin. "
               "Consider increasing --max_per_cell or running on a larger gen JSONL.")
 
+    # qformat masks for per-qformat P3 CV breakdown. The primary file mixes
+    # qformat ∈ {base, scene, scene_text} unevenly (Phase 0.7 G4a generates
+    # all three; base ~87%, scene ~7%, scene_text ~6% on the n=3000 sample).
+    # We report p3_acc_cv per qformat so layer rankings can be sanity-checked
+    # for qformat-dependence before pre-registration (Phase0.8.md §2 guard).
+    qformat_primary = [str(r.get("qformat", "?")) for r in kept_primary]
+    qformats_seen = sorted({q for q in qformat_primary if q})
+    qformat_counts = {q: qformat_primary.count(q) for q in qformats_seen}
+    print(f"  primary qformat distribution: {qformat_counts}")
+
+    def _p3_for_qformat(qf: str) -> list:
+        return [
+            p3_tr[i] if qformat_primary[i] == qf else None
+            for i in range(len(p3_tr))
+        ]
+
     # ── 5. Per-layer probing ───────────────────────────────────────────
     per_layer_results = []
     for layer_idx in tqdm(range(L), desc="Probe layers"):
@@ -528,6 +544,14 @@ def main():
             p3_ho_acc, p3_ho_n = _probe_holdout(
                 X, p3_tr, Xho, p3_ho, args.logreg_C, args.max_iter)
 
+        # Per-qformat P3 CV (in-distribution slice of the primary set).
+        p3_by_qformat: dict = {}
+        for qf in qformats_seen:
+            qf_labels = _p3_for_qformat(qf)
+            m, s, n = _probe_one_layer(
+                X, qf_labels, args.cv_folds, args.logreg_C, args.max_iter, args.seed)
+            p3_by_qformat[qf] = {"p3_acc_cv": m, "p3_acc_cv_std": s, "n_p3": n}
+
         per_layer_results.append({
             "layer_idx": layer_idx,
             "layer_type": "embedding" if layer_idx == 0 else "lm",
@@ -535,6 +559,7 @@ def main():
             "p2_acc_cv": p2_mean, "p2_acc_cv_std": p2_std, "n_p2": p2_n,
             "p3_acc_cv": p3_mean, "p3_acc_cv_std": p3_std, "n_p3": p3_n,
             "p3_acc_holdout": p3_ho_acc, "n_p3_holdout": p3_ho_n,
+            "p3_by_qformat": p3_by_qformat,
         })
 
     # ── 6. Write output ────────────────────────────────────────────────
@@ -548,6 +573,7 @@ def main():
         "hidden_dim": int(D),
         "cv_folds": args.cv_folds,
         "logreg_C": args.logreg_C,
+        "primary_qformat_counts": qformat_counts,
         "per_layer": per_layer_results,
     }
     out_json = os.path.join(args.output_dir, f"{args.variant}_layerwise_probe.json")
@@ -569,10 +595,19 @@ def main():
             fig, ax = plt.subplots(figsize=(10, 5))
             ax.plot(xs, p1, label="P1 condition (sanity)", marker=".")
             ax.plot(xs, p2, label="P2 disambig correctness", marker=".")
-            ax.plot(xs, p3, label="P3 is_good_C (CV)", marker="o")
+            ax.plot(xs, p3, label="P3 is_good_C (CV, all qf)", marker="o")
             if any(v is not None for v in p3h):
                 ax.plot(xs, [v if v is not None else float("nan") for v in p3h],
-                        label="P3 is_good_C (holdout)", marker="x", linestyle="--")
+                        label="P3 is_good_C (holdout = qformat=text)",
+                        marker="x", linestyle="--")
+            # Per-qformat P3 CV overlays — thin lines, no markers, to keep
+            # the headline curves readable.
+            for qf in qformats_seen:
+                ys = [r["p3_by_qformat"].get(qf, {}).get("p3_acc_cv")
+                      for r in per_layer_results]
+                ys = [v if v is not None else float("nan") for v in ys]
+                ax.plot(xs, ys, label=f"P3 (CV, qformat={qf})",
+                        linewidth=0.8, alpha=0.7)
             ax.axhline(0.5, color="grey", linewidth=0.5)
             ax.set_xlabel("LM layer index (0 = input embeddings)")
             ax.set_ylabel("Probe accuracy")
