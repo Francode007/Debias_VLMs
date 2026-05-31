@@ -57,8 +57,14 @@ def generate_orthogonal_heads(args):
 
     emb_files = sorted(glob.glob(os.path.join(input_dir, "emb_*.npy")))
     if not emb_files:
-        print(f"No embedding files found in {input_dir}. Run cal_emb_modular.py first.")
-        return
+        # Hard-fail: silently returning here caused Phase 0.8 A2 to create an
+        # empty heads dir and pass it to eval, which then crashed with an
+        # opaque np.stack error. Make the missing-embeddings case obvious.
+        raise FileNotFoundError(
+            f"No embedding files (emb_*.npy) found in {input_dir}. "
+            "Run the embedding extraction stage first (e.g. for Phase 0.8 "
+            "A2, include the 'extract' stage in phase08_a2_multilayer_heads.sh)."
+        )
 
     # --- Filter to split indices if requested ---
     split_mode = getattr(args, "split", "all")
@@ -234,8 +240,10 @@ def generate_svm_heads(args):
     # Load embeddings
     emb_files = sorted(glob.glob(os.path.join(input_dir, "emb_*.npy")))
     if not emb_files:
-        print(f"No embedding files found in {input_dir}.")
-        return
+        raise FileNotFoundError(
+            f"No embedding files (emb_*.npy) found in {input_dir}. "
+            "Run the embedding extraction stage first."
+        )
 
     # Apply split filter if requested
     split_mode = getattr(args, "split", "all")

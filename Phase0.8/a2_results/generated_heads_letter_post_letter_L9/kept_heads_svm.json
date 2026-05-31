@@ -1,0 +1,47 @@
+{
+  "head_type": "svm",
+  "threshold": 0.55,
+  "kept_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "kept_count": 9,
+  "num_heads_total": 9,
+  "category_coverage": {
+    "Age": [
+      0
+    ],
+    "Disability": [
+      1
+    ],
+    "Gender": [
+      2
+    ],
+    "Nationality": [
+      3
+    ],
+    "Physical Appearance": [
+      4
+    ],
+    "Race/Ethnicity": [
+      5
+    ],
+    "Religion": [
+      6
+    ],
+    "SES": [
+      7
+    ],
+    "Sexual Orientation": [
+      8
+    ]
+  },
+  "split": "test"
+}
