@@ -135,6 +135,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max_iter", type=int, default=1000)
     p.add_argument("--save_plot", action="store_true",
                    help="Render PNG of per-layer p1/p2/p3 accuracies.")
+    p.add_argument("--save_weights_at_layer", type=int, nargs="*", default=None,
+                   help="Phase 0.8 A3 (Tier 0). For each layer index given, fit a single "
+                        "LogisticRegression on the FULL P3 set (no CV split) at that layer "
+                        "and dump the (coef, intercept, holdout_acc) to "
+                        "<output_dir>/<variant>_L{N}_probe_weights.npz so the vector can "
+                        "be reused directly as a reward head. Holdout acc is reported only "
+                        "if --holdout_gen_jsonl was given. Has no effect on the layerwise "
+                        "JSON output; orthogonal feature.")
     return p.parse_args()
 
 
@@ -321,6 +329,63 @@ def _is_good_C(rec: dict) -> Optional[int]:
     if label in (0, 1):
         return 0
     return None
+
+
+def _is_C(rec: dict) -> Optional[int]:
+    """P4 (Phase 0.8 A3 Move 1): binary `model emitted C` over ALL parseable
+    records. Used to isolate the C-detection component of the L9 probe so it
+    can be orthogonalised out of the is_good_C direction."""
+    pred = _eval_parse_choice(rec.get("text", ""))
+    if pred not in (0, 1, 2):
+        return None
+    return 1 if pred == 2 else 0
+
+
+def _is_bias_aligned(rec: dict) -> Optional[int]:
+    """P5 (Phase 0.8 A3 Path L9-A.1): `model picked the stereotype-aligned
+    named option`. Defined over DISAMBIG records only (where the gold is a
+    named option, so the stereotype-aligned option ID is unambiguous from
+    the BBQ polarity convention).
+
+    Convention (BBQ-style):
+      condition='neg'     → gold = stereotype-aligned named option
+                            → biased iff pred == label
+      condition='non_neg' → gold = counter-stereotype-aligned named option
+                            → biased iff pred ∈ {0,1} \\ {label}
+      condition='ambig'   → DROPPED (label is always C; the stereo-aligned
+                            named option would require twin-record join).
+
+    Returns 1 if biased, 0 if counter-aligned or C, None if not applicable
+    (ambig record, unparseable pred, missing gold)."""
+    cond = rec.get("condition", "")
+    if cond not in ("neg", "non_neg"):
+        return None
+    pred = _eval_parse_choice(rec.get("text", ""))
+    if pred not in (0, 1, 2):
+        return None
+    gold = int(rec.get("label", -1))
+    if gold not in (0, 1):
+        return None
+    if cond == "neg":
+        stereo_id = gold
+    else:  # non_neg
+        stereo_id = 1 - gold  # the other named option
+    return 1 if pred == stereo_id else 0
+
+
+def _is_correct(rec: dict) -> Optional[int]:
+    """P6 (Phase 0.8 A3 Path L9-A.3 control): `pred == gold` over ALL parseable
+    records, including ambig (where gold == C). High-accuracy probe here would
+    be 'knows the contextually-supported answer', NOT 'is unbiased'. Used as a
+    control: if its probe direction has stronger stereo-vs-counter discrimination
+    than L9-A.1, the bias-aligned probe is really just capability."""
+    pred = _eval_parse_choice(rec.get("text", ""))
+    if pred not in (0, 1, 2):
+        return None
+    gold = int(rec.get("label", -1))
+    if gold not in (0, 1, 2):
+        return None
+    return 1 if pred == gold else 0
 
 
 def _build_labels(records: List[dict]):
@@ -580,6 +645,92 @@ def main():
     with open(out_json, "w") as f:
         json.dump(summary, f, indent=2)
     print(f"✅ Wrote {out_json}")
+
+    # ── 6b. Phase 0.8 A3 Tier 0+Move1 — dump probe weights at requested layers ──
+    # For each requested layer, fit TWO LogisticRegression probes on the full
+    # data (no CV) and persist as .npz files:
+    #   • is_good_C (P3): legit-C vs bias-driven-C, only model-emitted-C records.
+    #     File: <variant>_L{N}_probe_weights.npz           (legacy name, unchanged)
+    #   • is_C      (P4): model emitted C vs anything else, over ALL parseable.
+    #     File: <variant>_L{N}_probe_weights_isC.npz        (Move 1, new)
+    # Downstream probe_to_head.py can orthogonalise the is_good_C direction
+    # against the is_C direction to isolate the bias-aligned residual.
+    if args.save_weights_at_layer:
+        from sklearn.linear_model import LogisticRegression
+
+        def _fit_and_save(L_req, y_tr_list, y_ho_list, task_tag, file_suffix, min_n=20):
+            if L_req < 0 or L_req >= L:
+                print(f"⚠  --save_weights_at_layer {L_req} out of range [0,{L-1}]; skipping")
+                return
+            Xfull = hs_primary[:, L_req, :]
+            mask = np.array([y is not None for y in y_tr_list])
+            if mask.sum() < min_n:
+                print(f"⚠  L{L_req} [{task_tag}]: only {mask.sum()} records; skipping weight dump")
+                return
+            Xv = Xfull[mask]
+            yv = np.array([y for y in y_tr_list if y is not None], dtype=np.int64)
+            if np.unique(yv).size < 2:
+                print(f"⚠  L{L_req} [{task_tag}]: single-class labels; skipping weight dump")
+                return
+            clf = LogisticRegression(C=args.logreg_C, max_iter=args.max_iter,
+                                     class_weight="balanced", n_jobs=1)
+            clf.fit(Xv, yv)
+            train_acc = float(clf.score(Xv, yv))
+            ho_acc = None
+            n_ho_used = 0
+            if hs_holdout is not None and y_ho_list is not None:
+                Xho_full = hs_holdout[:, L_req, :]
+                mask_ho = np.array([y is not None for y in y_ho_list])
+                if mask_ho.sum() >= 5 and np.unique(
+                    np.array([y for y in y_ho_list if y is not None])
+                ).size >= 2:
+                    Xho = Xho_full[mask_ho]
+                    yho = np.array([y for y in y_ho_list if y is not None], dtype=np.int64)
+                    ho_acc = float(clf.score(Xho, yho))
+                    n_ho_used = int(mask_ho.sum())
+            coef = np.ascontiguousarray(clf.coef_[0], dtype=np.float32)
+            intercept = float(clf.intercept_[0])
+            stem = f"{args.variant}_L{L_req}_probe_weights"
+            if file_suffix:
+                stem = f"{stem}_{file_suffix}"
+            npz_path = os.path.join(args.output_dir, f"{stem}.npz")
+            np.savez(npz_path,
+                     coef=coef,
+                     intercept=np.float32(intercept),
+                     layer_idx=np.int32(L_req),
+                     variant=np.array(args.variant, dtype=object),
+                     task=np.array(task_tag, dtype=object),
+                     token_position=np.array(args.token_position, dtype=object),
+                     reward_base=np.array(args.reward_base, dtype=object),
+                     train_n=np.int32(yv.size),
+                     train_acc=np.float32(train_acc),
+                     holdout_acc=(np.float32(ho_acc) if ho_acc is not None else np.float32(np.nan)),
+                     holdout_n=np.int32(n_ho_used),
+                     logreg_C=np.float32(args.logreg_C),
+                     hidden_dim=np.int32(coef.shape[0]))
+            print(f"✅ Wrote {npz_path}  "
+                  f"[{task_tag}] train_acc={train_acc:.3f}  "
+                  f"holdout_acc={'na' if ho_acc is None else f'{ho_acc:.3f}'}  "
+                  f"n_train={yv.size}")
+
+        # Move 1: also build the is_C (P4) label list for the same records.
+        p4_tr = [_is_C(r) for r in kept_primary]
+        p4_ho = [_is_C(r) for r in kept_holdout] if kept_holdout else None
+
+        # Path L9-A.1: bias-aligned action (disambig-only); ambig records will be
+        # auto-dropped by the y=None filter in _fit_and_save.
+        p5_tr = [_is_bias_aligned(r) for r in kept_primary]
+        p5_ho = [_is_bias_aligned(r) for r in kept_holdout] if kept_holdout else None
+
+        # Path L9-A.3: correctness control (all parseable records).
+        p6_tr = [_is_correct(r) for r in kept_primary]
+        p6_ho = [_is_correct(r) for r in kept_holdout] if kept_holdout else None
+
+        for L_req in args.save_weights_at_layer:
+            _fit_and_save(L_req, p3_tr, p3_ho, "is_good_C",     file_suffix="")
+            _fit_and_save(L_req, p4_tr, p4_ho, "is_C",          file_suffix="isC")
+            _fit_and_save(L_req, p5_tr, p5_ho, "bias_aligned",  file_suffix="biasA")
+            _fit_and_save(L_req, p6_tr, p6_ho, "correct",       file_suffix="corr")
 
     # ── 7. Optional plot ───────────────────────────────────────────────
     if args.save_plot:

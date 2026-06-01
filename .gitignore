@@ -38,4 +38,8 @@ phase05_*
 deep_research_*
 # Phase 0.7 — bulky raw generation JSONLs (results JSONs kept)
 Phase0.7/vlbiasbench/phase07_vlbiasbench/*_gen.jsonl
+
+# Phase 0.8 — recreatable probe-weight caches (JSON results + .pth heads kept)
+Phase0.8/**/*.npz
+Phase0.8/**/*.npy
 phase07_pca/*.jsonl

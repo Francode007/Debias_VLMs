@@ -1013,13 +1013,27 @@ def run_vlbias_offline_score(
     head_types = [h.strip() for h in head_type.split(",") if h.strip()]
     heads_dirs = []
     kept_heads_args = []
+    # Naming convention (mirrors generate_drm_heads.py / probe_to_head.py):
+    #   svm   -> sb_bench-SVM-component/   + kept_heads.json
+    #   pca   -> sb_bench-PCA-component/   + kept_heads_pca.json
+    #   probe -> sb_bench-PROBE-component/ + kept_heads_probe.json   (Phase 0.8 A3)
+    _SUBDIR = {
+        "svm": "sb_bench-SVM-component",
+        "pca": "sb_bench-PCA-component",
+        "probe": "sb_bench-PROBE-component",
+    }
+    _KEPT = {
+        "svm": "kept_heads.json",
+        "pca": "kept_heads_pca.json",
+        "probe": "kept_heads_probe.json",
+    }
     for ht in head_types:
-        subdir = "sb_bench-SVM-component" if ht.lower() == "svm" else "sb_bench-PCA-component"
-        heads_dirs.append(os.path.join(heads_root, subdir))
+        key = ht.lower()
+        if key not in _SUBDIR:
+            raise ValueError(f"Unsupported head_type={ht!r}; expected one of {sorted(_SUBDIR)}")
+        heads_dirs.append(os.path.join(heads_root, _SUBDIR[key]))
         if use_kept_heads:
-            cand = (os.path.join(heads_root, "kept_heads.json")
-                    if ht.lower() == "svm"
-                    else os.path.join(heads_root, "kept_heads_pca.json"))
+            cand = os.path.join(heads_root, _KEPT[key])
             kept_heads_args.append(cand if os.path.exists(cand) else "none")
         else:
             kept_heads_args.append("none")
@@ -1079,6 +1093,7 @@ def run_layer_probe(
     cv_folds: int = 5,
     save_plot: bool = True,
     cache_npz: str = "",              # set to a path to cache hidden states
+    save_weights_at_layer: str = "",  # Phase 0.8 A3: comma-separated layer indices to dump P3 probe weights for
 ):
     """Phase 0.8 A1: extract per-LM-layer hidden states at `post_letter` and
     run 3 logistic-regression probes per layer (P1/P2/P3). Decisive metric
@@ -1127,11 +1142,64 @@ def run_layer_probe(
         cmd += ["--save_plot"]
     if cache_npz:
         cmd += ["--cache_npz", cache_npz]
+    if save_weights_at_layer:
+        layers = [s.strip() for s in save_weights_at_layer.split(",") if s.strip()]
+        if layers:
+            cmd += ["--save_weights_at_layer", *layers]
 
     subprocess.run(cmd, check=True)
 
     volume.commit()
     print(f"✅ Layer probe complete for variant={variant}")
+
+
+# ─── Phase 0.8 A3 Tier 0: Probe → reward head conversion (CPU only) ─────────
+@app.function(
+    image=vlm_image,
+    gpu=None,
+    cpu=2.0,
+    memory=8192,
+    volumes={"/mnt/data": volume},
+    timeout=600,
+)
+def run_probe_to_head(
+    weights_npz: str,                          # e.g. /mnt/data/phase08_probe_results/base_L9_probe_weights.npz
+    out_dir: str,                              # e.g. /mnt/data/generated_heads_probe_L9_base
+    case_name: str = "sb_bench",
+    head_name: str = "PROBE",
+    normalize: bool = True,
+    residualize_pcs: str = "",                 # optional path to orthogonal_heads.npy
+    residualize_topk: int = 2,
+    orthogonalize_against: str = "",           # Phase 0.8 A3 Move 1: e.g. .../base_L9_probe_weights_isC.npz
+):
+    """Phase 0.8 A3 Tier 0: convert a probe_layers.py weight npz into a reward
+    head directory mirroring the generate_drm_heads.py layout, so the existing
+    score_vlbias_offline.py can score it unchanged with --head_type probe."""
+    _setup_env()
+
+    if not os.path.exists(weights_npz):
+        raise FileNotFoundError(f"weights_npz missing: {weights_npz}")
+    if orthogonalize_against and not os.path.exists(orthogonalize_against):
+        raise FileNotFoundError(f"orthogonalize_against missing: {orthogonalize_against}")
+
+    cmd = [
+        "python", "-m", "modules.embeddings.probe_to_head",
+        "--weights_npz", weights_npz,
+        "--out_dir", out_dir,
+        "--case_name", case_name,
+        "--head_name", head_name,
+    ]
+    if normalize:
+        cmd += ["--normalize"]
+    if residualize_pcs:
+        cmd += ["--residualize_pcs", residualize_pcs,
+                "--residualize_topk", str(residualize_topk)]
+    if orthogonalize_against:
+        cmd += ["--orthogonalize_against", orthogonalize_against]
+    subprocess.run(cmd, check=True)
+
+    volume.commit()
+    print(f"✅ Probe-as-head conversion complete → {out_dir}")
 
 
 # ─── Phase 0.7 G4a: VLBiasBench EDA (CPU only) ──────────────────────────────

@@ -1,0 +1,19 @@
+{
+  "source_weights_npz": "/mnt/data/phase08_probe_results/base_L11_probe_weights_biasA.npz",
+  "variant": "base",
+  "layer_idx": 11,
+  "task": "bias_aligned",
+  "token_position": "post_letter",
+  "reward_base": "Qwen/Qwen2.5-VL-3B-Instruct",
+  "hidden_dim": 2048,
+  "normalize": true,
+  "residualize_pcs": null,
+  "residualize_topk": 0,
+  "orthogonalize_against": null,
+  "intercept_dropped": true,
+  "train_n": 600,
+  "train_acc": 0.971666693687439,
+  "holdout_n": 67,
+  "holdout_acc": 0.8805969953536987,
+  "num_heads_written": 1
+}

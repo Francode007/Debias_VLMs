@@ -1,0 +1,24 @@
+{
+  "source_weights_npz": "/mnt/data/phase08_probe_results/base_L9_probe_weights.npz",
+  "variant": "base",
+  "layer_idx": 9,
+  "task": "is_good_C",
+  "token_position": "post_letter",
+  "reward_base": "Qwen/Qwen2.5-VL-3B-Instruct",
+  "hidden_dim": 2048,
+  "normalize": true,
+  "residualize_pcs": null,
+  "residualize_topk": 0,
+  "orthogonalize_against": {
+    "path": "/mnt/data/phase08_probe_results/base_L9_probe_weights_isC.npz",
+    "task": "is_C",
+    "cos_before": 0.02587813247718776,
+    "norm_retained": 0.9996650839702022
+  },
+  "intercept_dropped": true,
+  "train_n": 613,
+  "train_acc": 0.9869494438171387,
+  "holdout_n": 71,
+  "holdout_acc": 0.98591548204422,
+  "num_heads_written": 1
+}

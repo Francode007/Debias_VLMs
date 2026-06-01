@@ -1,0 +1,9 @@
+{
+  "kept_indices": [
+    0
+  ],
+  "num_heads_total": 1,
+  "kept_count": 1,
+  "threshold": null,
+  "source": "probe_layers.py P3 is_good_C logistic regression"
+}
