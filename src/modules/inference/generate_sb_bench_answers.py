@@ -60,6 +60,15 @@ def parse_args():
                              "The gold `label` is updated to track the new position of the "
                              "originally-correct answer text. Used by Phase 0.7 P2 to test "
                              "whether the policy is robust to letter-position permutations.")
+    # Phase 0.8 §4½.15: cap image resolution to bound visual-token count.
+    # Default 512x512 ≈ 262k pixels ≈ ~336 visual tokens (Qwen2.5-VL uses 28x28
+    # patches with a 2x2 spatial merger, so tokens ≈ pixels / (28*28) / 4).
+    # Matches PPO's effective working resolution and prevents OOM on large
+    # SB-Bench composites without dropping samples.
+    parser.add_argument("--max_pixels", type=int, default=512 * 512,
+                        help="Cap image resolution (pixels). 0 disables the cap.")
+    parser.add_argument("--min_pixels", type=int, default=0,
+                        help="Floor on image resolution (pixels). 0 disables.")
     return parser.parse_args()
 
 
@@ -108,8 +117,15 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     print(f"Loading Base Model: {args.base_model}")
-    processor = AutoProcessor.from_pretrained(args.base_model)
+    proc_kwargs = {}
+    if args.max_pixels and args.max_pixels > 0:
+        proc_kwargs["max_pixels"] = args.max_pixels
+    if args.min_pixels and args.min_pixels > 0:
+        proc_kwargs["min_pixels"] = args.min_pixels
+    processor = AutoProcessor.from_pretrained(args.base_model, **proc_kwargs)
     processor.tokenizer.padding_side = "left"
+    if proc_kwargs:
+        print(f"  processor pixel caps: {proc_kwargs}")
 
     base_model = AutoModelForImageTextToText.from_pretrained(
         args.base_model,
@@ -128,7 +144,29 @@ def main():
     model.eval()
 
     print(f"Loading Dataset: {args.data_path}")
-    ds = load_dataset("parquet", data_files={"test": args.data_path})["test"]
+    # Bypass `load_dataset("parquet", ...)` — its streaming reader trips on
+    # chunked struct columns (`file_name`) with
+    # `ArrowNotImplementedError: Nested data conversions not implemented for
+    # chunked array outputs`. Read the parquet directly with pyarrow into a
+    # single-chunk table and wrap it as a `datasets.Dataset`.
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from datasets import Dataset
+    # Modal's pyarrow trips on multi-row-group struct columns with
+    # `Nested data conversions not implemented for chunked array outputs`
+    # whenever it has to stitch row groups together (load_dataset,
+    # pq.read_table, ParquetFile.read()). Workaround: read each row group
+    # individually (each is already a single Arrow chunk), combine chunks
+    # *per group*, then concat. The concat result is multi-chunk but we
+    # don't pass it back through the scanner — we hand it straight to a
+    # `datasets.Dataset` which iterates row-wise via pyarrow's record
+    # accessors, not the struct scanner.
+    pf = pq.ParquetFile(args.data_path)
+    print(f"  parquet: rows={pf.metadata.num_rows} row_groups={pf.num_row_groups}")
+    _parts = [pf.read_row_group(i).combine_chunks() for i in range(pf.num_row_groups)]
+    _table = pa.concat_tables(_parts)
+    ds = Dataset(arrow_table=_table)
+    del _parts, _table  # free ~9 GB of image bytes from RAM
     print(f"  Total examples: {len(ds)}")
 
     # Filter to train/test split if requested
@@ -158,6 +196,12 @@ def main():
             ans2 = batch["ans2"][j]
             label = int(batch["label"][j])
             category = resolve_category(batch["category"][j])
+            # Phase 0.8 §4½.15 fix: use the SB-Bench string `id` as the stable
+            # question_id (e.g. "01_01_0000_2_01"). The old `i+j` enumeration
+            # was an offset into the post-split subset, which the §4½.15
+            # wrapper then mis-joined back to the full parquet via df.iloc[].
+            sb_id_raw = batch.get("id", [None] * batch_size)[j]
+            sb_qid = str(sb_id_raw) if sb_id_raw is not None else f"row{i + j}"
 
             # Phase 0.7 P2: cyclically rotate the (ans0, ans1, ans2) layout and
             # update `label` to track the new index of the originally-correct
@@ -195,7 +239,7 @@ def main():
                 ]}
             ])
             meta.append({
-                "question_id": i + j,
+                "question_id": sb_qid,
                 "category": category,
                 "label": label,
                 "ans0": ans0, "ans1": ans1, "ans2": ans2,

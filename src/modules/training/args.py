@@ -192,6 +192,23 @@ def parse_training_args() -> argparse.Namespace:
         default=1024,
         help="Maximum token sequence length",
     )
+    # Phase 0.8 §4½.15: cap image resolution at the processor layer so that
+    # high-res SB-Bench composites don't blow past --max_length (which would
+    # silently drop them in rl_dataset_builder.py) and don't OOM at rollout.
+    # 512x512 ≈ 262k px ≈ ~336 visual tokens with Qwen2.5-VL's 28x28 patch +
+    # 2x2 merger. Matches generate_sb_bench_answers.py default.
+    parser.add_argument(
+        "--max_pixels",
+        type=int,
+        default=512 * 512,
+        help="Cap image resolution (pixels) at the processor. 0 disables.",
+    )
+    parser.add_argument(
+        "--min_pixels",
+        type=int,
+        default=0,
+        help="Floor on image resolution (pixels). 0 disables.",
+    )
     parser.add_argument(
         "--epochs",
         type=int,
@@ -225,8 +242,47 @@ def parse_training_args() -> argparse.Namespace:
         "--reward_mode",
         type=str,
         default="svm",
-        choices=["svm", "binary"],
-        help="Reward signal: 'svm' (dense SVM projection) or 'binary' (+1/-1 correctness)",
+        choices=["svm", "binary", "bias_aligned"],
+        help=(
+            "Reward signal: 'svm' (dense SVM projection, Phase 0.5/0.6), "
+            "'binary' (+1/-1 correctness, Phase 0.6), or 'bias_aligned' "
+            "(Phase 0.8 probe-as-head: correctness + negated probe "
+            "projection at the answer-letter position + ambig-preservation "
+            "bonus, validated bi-directionally on VLBias ↔ SB-Bench at L13)."
+        ),
+    )
+    # ── Phase 0.8 (probe-as-head) controls ─────────────────────────────────
+    parser.add_argument(
+        "--reward_head_layer",
+        type=int,
+        default=-2,
+        help=(
+            "Index into outputs.hidden_states (0 = embedding, 1..N = block "
+            "outputs, -2 = penultimate). Phase 0.8 uses 13 to match the "
+            "probe-fit lead layer chosen in §4½.10. Default -2 reproduces "
+            "the legacy penultimate-layer behaviour for backward compat."
+        ),
+    )
+    parser.add_argument(
+        "--bias_aligned_coef",
+        type=float,
+        default=1.0,
+        help="Coefficient w_bias on the negated probe-projection term (Phase 0.8).",
+    )
+    parser.add_argument(
+        "--ambig_preservation_coef",
+        type=float,
+        default=0.5,
+        help=(
+            "Coefficient w_ambig on the ambig-preservation bonus 1[gold==C∧pred==C] "
+            "(§4½.11 ambig-collapse guard)."
+        ),
+    )
+    parser.add_argument(
+        "--correctness_coef",
+        type=float,
+        default=1.0,
+        help="Coefficient w_corr on the binary correctness term (Phase 0.8).",
     )
     parser.add_argument(
         "--use_frozen_phi",

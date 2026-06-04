@@ -204,8 +204,18 @@ def extract_hidden_states(model, processor, records: List[dict], image_root: str
             try:
                 if os.path.exists(img_full):
                     img = Image.open(img_full).convert("RGB")
+                elif rec.get("image_bytes"):
+                    import io as _io, base64 as _b64
+                    raw = rec["image_bytes"]
+                    if isinstance(raw, str):
+                        raw = _b64.b64decode(raw)
+                    img = Image.open(_io.BytesIO(raw)).convert("RGB")
                 else:
                     img = Image.new("RGB", (224, 224), color=(128, 128, 128))
+                    if not getattr(extract_hidden_states, "_grey_warned", False):
+                        print(f"⚠  image not found on disk and no image_bytes for qid={rec.get('question_id')}; "
+                              "using gray placeholder. Further grey-fallback warnings suppressed.")
+                        extract_hidden_states._grey_warned = True
             except Exception as e:
                 print(f"⚠  qid={rec.get('question_id')} image load failed ({e})")
                 img = Image.new("RGB", (224, 224), color=(128, 128, 128))

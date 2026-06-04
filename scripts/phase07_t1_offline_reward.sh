@@ -34,7 +34,7 @@ HEADS="${HEADS:-svm pca}"
 BATCH="${BATCH:-4}"
 MAX_SAMPLES="${MAX_SAMPLES:-0}"
 MAX_PER_CELL="${MAX_PER_CELL:-20}"   # 10 axes x 3 conditions x 20 = 600 records / variant
-MAX_PIXELS="${MAX_PIXELS:-0}"        # 0 = uncapped (matches generator); set e.g. 200704 to throttle
+MAX_PIXELS="${MAX_PIXELS:-262144}"        # 512x512 cap (Phase 0.8 §4½.15); set 0 to disable
 TOKEN_POSITION="${TOKEN_POSITION:-post_letter}"
 
 OUTPUT_DIR="/mnt/data/phase07_offline_reward"

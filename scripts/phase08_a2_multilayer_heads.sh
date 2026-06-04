@@ -49,7 +49,7 @@ VARIANTS="${VARIANTS:-base svm_ep1-50pct svm_ep1-end pca_ep1-step80 pca_ep1-end}
 HEADS="${HEADS:-svm pca}"
 BATCH="${BATCH:-4}"
 MAX_PER_CELL="${MAX_PER_CELL:-30}"
-MAX_PIXELS="${MAX_PIXELS:-0}"
+MAX_PIXELS="${MAX_PIXELS:-262144}"  # 512x512 cap (Phase 0.8 §4½.15); set 0 to disable
 COMPLETION_FORMAT="${COMPLETION_FORMAT:-letter}"
 TOKEN_POSITION="${TOKEN_POSITION:-post_letter}"
 

@@ -161,6 +161,13 @@ def load_records(gen_jsonl: str, parquet: str, max_samples: int,
 
     df = pd.read_parquet(parquet)
     qid_to_image = dict(zip(df["id"].astype(str), df["image_path"].astype(str)))
+    # Optional embedded bytes column (added by phase08_build_sbbench_gen.py so
+    # SB-Bench composite images can be scored without unpacking ~10k PNGs).
+    qid_to_bytes: Dict[str, bytes] = {}
+    if "image_bytes" in df.columns:
+        for k, b in zip(df["id"].astype(str), df["image_bytes"]):
+            if b is not None and len(b) > 0:
+                qid_to_bytes[str(k)] = bytes(b)
 
     merged = []
     missing_image = 0
@@ -171,6 +178,8 @@ def load_records(gen_jsonl: str, parquet: str, max_samples: int,
             missing_image += 1
             continue
         r["image_path"] = img
+        if qid in qid_to_bytes:
+            r["image_bytes"] = qid_to_bytes[qid]
         merged.append(r)
 
     if missing_image:
@@ -315,9 +324,10 @@ def main():
         ok_indices_in_batch = []
         for j, rec in enumerate(batch):
             # Mirror generate_vlbiasbench_answers.py image loading: try the
-            # full image_path, then basename, finally fall back to a gray 224x224
-            # placeholder so the record isn't silently dropped (and stays aligned
-            # with what the generator scored).
+            # full image_path, then basename, then embedded bytes (set by the
+            # SB-Bench wrapper when the source images aren't unpacked on disk),
+            # finally fall back to a gray 224x224 placeholder so the record
+            # isn't silently dropped.
             img_rel = rec["image_path"]
             img_full = os.path.join(args.image_root, img_rel)
             if not os.path.exists(img_full):
@@ -325,8 +335,18 @@ def main():
             try:
                 if os.path.exists(img_full):
                     img = Image.open(img_full).convert("RGB")
+                elif rec.get("image_bytes"):
+                    import io as _io, base64 as _b64
+                    raw = rec["image_bytes"]
+                    if isinstance(raw, str):
+                        raw = _b64.b64decode(raw)
+                    img = Image.open(_io.BytesIO(raw)).convert("RGB")
                 else:
                     img = Image.new("RGB", (224, 224), color=(128, 128, 128))
+                    if not getattr(score_with_per_head_threshold, "_grey_warned", False):
+                        print(f"⚠  image not found on disk and no image_bytes for qid={rec.get('question_id')}; "
+                              "using gray placeholder. Further grey-fallback warnings suppressed.")
+                        score_with_per_head_threshold._grey_warned = True
             except Exception as e:
                 print(f"⚠  qid={rec.get('question_id')} image load failed ({e}); using gray placeholder")
                 img = Image.new("RGB", (224, 224), color=(128, 128, 128))

@@ -59,6 +59,17 @@ class ScriptArguments:
         default=1024,
         metadata={"help": "Maximum sequence length for tokenized inputs. Affects memory usage significantly."}
     )
+    # Phase 0.8 §4½.15: cap image resolution at the processor (Qwen2.5-VL's
+    # smart_resize). 512x512 ≈ 262144 px ≈ ~336 visual tokens. Prevents OOM
+    # and stops the max_length filter from silently dropping high-res samples.
+    max_pixels: Optional[int] = field(
+        default=512 * 512,
+        metadata={"help": "Cap image resolution (pixels) at AutoProcessor load. 0 disables."}
+    )
+    min_pixels: Optional[int] = field(
+        default=0,
+        metadata={"help": "Floor on image resolution (pixels). 0 disables."}
+    )
     
     # Memory management
     batch_size: Optional[int] = field(

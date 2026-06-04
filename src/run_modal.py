@@ -291,7 +291,13 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
                  # Phase 0.6 D-blocker flags.
                  use_frozen_phi: bool = False,
                  kept_heads_filter: str = None,
-                 heads_suffix: str = ""):
+                 heads_suffix: str = "",
+                 # Phase 0.8 (probe-as-head) flags.
+                 reward_heads_dir_override: str = "",
+                 reward_head_layer: int = -2,
+                 bias_aligned_coef: float = 1.0,
+                 ambig_preservation_coef: float = 0.5,
+                 correctness_coef: float = 1.0):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
@@ -310,7 +316,15 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
 
     # Select reward heads directory based on head type
     heads_root = "/mnt/data/generated_heads" + (heads_suffix or "")
-    if head_type == "svm":
+    if reward_heads_dir_override:
+        # Phase 0.8: caller pins an explicit head dir (e.g. the L13 probe head
+        # produced by phase08_a3_probe_as_head.sh). Bypass the legacy
+        # SVM/PCA selector entirely.
+        reward_heads_dir = reward_heads_dir_override
+    elif head_type == "probe":
+        # Default Phase 0.8 layout: L13 / bias_aligned / forward direction.
+        reward_heads_dir = "/mnt/data/generated_heads_probe_L13_base_biasA/sb_bench-PROBE-component"
+    elif head_type == "svm":
         reward_heads_dir = os.path.join(heads_root, "sb_bench-SVM-component")
     else:
         reward_heads_dir = os.path.join(heads_root, "sb_bench-PCA-component")
@@ -380,6 +394,15 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         cmd.append("--use_frozen_phi")
     if kept_heads_filter:
         cmd.extend(["--kept_heads_filter", kept_heads_filter])
+    # Phase 0.8 probe-as-head flags. Always forward the four knobs so the
+    # training-side argparser sees consistent values regardless of
+    # reward_mode (the controller ignores them outside bias_aligned).
+    cmd.extend([
+        "--reward_head_layer", str(reward_head_layer),
+        "--bias_aligned_coef", str(bias_aligned_coef),
+        "--ambig_preservation_coef", str(ambig_preservation_coef),
+        "--correctness_coef", str(correctness_coef),
+    ])
     subprocess.run(cmd, check=True)
     volume.commit()
     print("✅ PPO training complete.")
@@ -447,8 +470,16 @@ def run_setup():
     volumes={"/mnt/data": volume},
     timeout=14400,
 )
-def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jsonl: str):
-    """Run generation (inference) for a given dataset."""
+def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jsonl: str,
+                   split: str = "test",
+                   split_indices_path: str = SPLIT_INDICES_PATH):
+    """Run generation (inference) for a given dataset.
+
+    Phase 0.8 §4½.15 audit re-run: `split` and `split_indices_path` are now
+    overridable so we can target a freshly-built 9-axis SB-Bench parquet
+    (`sb_bench_data_9axis.parquet` + `split_indices_9axis.json`) without
+    touching the legacy 2-axis defaults that prior call sites rely on.
+    """
     _setup_env()
     print(f"🧠 Starting Generation Phase for dataset: {dataset}")
     
@@ -470,9 +501,9 @@ def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jso
             "python", "-m", "modules.inference.generate_sb_bench_answers",
             "--data_path", data_path,
             "--output_jsonl", output_jsonl,
-            "--batch_size", "8",
-            "--split", "test",
-            "--split_indices_path", SPLIT_INDICES_PATH,
+            "--batch_size", "4",
+            "--split", split,
+            "--split_indices_path", split_indices_path,
         ]
         if checkpoint_dir:
             cmd += ["--checkpoint_dir", checkpoint_dir]
@@ -1384,6 +1415,18 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
          logit_reward_coef: float = 0.1, head_type: str = "svm",
          max_gen_tokens: int = 256, batch_size: int = 12,
          reward_mode: str = "svm",
+         # Phase 0.8 (probe-as-head) flags.
+         reward_heads_dir_override: str = "",
+         reward_head_layer: int = -2,
+         bias_aligned_coef: float = 1.0,
+         ambig_preservation_coef: float = 0.5,
+         correctness_coef: float = 1.0,
+         use_frozen_phi: bool = False,
+         # Phase 0 collapse-mitigation knobs (forwarded to run_training).
+         target_kl: float = 0.0,
+         midtrain_eval_every_steps: int = 0,
+         midtrain_eval_samples: int = 64,
+         gradient_accumulation_steps: int = 4,
          # Phase 0 knobs
          p0_num_samples: int = 256, p0_batch_size: int = 4,
          p0_layers: str = "12,18,24,30,34",
@@ -1477,6 +1520,17 @@ def main(phase: str = "all", epochs: int = 1, resume: str = "", output_dir: str 
         logit_reward_coef=logit_reward_coef, head_type=head_type,
         max_gen_tokens=max_gen_tokens, batch_size=batch_size,
         reward_mode=reward_mode,
+        # Phase 0.8 probe-as-head wiring.
+        reward_heads_dir_override=reward_heads_dir_override,
+        reward_head_layer=reward_head_layer,
+        bias_aligned_coef=bias_aligned_coef,
+        ambig_preservation_coef=ambig_preservation_coef,
+        correctness_coef=correctness_coef,
+        use_frozen_phi=use_frozen_phi,
+        target_kl=target_kl,
+        midtrain_eval_every_steps=midtrain_eval_every_steps,
+        midtrain_eval_samples=midtrain_eval_samples,
+        gradient_accumulation_steps=gradient_accumulation_steps,
     )
     
     if phase in ["all", "train"]:

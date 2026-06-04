@@ -236,7 +236,12 @@ def main():
         if script_args.preprocess_only:
             logger.info("Running in preprocess-only mode (no model loading)...")
             # Load just the processor (tokenizer + image processor) — CPU only
-            processor = AutoProcessor.from_pretrained(script_args.model, use_fast=True)
+            proc_kwargs = {"use_fast": True}
+            if getattr(script_args, "max_pixels", 0):
+                proc_kwargs["max_pixels"] = script_args.max_pixels
+            if getattr(script_args, "min_pixels", 0):
+                proc_kwargs["min_pixels"] = script_args.min_pixels
+            processor = AutoProcessor.from_pretrained(script_args.model, **proc_kwargs)
             if processor.tokenizer.pad_token is None:
                 processor.tokenizer.pad_token = processor.tokenizer.eos_token
             

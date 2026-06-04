@@ -33,12 +33,15 @@ from pathlib import Path
 
 import pandas as pd
 
-GEN_IN = "/tmp/sb_bench_generations.jsonl"
+# Phase 0.8 §4½.15 re-run: read the 9-axis vanilla generations + parquet built
+# from the full SB-Bench (test2-*) shards. Outputs use the `sbbench9` / `9axis`
+# tag so they never collide with the legacy 2-axis (`sbbench_base`) artefacts.
+GEN_IN = "/tmp/sb_bench_generations_9axis.jsonl"
 # Authoritative parquet used by generate_sb_bench_answers.py: matches the
 # `question_id` row-index assigned during generation (i + j).
-PARQUET = "/tmp/sb_bench_data.parquet"
-GEN_OUT = "/tmp/sbbench_base_vlbias_gen.jsonl"
-INDEX_OUT = "/tmp/sb_bench_as_vlbias.parquet"
+PARQUET = "/tmp/sb_bench_data_9axis.parquet"
+GEN_OUT = "/tmp/sbbench9_base_vlbias_gen.jsonl"
+INDEX_OUT = "/tmp/sb_bench9_as_vlbias.parquet"
 
 # Mirrors generate_sb_bench_answers.SB_BENCH_CATEGORIES; the parquet stores
 # category as int → resolve to readable axis name for cell stratification.
@@ -89,18 +92,31 @@ def main() -> None:
     gen_rows = [json.loads(l) for l in open(GEN_IN)]
     print(f"loaded {len(gen_rows)} generation rows")
 
-    df = pd.read_parquet(PARQUET)
-    print(f"loaded {len(df)} parquet rows from {PARQUET}")
+    # The 9-axis SB-Bench parquet stores image bytes inline; a vanilla
+    # pd.read_parquet hits ArrowNotImplementedError on chunked struct columns
+    # when a single row group's BINARY child exceeds the int32 offset limit.
+    # Read row-group-by-row-group and concat — same trick used in
+    # generate_sb_bench_answers.py.
+    import pyarrow.parquet as _pq, pyarrow as _pa
+    _pf = _pq.ParquetFile(PARQUET)
+    _parts = [_pf.read_row_group(i).combine_chunks() for i in range(_pf.num_row_groups)]
+    df = _pa.concat_tables(_parts).to_pandas()
+    del _parts
+    print(f"loaded {len(df)} parquet rows from {PARQUET} ({_pf.num_row_groups} row groups)")
 
-    # question_id is the row-index assigned during generation (i + j).
+    # Phase 0.8 §4½.15 fix: question_id is now the SB-Bench string `id`
+    # (e.g. "01_01_0000_2_01") written by generate_sb_bench_answers.py.
+    # Join on parquet `id` column, not row position.
+    df_by_id = {str(k): i for i, k in enumerate(df["id"].astype(str).tolist())}
     enriched = []
-    out_of_range = 0
+    missing = 0
     for r in gen_rows:
-        qid = int(r["question_id"])
-        if qid < 0 or qid >= len(df):
-            out_of_range += 1
+        qid = str(r["question_id"])
+        idx = df_by_id.get(qid)
+        if idx is None:
+            missing += 1
             continue
-        row = df.iloc[qid]
+        row = df.iloc[idx]
         polarity = int(row["question_polarity"])
         label_pq = int(row["label"])
         out = dict(r)
@@ -119,7 +135,7 @@ def main() -> None:
             out["label"] = label_pq
         enriched.append(out)
 
-    print(f"enriched {len(enriched)} rows (skipped {out_of_range} out-of-range qids)")
+    print(f"enriched {len(enriched)} rows (skipped {missing} qids missing from parquet)")
 
     with open(GEN_OUT, "w") as f:
         for r in enriched:
@@ -133,13 +149,26 @@ def main() -> None:
     for k, v in sorted(cells.items()):
         print(f"  {k:60s} {v}")
 
-    # Minimal id↔image_path index parquet for the scorer's join. The scorer
-    # uses df["id"] ↔ JSONL question_id, so we expose the row-index as `id`
-    # (string), and copy the unpacked image relative path.
-    idx_rows = [{"id": str(r["question_id"]), "image_path": r["image_path"]} for r in enriched]
+    # Minimal id↔image index parquet for the scorer's join. The scorer uses
+    # df["id"] ↔ JSONL question_id and (optionally) df["image_bytes"] when
+    # the image isn't unpacked on disk. SB-Bench images live as embedded
+    # bytes in the source parquet (`file_name.bytes`), so we carry them
+    # through directly — no separate unpacking step needed.
+    df_by_id_for_idx = {str(k): i for i, k in enumerate(df["id"].astype(str).tolist())}
+    idx_rows = []
+    for r in enriched:
+        qid = str(r["question_id"])
+        idx = df_by_id_for_idx.get(qid)
+        b = None
+        if idx is not None:
+            fn = df.iloc[idx]["file_name"]
+            if isinstance(fn, dict) and "bytes" in fn:
+                b = fn["bytes"]
+        idx_rows.append({"id": qid, "image_path": r["image_path"], "image_bytes": b})
     idx_df = pd.DataFrame(idx_rows)
     idx_df.to_parquet(INDEX_OUT, index=False)
-    print(f"wrote {INDEX_OUT} ({len(idx_df)} rows)")
+    n_with_bytes = sum(1 for r in idx_rows if r["image_bytes"] is not None and len(r["image_bytes"]) > 0)
+    print(f"wrote {INDEX_OUT} ({len(idx_df)} rows, {n_with_bytes} with image_bytes)")
 
 
 if __name__ == "__main__":

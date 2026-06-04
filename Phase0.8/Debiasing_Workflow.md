@@ -393,23 +393,99 @@ the bias signal being substantively cross-dataset; anything below means
 the probe memorised dataset-specific cues and is not deployable for
 cross-dataset PPO.
 
-### 6.4 The Qwen result
+### 6.4 The Qwen result (final, image-aware, bi-directional)
 
-| dataset | `s_d` (ambig::incorrect − ambig::correct) | n cells | verdict |
-| --- | ---: | ---: | --- |
-| VLBiasBench (in-dist)   | **+1.600** | 6 (full) | reference |
-| SB-Bench (transfer)     | **+1.631** | 6 (Age + Disability only) | **PASS** (102 % of in-dist) |
+The result below supersedes the earlier 2-axis "transfer audit" which was
+run against an SB-Bench dataset covering only Age and Disability and (we
+later discovered) was scoring with grey 224×224 placeholder images because
+SB-Bench composite images are embedded as bytes inside the parquet rather
+than unpacked on disk. Two code paths were fixed and re-run:
 
-The transfer `s_d` is *not just above the 0.5× gate, it is above the
-in-distribution value itself*. The bias direction the L13 `bias_aligned`
-head encodes is dataset-general.
+1. **SB-Bench `question_id` wiring** ([src/modules/inference/generate_sb_bench_answers.py](../src/modules/inference/generate_sb_bench_answers.py)):
+   write the SB-Bench string `id` (e.g. `01_01_0000_2_01`) instead of the
+   per-split enumeration index. The §4½.15 wrapper
+   [scripts/phase08_build_sbbench_gen.py](../scripts/phase08_build_sbbench_gen.py)
+   then joins on the string `id` instead of `df.iloc[qid]`, so the
+   `bbq_axis` and `condition` tags now reflect the real question.
+2. **Image-bytes propagation** ([scripts/phase08_build_sbbench_gen.py](../scripts/phase08_build_sbbench_gen.py),
+   [src/modules/evaluation/score_vlbias_offline.py](../src/modules/evaluation/score_vlbias_offline.py),
+   [src/modules/evaluation/probe_layers.py](../src/modules/evaluation/probe_layers.py)):
+   the wrapper now carries the embedded SB-Bench image bytes through into
+   `sb_bench9_as_vlbias.parquet`, and both the probe and the scorer fall
+   back to `image_bytes` when the on-disk path is missing — with a single
+   one-shot warning if neither is available, so the silent grey-image
+   regression cannot recur.
 
-**Caveat: coverage**. The SB-Bench vanilla baseline JSONL we used only
-covers 2 of SB-Bench's 9 axes (Age = 2832 rows, Disability = 84 rows). The
-transfer audit is *directional*, not exhaustive. To confirm transfer
-generalises beyond Age and Disability, re-run
-`src/modules/inference/generate_sb_bench_answers.py` across all 9 axes
-(open Q10 in the analysis doc).
+The 9-axis (all SB-Bench BBQ categories) probe + score artefacts that
+result are tagged `_9axis_capped_fixed` (forward direction) and
+`_reverse9_capped_fixed2` (reverse, after also purging the stale grey-image
+hidden-state cache `sbbench9_base_probe_hs.npz`).
+
+**Bi-directional transfer at L13, `bias_aligned` task, post-letter token,
+`max_pixels = 262 144`, capped batch:**
+
+| direction | probe trained on | scored on | n | Δ(amb_C−amb_I) ↓ | Δ(neg_C−neg_I) ↑ | Δ(non_neg_C−neg_I) ↑ | global μ ± σ | per-axis sign agreement |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| **forward (T2)**  | VLBiasBench `base` (10 axes) | SB-Bench `sbbench9_base` (9 axes) | 751 | **−1.77** | +1.16 | +1.17 | −0.56 ± 0.90 | **9/9 on both contrasts** |
+| **reverse (T3)**  | SB-Bench `sbbench9_base` (9 axes) | VLBiasBench `base` (10 axes) | 900 | **−1.42** | +1.32 | +1.28 | −0.68 ± 0.68 | **9/10 amb, 10/10 neg**¹ |
+
+¹ `Nationality` has zero `ambig::incorrect` samples after stratified
+subsampling — contrast is undefined, not a failure.
+
+Effect sizes are symmetric within ~20% across both directions
+(ratio_T3/T2 = 0.80×, 1.14×, 1.09× across the three contrasts), and σ is
+in the same regime (0.68 vs 0.90). This is the cleanest possible signature
+of a **shared latent**: the L13 direction the probe recovers is not an
+artefact of either dataset's surface form.
+
+Per-axis breakdown of the reverse direction (T3, 10 VLBiasBench axes):
+
+| axis | Δ(amb_C−amb_I) ↓ | Δ(neg_C−neg_I) ↑ | n(amb_C,amb_I) | n(neg_C,neg_I) |
+|---|---:|---:|---:|---:|
+| Age                  | −1.41 | +1.32 | 28, 2  | 13, 17 |
+| Disability_status    | −1.26 | +1.31 | 27, 3  |  9, 21 |
+| Gender_identity      | −1.43 | +1.32 | 25, 5  | 14, 16 |
+| Nationality          |  n/a  | +1.37 | 30, 0  | 12, 18 |
+| Physical_appearance  | −1.42 | +1.37 | 27, 3  | 13, 17 |
+| Race_ethnicity       | −1.53 | +1.43 | 28, 2  | 12, 18 |
+| Race_x_SES           | −1.58 | +1.35 | 28, 2  | 11, 19 |
+| Race_x_gender        | −1.42 | +1.28 | 28, 2  | 12, 18 |
+| Religion             | −1.27 | +1.39 | 27, 3  | 12, 18 |
+| SES                  | −1.53 | +0.93 | 26, 4  | 17, 13 |
+
+Magnitudes are tight (|Δ(amb)| ∈ [1.26, 1.58], |Δ(neg)| ∈ [0.93, 1.43])
+with no per-axis sign flips — the L13 direction generalises uniformly
+across all 10 BBQ axes in the reverse direction.
+
+The forward direction (T2) likewise hits **9/9 sign-correct on both
+decisive contrasts** across all 9 SB-Bench BBQ axes (Age, Disability,
+Gender, Nationality, Physical Appearance, Race/Ethnicity, Religion, SES,
+Sexual Orientation).
+
+#### What the 2.5× drop from the original (grey-image, cached) numbers means
+
+The earlier "T3-old" numbers showed |Δ| ∈ [3.3, 3.7] with σ = 1.81. Those
+were **inflated by a stale grey-image hidden-state cache** that forced the
+probe to align almost entirely with the post-letter *text* representation
+(images carried zero discriminative signal). Once the probe is re-fit on
+real-image hidden states, it learns a more nuanced direction that shares
+variance across text and image channels, yielding the more honest
+|Δ| ≈ 1.4 with σ ≈ 0.7. This is **desirable for PPO**: a head whose
+signal is fully entangled with the answer-letter token would just reward
+the model for picking a particular letter rather than for being unbiased.
+
+#### Gate verdict
+
+The Step 5 pre-committed gate (`transfer s_d ≥ 0.5 × in-dist s_d`) is now
+**comfortably PASSED on the full 9-axis SB-Bench**, in both directions,
+under image-aware probe-fit. The bias direction the L13 `bias_aligned`
+head encodes is dataset-general within the BBQ-style English VL
+benchmark family.
+
+**Caveat (image-aware, but still BBQ-style)**: the audit demonstrates
+transfer across two BBQ-derived VL benchmarks scored on the same VLM.
+The §6.5 caveats about non-BBQ task formulations, different VLMs, and
+non-English benchmarks still apply.
 
 ### 6.5 What "dataset-agnostic" does *not* mean
 
@@ -524,7 +600,9 @@ A100-80GB. For a 7B-class model: ≈ 4–5 h.
 [ ] correct-control s_d collapses (|s_d_corr| < 0.10)
 [ ] Test A-lite ≥ 8/10 axes positive
 [ ] At least one Test B Lite variant available OR cross-dataset transfer ≥ 0.5×
-[ ] Cross-dataset transfer audit PASS (s_d ≥ 0.5× in-dist)
+[ ] Cross-dataset transfer audit PASS (s_d ≥ 0.5× in-dist) — bi-directional preferred
+[ ] Probe fit uses real (not grey-placeholder) images on both sides; image_bytes fallback wired
+[ ] Hidden-state cache invalidated when image pipeline changes (sbbench*_probe_hs.npz purged)
 [ ] PPO trainer projects at the lead layer (not penultimate)
 [ ] Ambig-preservation term in r_total
 [ ] Eval matrix covers in-dist holdout + cross-dataset + capability sanity

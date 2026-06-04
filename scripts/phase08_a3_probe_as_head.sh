@@ -53,7 +53,7 @@ LAYER="${LAYER:-9}"
 LAYERS="${LAYERS:-${LAYER}}"
 BATCH="${BATCH:-4}"
 MAX_PER_CELL="${MAX_PER_CELL:-30}"
-MAX_PIXELS="${MAX_PIXELS:-0}"
+MAX_PIXELS="${MAX_PIXELS:-262144}"  # 512x512 cap (Phase 0.8 §4½.15); set 0 to disable
 HOLDOUT_TAG="${HOLDOUT_TAG:-base_qformat_text}"
 MAX_HOLDOUT="${MAX_HOLDOUT:-100}"
 SCORE_MAX_PER_CELL="${SCORE_MAX_PER_CELL:-30}"
@@ -88,7 +88,10 @@ PROBE_NPZ_ISC="${PROBE_DIR}/${VARIANT}_L${LAYER}_probe_weights_isC.npz"
 HEAD_ROOT="/mnt/data/generated_heads_probe_L${LAYER}_${VARIANT}${TASK_TAG}"
 HEAD_ROOT_RESID="/mnt/data/generated_heads_probe_L${LAYER}_${VARIANT}${TASK_TAG}_resid2"
 HEAD_ROOT_ORTH="/mnt/data/generated_heads_probe_L${LAYER}_${VARIANT}${TASK_TAG}_orthC"
-SCORE_OUT="/mnt/data/phase08_offline_reward_probe_L${LAYER}${TASK_TAG}"
+# SCORE_OUT_SUFFIX lets re-runs against new gen JSONLs (e.g. the §4½.15 9-axis
+# SB-Bench rebuild) land in a distinct output dir so we never overwrite the
+# legacy 2-axis results. Leave unset for the default behaviour.
+SCORE_OUT="/mnt/data/phase08_offline_reward_probe_L${LAYER}${TASK_TAG}${SCORE_OUT_SUFFIX:-}"
 PCS_NPY="/mnt/data/generated_heads_letter_post_letter_L${LAYER}/orthogonal_heads.npy"
 
 ARGS=("${@:+$@}")
@@ -128,6 +131,13 @@ for STAGE in "${STAGES[@]}"; do
             # The probe_layers.py loop writes ALL task NPZs (is_good_C / is_C /
             # bias_aligned / correct) per requested layer in one pass.
             LAYERS_COMMA=$(echo "${LAYERS}" | tr ' ' ',')
+            # Optional parquet/image_root overrides — needed when VARIANT is a
+            # non-VLBias re-shape (e.g. sbbench9_base) whose ids/images don't
+            # live in the default VLBias parquet.
+            PROBE_PARQUET_ARG=()
+            PROBE_IMAGE_ROOT_ARG=()
+            [[ -n "${PARQUET:-}" ]]    && PROBE_PARQUET_ARG=(--parquet "${PARQUET}")
+            [[ -n "${IMAGE_ROOT:-}" ]] && PROBE_IMAGE_ROOT_ARG=(--image-root "${IMAGE_ROOT}")
             modal run src/run_modal.py::run_layer_probe \
                 --variant "${VARIANT}" \
                 --batch-size "${BATCH}" \
@@ -137,7 +147,9 @@ for STAGE in "${STAGES[@]}"; do
                 --max-holdout "${MAX_HOLDOUT}" \
                 --token-position "${TOKEN_POSITION}" \
                 --cache-npz "${PROBE_CACHE}" \
-                --save-weights-at-layer "${LAYERS_COMMA}"
+                --save-weights-at-layer "${LAYERS_COMMA}" \
+                "${PROBE_PARQUET_ARG[@]:+${PROBE_PARQUET_ARG[@]}}" \
+                "${PROBE_IMAGE_ROOT_ARG[@]:+${PROBE_IMAGE_ROOT_ARG[@]}}"
             ;;
 
         head)

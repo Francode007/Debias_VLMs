@@ -215,7 +215,15 @@ class ModelLoader:
                 
                 # Load processor from local path
                 processor_path = self.get_local_model_path(model_name)
-                processor = AutoProcessor.from_pretrained(processor_path, use_fast=True)
+                # Phase 0.8 §4½.15: forward image pixel caps from script_args
+                # so any consumer (DRM embedding extraction, etc.) downscales
+                # high-res SB-Bench images at the processor layer.
+                proc_kwargs = {"use_fast": True}
+                if getattr(self.script_args, "max_pixels", 0):
+                    proc_kwargs["max_pixels"] = self.script_args.max_pixels
+                if getattr(self.script_args, "min_pixels", 0):
+                    proc_kwargs["min_pixels"] = self.script_args.min_pixels
+                processor = AutoProcessor.from_pretrained(processor_path, **proc_kwargs)
                 
                 # Ensure pad_token is set (required for batch sizes > 1)
                 if hasattr(processor, 'tokenizer'):

@@ -16,7 +16,13 @@ from torch.utils.data import DataLoader
 from transformers import AutoProcessor
 
 from modules.utils import ScriptArguments, DeviceManager, ModelLoader
-from modules.rl_components import PPOVLMController, FastRLNode, RLDataCollatorWithPadding, RLDatasetBuilder
+from modules.rl_components import (
+    PPOVLMController,
+    Phase08PPOController,
+    FastRLNode,
+    RLDataCollatorWithPadding,
+    RLDatasetBuilder,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +65,17 @@ def build_policy_model(args, accelerator: Accelerator) -> Tuple:
     loader = ModelLoader(script_cfg, DeviceManager())
 
     # Processor (left-padded for Flash Attention compatibility)
-    processor = AutoProcessor.from_pretrained(args.policy_model_name, use_fast=True)
+    proc_kwargs = {"use_fast": True}
+    max_px = getattr(args, "max_pixels", 0)
+    min_px = getattr(args, "min_pixels", 0)
+    if max_px and max_px > 0:
+        proc_kwargs["max_pixels"] = max_px
+    if min_px and min_px > 0:
+        proc_kwargs["min_pixels"] = min_px
+    processor = AutoProcessor.from_pretrained(args.policy_model_name, **proc_kwargs)
     processor.tokenizer.padding_side = "left"
+    if max_px or min_px:
+        logger.info(f"Processor pixel caps: max_pixels={max_px} min_pixels={min_px}")
 
     policy_base, _ = loader.load_model_and_processor()
 
@@ -126,21 +141,29 @@ def build_ppo_controller(
     accelerator: Accelerator,
     fast_rl_node: FastRLNode,
     args,
-) -> PPOVLMController:
+):
     """
-    Construct the PPOVLMController with the given components.
+    Construct the appropriate PPO controller based on ``args.reward_mode``.
+
+    Returns ``Phase08PPOController`` when ``reward_mode == 'bias_aligned'``
+    (Phase 0.8 probe-as-head), otherwise the legacy ``PPOVLMController``
+    used by Phase 0.5/0.6 (``'svm'`` / ``'binary'``). Both controllers
+    expose the same ``step(batch, optimizer_policy, optimizer_value)``
+    surface so ``ppo_loop.run_ppo_loop`` is reward-mode agnostic.
 
     Args:
         active_policy:        LoRA-wrapped policy model.
-        reward_heads_weight:  (K, hidden_dim) reward head tensor.
+        reward_heads_weight:  (K, hidden_dim) reward head tensor. For
+                              ``bias_aligned`` this is the single probe
+                              direction loaded from the
+                              ``sb_bench-PROBE-component/`` head dir.
         accelerator:          Active Accelerator.
-        fast_rl_node:         Instantiated FastRLNode.
+        fast_rl_node:         Instantiated FastRLNode (only meaningful for
+                              ``svm`` mode; ignored when ``K==1``).
         args:                 Parsed training arguments.
-
-    Returns:
-        Configured PPOVLMController.
     """
-    return PPOVLMController(
+    reward_mode = getattr(args, "reward_mode", "svm")
+    common_kwargs = dict(
         active_policy=active_policy,
         reward_heads_weight=reward_heads_weight,
         accelerator=accelerator,
@@ -152,7 +175,7 @@ def build_ppo_controller(
         lambda_dispersive=getattr(args, 'lambda_dispersive', 0.01),
         logit_reward_coef=getattr(args, 'logit_reward_coef', 0.1),
         max_gen_tokens=getattr(args, 'max_gen_tokens', 256),
-        reward_mode=getattr(args, 'reward_mode', 'svm'),
+        reward_mode=reward_mode,
         target_kl=getattr(args, 'target_kl', 0.0),
         kl_adapt_rate=getattr(args, 'kl_adapt_rate', 0.1),
         kl_beta_min=getattr(args, 'kl_beta_min', 0.05),
@@ -161,6 +184,31 @@ def build_ppo_controller(
         max_grad_norm=getattr(args, 'max_grad_norm', 1.0),
         use_frozen_phi=getattr(args, 'use_frozen_phi', False),
     )
+
+    if reward_mode == "bias_aligned":
+        logger.info(
+            "Building Phase08PPOController (reward_mode=bias_aligned, "
+            f"layer={getattr(args, 'reward_head_layer', 13)}, "
+            f"w_corr={getattr(args, 'correctness_coef', 1.0)}, "
+            f"w_bias={getattr(args, 'bias_aligned_coef', 1.0)}, "
+            f"w_ambig={getattr(args, 'ambig_preservation_coef', 0.5)})"
+        )
+        # Phase 0.8 requires frozen-φ projection (the probe was fit on
+        # un-adapted base hidden states). The controller forces this on
+        # internally, but flip the flag here too so downstream code and
+        # metrics see a consistent value.
+        common_kwargs["use_frozen_phi"] = True
+        return Phase08PPOController(
+            **common_kwargs,
+            reward_head_layer=int(getattr(args, "reward_head_layer", 13)),
+            bias_aligned_coef=float(getattr(args, "bias_aligned_coef", 1.0)),
+            ambig_preservation_coef=float(
+                getattr(args, "ambig_preservation_coef", 0.5)
+            ),
+            correctness_coef=float(getattr(args, "correctness_coef", 1.0)),
+        )
+
+    return PPOVLMController(**common_kwargs)
 
 
 def build_dataloader(
