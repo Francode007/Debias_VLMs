@@ -301,6 +301,9 @@ def build_dataloader(
         shuffle=True,
         num_workers=num_workers,
         pin_memory=True,
+        # Phase 0.8 strategic plan §5: explicit per-run RNG so seed-triple
+        # replication is bit-exact in shuffle order, not just torch-global.
+        generator=torch.Generator().manual_seed(int(getattr(args, "seed", 42))),
     )
 
     return train_dataset, train_dataloader, collator, eval_dataloader

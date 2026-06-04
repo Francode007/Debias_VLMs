@@ -297,7 +297,8 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
                  reward_head_layer: int = -2,
                  bias_aligned_coef: float = 1.0,
                  ambig_preservation_coef: float = 0.5,
-                 correctness_coef: float = 1.0):
+                 correctness_coef: float = 1.0,
+                 seed: int = 42):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
     print(f"🤖 Phase 4: PPO Training (A100-80GB) — {epochs} epoch(s) on {dataset}...")
@@ -402,6 +403,7 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--bias_aligned_coef", str(bias_aligned_coef),
         "--ambig_preservation_coef", str(ambig_preservation_coef),
         "--correctness_coef", str(correctness_coef),
+        "--seed", str(seed),
     ])
     subprocess.run(cmd, check=True)
     volume.commit()

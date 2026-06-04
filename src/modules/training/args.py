@@ -437,4 +437,16 @@ def parse_training_args() -> argparse.Namespace:
         ),
     )
 
+    # ── Reproducibility ───────────────────────────────────────────────────────
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help=(
+            "Master RNG seed. Drives torch / numpy / random / accelerate "
+            "and the train shuffle. Phase 0.8 seed-triple replication uses "
+            "{1, 2, 3}. Default 42 reproduces the headline 2k run."
+        ),
+    )
+
     return parser.parse_args()

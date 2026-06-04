@@ -52,6 +52,23 @@ def main() -> None:
     # ── 1. Arguments ──────────────────────────────────────────────────────────
     args = parse_training_args()
 
+    # ── 1b. Reproducibility ───────────────────────────────────────────────────
+    # Seed torch / numpy / random / accelerate for seed-triple replication
+    # (Phase 0.8 strategic plan §5).
+    seed = int(getattr(args, "seed", 42))
+    try:
+        from accelerate.utils import set_seed as _accelerate_set_seed
+        _accelerate_set_seed(seed)
+    except Exception:
+        import random as _random
+        import numpy as _np
+        _random.seed(seed)
+        _np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    logger.info(f"[seed] master RNG seed set to {seed}")
+
     # ── 2. Accelerator ────────────────────────────────────────────────────────
     accelerator = build_accelerator(args)
 
