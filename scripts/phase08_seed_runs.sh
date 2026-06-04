@@ -11,19 +11,27 @@
 #   • L13 probe head dir already exists on volume:
 #       /mnt/data/generated_heads_probe_L13_base_biasA/sb_bench-PROBE-component
 #   • L17 probe head dir must exist before launching the L17 triple. Build
-#     it once via the wash-out script (which builds all 11 layers):
-#         bash scripts/phase08_washout_make_heads.sh 17
-#     OR re-use phase08_a3_probe_as_head.sh's run_probe_to_head step
-#     pointed at base_L17_probe_weights_biasA.npz.
+#     it once via:
+#         bash scripts/phase08_upload_a3_npz.sh 17     # upload npz to volume
+#         bash scripts/phase08_washout_make_heads.sh 17 # npz → .pth head dir
 #
-# This file is documentation-by-example. To run only the L13 triple:
-#       bash -c 'set -e; SEEDS_L13="1 2 3" bash scripts/phase08_seed_runs.sh'
-# But by default, sourcing this file will print but not execute.
-exit 1
+# Usage:
+#   bash scripts/phase08_seed_runs.sh           # both L13 and L17, 3 seeds each
+#   LAYERS="13" bash scripts/phase08_seed_runs.sh   # only L13 triple
+#   LAYERS="17" bash scripts/phase08_seed_runs.sh   # only L17 triple
+#   SEEDS="1 2"  bash scripts/phase08_seed_runs.sh  # only seeds 1 and 2
 
 set -euo pipefail
 
-source debias_env/bin/activate
+# Auto-source venv if not already active.
+if [[ -z "${VIRTUAL_ENV:-}" ]]; then
+    # shellcheck disable=SC1091
+    source debias_env/bin/activate
+fi
+
+LAYERS="${LAYERS:-13 17}"
+SEEDS="${SEEDS:-1 2 3}"
+
 COMMON_FLAGS=(
     --epochs 1
     --dataset sb_bench --model-family qwen
@@ -37,28 +45,32 @@ COMMON_FLAGS=(
     --midtrain-eval-every-steps 50 --midtrain-eval-samples 64
 )
 
-# ─── L13 reward (primary, 3 seeds) ──────────────────────────────────────────
-for SEED in 1 2 3; do
-  echo "▶ Launching L13 seed=${SEED}"
-  modal run --detach src/run_modal.py::run_training \
-      "${COMMON_FLAGS[@]}" \
-      --output-dir "/mnt/data/output_ppo_phase08_2k_L13_s${SEED}" \
-      --reward-head-layer 13 \
-      --reward-heads-dir-override "/mnt/data/generated_heads_probe_L13_base_biasA/sb_bench-PROBE-component" \
-      --seed "${SEED}"
-done
+# ─── L13 reward (primary) ───────────────────────────────────────────────────
+if [[ " ${LAYERS} " == *" 13 "* ]]; then
+  for SEED in ${SEEDS}; do
+    echo "▶ Launching L13 seed=${SEED}"
+    modal run --detach src/run_modal.py::run_training \
+        "${COMMON_FLAGS[@]}" \
+        --output-dir "/mnt/data/output_ppo_phase08_2k_L13_s${SEED}" \
+        --reward-head-layer 13 \
+        --reward-heads-dir-override "/mnt/data/generated_heads_probe_L13_base_biasA/sb_bench-PROBE-component" \
+        --seed "${SEED}"
+  done
+fi
 
-# ─── L17 reward (deeper, 3 seeds) ───────────────────────────────────────────
-for SEED in 1 2 3; do
-  echo "▶ Launching L17 seed=${SEED}"
-  modal run --detach src/run_modal.py::run_training \
-      "${COMMON_FLAGS[@]}" \
-      --output-dir "/mnt/data/output_ppo_phase08_2k_L17_s${SEED}" \
-      --reward-head-layer 17 \
-      --reward-heads-dir-override "/mnt/data/generated_heads_probe_L17_base_biasA/sb_bench-PROBE-component" \
-      --seed "${SEED}"
-done
+# ─── L17 reward (deeper) ────────────────────────────────────────────────────
+if [[ " ${LAYERS} " == *" 17 "* ]]; then
+  for SEED in ${SEEDS}; do
+    echo "▶ Launching L17 seed=${SEED}"
+    modal run --detach src/run_modal.py::run_training \
+        "${COMMON_FLAGS[@]}" \
+        --output-dir "/mnt/data/output_ppo_phase08_2k_L17_s${SEED}" \
+        --reward-head-layer 17 \
+        --reward-heads-dir-override "/mnt/data/generated_heads_probe_L17_base_biasA/sb_bench-PROBE-component" \
+        --seed "${SEED}"
+  done
+fi
 
-echo "✅ All 6 detached jobs submitted. Track via:"
+echo "✅ Detached jobs submitted (LAYERS='${LAYERS}' SEEDS='${SEEDS}'). Track via:"
 echo "    modal app list"
 echo "    modal app logs <app-id>"
