@@ -1,0 +1,435 @@
+{
+  "cache_n": 900,
+  "layers_evaluated": [
+    1,
+    5,
+    9,
+    11,
+    13,
+    17,
+    21,
+    25,
+    29,
+    33,
+    35
+  ],
+  "ensemble_top5_layers": [
+    17,
+    21,
+    25,
+    29,
+    33
+  ],
+  "single_layer_metrics": {
+    "L1": {
+      "delta_mu_corr": 0.2596557664041008,
+      "cohen_d": 1.3601806231264988,
+      "pooled_sd": 0.190898004271858,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 0.7729203268073562,
+        "Disability_status": 1.7718674269008003,
+        "Gender_identity": 1.0065467677704296,
+        "Nationality": 1.4045902325589055,
+        "Physical_appearance": 1.0129618079823957,
+        "Race_ethnicity": 1.006204516414074,
+        "Race_x_SES": 0.8115998813046567,
+        "Race_x_gender": 2.357849060693547,
+        "Religion": 2.285693569787917,
+        "SES": 1.9038155575307265
+      }
+    },
+    "L5": {
+      "delta_mu_corr": 0.3653274126095431,
+      "cohen_d": 2.5365325177863216,
+      "pooled_sd": 0.14402630758637822,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 2.096697571445624,
+        "Disability_status": 2.900251323663349,
+        "Gender_identity": 2.7561880237434817,
+        "Nationality": 2.1106825631301076,
+        "Physical_appearance": 1.6359396477059795,
+        "Race_ethnicity": 2.1135993368893065,
+        "Race_x_SES": 1.690875106361645,
+        "Race_x_gender": 2.983269129770352,
+        "Religion": 3.6064533440219892,
+        "SES": 3.4519230013854423
+      }
+    },
+    "L9": {
+      "delta_mu_corr": 0.5051025492187058,
+      "cohen_d": 3.4384596976358957,
+      "pooled_sd": 0.14689791174984188,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 2.7634200552987176,
+        "Disability_status": 4.481684925047151,
+        "Gender_identity": 4.7123584777279595,
+        "Nationality": 3.3333939274337565,
+        "Physical_appearance": 2.035227944064136,
+        "Race_ethnicity": 3.276054251717572,
+        "Race_x_SES": 3.2427118315356847,
+        "Race_x_gender": 3.8420934251551317,
+        "Religion": 4.69926734964094,
+        "SES": 3.6822250311932176
+      }
+    },
+    "L11": {
+      "delta_mu_corr": 0.588666266397706,
+      "cohen_d": 3.7210421305948658,
+      "pooled_sd": 0.15819930163048132,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 3.539380864598148,
+        "Disability_status": 4.0714569063751815,
+        "Gender_identity": 5.109919177859692,
+        "Nationality": 3.652778132959953,
+        "Physical_appearance": 2.4294073890645107,
+        "Race_ethnicity": 3.510896209082741,
+        "Race_x_SES": 2.8418032407599343,
+        "Race_x_gender": 4.030800238874612,
+        "Religion": 4.731099283922377,
+        "SES": 3.638059865118915
+      }
+    },
+    "L13": {
+      "delta_mu_corr": 0.6210860762553556,
+      "cohen_d": 3.6976817779132873,
+      "pooled_sd": 0.1679663404150081,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 3.4375423760490103,
+        "Disability_status": 4.342406584480045,
+        "Gender_identity": 5.4241402699632335,
+        "Nationality": 3.8822487102111665,
+        "Physical_appearance": 2.353614876374663,
+        "Race_ethnicity": 3.296050333311958,
+        "Race_x_SES": 2.6736463148997442,
+        "Race_x_gender": 3.597506331999885,
+        "Religion": 4.926409716545718,
+        "SES": 3.987870360275207
+      }
+    },
+    "L17": {
+      "delta_mu_corr": 0.7239131889151675,
+      "cohen_d": 4.062068077760761,
+      "pooled_sd": 0.17821296321410468,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 3.607371338135076,
+        "Disability_status": 3.5790929829230813,
+        "Gender_identity": 6.3331932611418775,
+        "Nationality": 4.700388583787128,
+        "Physical_appearance": 3.115481038498735,
+        "Race_ethnicity": 3.2457408121221594,
+        "Race_x_SES": 2.7056367952544766,
+        "Race_x_gender": 3.438018683885594,
+        "Religion": 6.545378102353004,
+        "SES": 4.936830514238394
+      }
+    },
+    "L21": {
+      "delta_mu_corr": 1.4312444556994097,
+      "cohen_d": 5.682711009573726,
+      "pooled_sd": 0.2518594475925621,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 4.824162804545667,
+        "Disability_status": 7.137187548439852,
+        "Gender_identity": 7.844474188953334,
+        "Nationality": 6.33047561933273,
+        "Physical_appearance": 4.769039435697282,
+        "Race_ethnicity": 4.699680579951466,
+        "Race_x_SES": 5.0727985832252305,
+        "Race_x_gender": 5.058462591342547,
+        "Religion": 5.744917088370002,
+        "SES": 7.05923866329975
+      }
+    },
+    "L25": {
+      "delta_mu_corr": 5.88955054456847,
+      "cohen_d": 6.289017494766079,
+      "pooled_sd": 0.9364818192142003,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 5.403697924206609,
+        "Disability_status": 8.942970605646165,
+        "Gender_identity": 8.362084533793308,
+        "Nationality": 6.299002785751882,
+        "Physical_appearance": 7.143316182760124,
+        "Race_ethnicity": 7.529709183112699,
+        "Race_x_SES": 8.52785492946255,
+        "Race_x_gender": 4.6196155818465146,
+        "Religion": 5.175024938464539,
+        "SES": 7.300975040863148
+      }
+    },
+    "L29": {
+      "delta_mu_corr": 6.451789206283433,
+      "cohen_d": 6.52839560560426,
+      "pooled_sd": 0.9882656622011288,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 5.166851377034828,
+        "Disability_status": 10.911785046564077,
+        "Gender_identity": 8.140850164794116,
+        "Nationality": 5.626114201063423,
+        "Physical_appearance": 8.277776052001757,
+        "Race_ethnicity": 7.281264611590957,
+        "Race_x_SES": 6.214512957846877,
+        "Race_x_gender": 6.971612814840657,
+        "Religion": 5.206519013416896,
+        "SES": 7.993453396961388
+      }
+    },
+    "L33": {
+      "delta_mu_corr": 7.670914649282183,
+      "cohen_d": 6.387570914372782,
+      "pooled_sd": 1.200912639892847,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 5.721991729058032,
+        "Disability_status": 10.734555153516267,
+        "Gender_identity": 7.501918031637466,
+        "Nationality": 5.9905211139891925,
+        "Physical_appearance": 7.995629435177623,
+        "Race_ethnicity": 6.412588532717617,
+        "Race_x_SES": 7.34856408211172,
+        "Race_x_gender": 6.13359325629813,
+        "Religion": 5.337901735144478,
+        "SES": 8.348570174914197
+      }
+    },
+    "L35": {
+      "delta_mu_corr": 8.410182190758842,
+      "cohen_d": 6.9613822822492315,
+      "pooled_sd": 1.208119573062938,
+      "n_neg_correct": 125,
+      "n_non_neg_correct": 112,
+      "per_axis_cohen_d": {
+        "Age": 6.619655999033448,
+        "Disability_status": 9.54603987893612,
+        "Gender_identity": 8.508492078272795,
+        "Nationality": 7.469083166383482,
+        "Physical_appearance": 8.891487428862582,
+        "Race_ethnicity": 6.258152547953209,
+        "Race_x_SES": 8.83666030366711,
+        "Race_x_gender": 7.473132533088636,
+        "Religion": 6.092603747691362,
+        "SES": 9.302103730851847
+      }
+    }
+  },
+  "variants": {
+    "single_L13": {
+      "delta_mu_corr": 0.6210860762553556,
+      "cohen_d": 3.6976817779132873,
+      "pooled_sd": 0.1679663404150081,
+      "per_axis_pos_d": 10,
+      "per_axis_n": 10,
+      "per_axis_cohen_d": {
+        "Age": 3.4375423760490103,
+        "Disability_status": 4.342406584480045,
+        "Gender_identity": 5.4241402699632335,
+        "Nationality": 3.8822487102111665,
+        "Physical_appearance": 2.353614876374663,
+        "Race_ethnicity": 3.296050333311958,
+        "Race_x_SES": 2.6736463148997442,
+        "Race_x_gender": 3.597506331999885,
+        "Religion": 4.926409716545718,
+        "SES": 3.987870360275207
+      }
+    },
+    "single_L21": {
+      "delta_mu_corr": 1.4312444556994097,
+      "cohen_d": 5.682711009573726,
+      "pooled_sd": 0.2518594475925621,
+      "per_axis_pos_d": 10,
+      "per_axis_n": 10,
+      "per_axis_cohen_d": {
+        "Age": 4.824162804545667,
+        "Disability_status": 7.137187548439852,
+        "Gender_identity": 7.844474188953334,
+        "Nationality": 6.33047561933273,
+        "Physical_appearance": 4.769039435697282,
+        "Race_ethnicity": 4.699680579951466,
+        "Race_x_SES": 5.0727985832252305,
+        "Race_x_gender": 5.058462591342547,
+        "Religion": 5.744917088370002,
+        "SES": 7.05923866329975
+      }
+    },
+    "single_L25": {
+      "delta_mu_corr": 5.88955054456847,
+      "cohen_d": 6.289017494766079,
+      "pooled_sd": 0.9364818192142003,
+      "per_axis_pos_d": 10,
+      "per_axis_n": 10,
+      "per_axis_cohen_d": {
+        "Age": 5.403697924206609,
+        "Disability_status": 8.942970605646165,
+        "Gender_identity": 8.362084533793308,
+        "Nationality": 6.299002785751882,
+        "Physical_appearance": 7.143316182760124,
+        "Race_ethnicity": 7.529709183112699,
+        "Race_x_SES": 8.52785492946255,
+        "Race_x_gender": 4.6196155818465146,
+        "Religion": 5.175024938464539,
+        "SES": 7.300975040863148
+      }
+    },
+    "ens_raw_mean": {
+      "delta_mu_corr": 4.433482408949733,
+      "cohen_d": 6.967398591082854,
+      "pooled_sd": 0.6363181826031706,
+      "per_axis_pos_d": 10,
+      "per_axis_n": 10,
+      "per_axis_cohen_d": {
+        "Age": 5.983707438784797,
+        "Disability_status": 11.094487813823374,
+        "Gender_identity": 8.642290124979114,
+        "Nationality": 6.333306093868735,
+        "Physical_appearance": 8.320186474226672,
+        "Race_ethnicity": 7.204389072551134,
+        "Race_x_SES": 7.687256232818908,
+        "Race_x_gender": 6.10281660232132,
+        "Religion": 5.59916753886883,
+        "SES": 8.761140045841469
+      }
+    },
+    "ens_zscore_mean": {
+      "delta_mu_corr": 1.5857763598524106,
+      "cohen_d": 7.211966403368999,
+      "pooled_sd": 0.21988127386611658,
+      "per_axis_pos_d": 10,
+      "per_axis_n": 10,
+      "per_axis_cohen_d": {
+        "Age": 6.020705241180405,
+        "Disability_status": 10.066847485935682,
+        "Gender_identity": 9.590715989972555,
+        "Nationality": 6.617023778116017,
+        "Physical_appearance": 7.738336185640122,
+        "Race_ethnicity": 6.540725401708868,
+        "Race_x_SES": 7.583735969136121,
+        "Race_x_gender": 6.122621913280982,
+        "Religion": 6.089089943193929,
+        "SES": 9.48476450613571
+      }
+    },
+    "ens_rank_mean": {
+      "delta_mu_corr": 165.14044285714283,
+      "cohen_d": 4.261946147027084,
+      "pooled_sd": 38.74766061329432,
+      "per_axis_pos_d": 10,
+      "per_axis_n": 10,
+      "per_axis_cohen_d": {
+        "Age": 3.9456981940964333,
+        "Disability_status": 5.500560501554144,
+        "Gender_identity": 6.307471907533895,
+        "Nationality": 4.203617284384306,
+        "Physical_appearance": 5.346625984959151,
+        "Race_ethnicity": 3.15338440365171,
+        "Race_x_SES": 4.821308915154497,
+        "Race_x_gender": 4.015825883936672,
+        "Religion": 4.495377182222867,
+        "SES": 3.944149277664192
+      }
+    },
+    "ens_z_max": {
+      "delta_mu_corr": 1.361910992749276,
+      "cohen_d": 4.586640049226401,
+      "pooled_sd": 0.2969299919183719,
+      "per_axis_pos_d": 10,
+      "per_axis_n": 10,
+      "per_axis_cohen_d": {
+        "Age": 4.1468942449144155,
+        "Disability_status": 5.826998151454407,
+        "Gender_identity": 7.187987069880396,
+        "Nationality": 4.1208130555385685,
+        "Physical_appearance": 4.200646707994732,
+        "Race_ethnicity": 4.223848663513663,
+        "Race_x_SES": 4.175892042014136,
+        "Race_x_gender": 3.4115777788753094,
+        "Religion": 4.116295835285887,
+        "SES": 6.512838597554873
+      }
+    }
+  },
+  "layer_layer_pearson_top_window": {
+    "L13": {
+      "L13": 1.0,
+      "L17": 0.9790919683323184,
+      "L21": 0.9451088658377826,
+      "L25": 0.8789133582465999,
+      "L29": 0.8794745795577698,
+      "L33": 0.87999578959069,
+      "L35": 0.8660070518589928
+    },
+    "L17": {
+      "L13": 0.9790919683323184,
+      "L17": 0.9999999999999998,
+      "L21": 0.9493514335937427,
+      "L25": 0.8847984090667443,
+      "L29": 0.8864196412865053,
+      "L33": 0.8852728336851708,
+      "L35": 0.8738520103150842
+    },
+    "L21": {
+      "L13": 0.9451088658377826,
+      "L17": 0.9493514335937427,
+      "L21": 0.9999999999999999,
+      "L25": 0.9252708078201071,
+      "L29": 0.9283581809069494,
+      "L33": 0.928421924108541,
+      "L35": 0.9184635374408442
+    },
+    "L25": {
+      "L13": 0.8789133582465999,
+      "L17": 0.8847984090667443,
+      "L21": 0.9252708078201071,
+      "L25": 1.0,
+      "L29": 0.981479302377655,
+      "L33": 0.9736351620166273,
+      "L35": 0.9588160862987538
+    },
+    "L29": {
+      "L13": 0.8794745795577698,
+      "L17": 0.8864196412865053,
+      "L21": 0.9283581809069494,
+      "L25": 0.981479302377655,
+      "L29": 0.9999999999999999,
+      "L33": 0.9889858825439061,
+      "L35": 0.9762361670607992
+    },
+    "L33": {
+      "L13": 0.87999578959069,
+      "L17": 0.8852728336851708,
+      "L21": 0.928421924108541,
+      "L25": 0.9736351620166273,
+      "L29": 0.9889858825439061,
+      "L33": 1.0000000000000002,
+      "L35": 0.9869610093354415
+    },
+    "L35": {
+      "L13": 0.8660070518589928,
+      "L17": 0.8738520103150842,
+      "L21": 0.9184635374408442,
+      "L25": 0.9588160862987538,
+      "L29": 0.9762361670607992,
+      "L33": 0.9869610093354415,
+      "L35": 0.9999999999999998
+    }
+  },
+  "notes": "Evaluated on the SAME VLBias cached HS used to FIT the probes (n=900). Per-axis Cohen-d are train-set values \u2014 upper bounds. Heads are unit-normalised (PPO convention)."
+}
