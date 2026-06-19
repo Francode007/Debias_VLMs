@@ -131,7 +131,15 @@ class Phase08PPOController:
         """
         self.policy = active_policy
         
-        # Value head for PPO (scalar output mapping the hidden state of the active policy)
+        # Value head for PPO (scalar output mapping the hidden state of the active policy).
+        # Phase 0.8 KL-anomaly fix (2026-06-19): the default nn.Linear Kaiming-uniform
+        # init is seed-dependent. With hidden_size=2048, this produces per-seed
+        # asymmetric initial values that drive ~5× variation in value_grad_norm
+        # across seeds (s1=23.9, s4=4.4) and a 50× tail-KL outlier on s1
+        # (KL_tail s1=0.044 vs s2/s3/s4≈0.0008). Zero-initialising the value
+        # head removes this source of seed lottery: V(s_0)=0 for all seeds, so
+        # initial returns are reward-driven only, not init-driven. This is the
+        # standard PPO recipe (Schulman 2017, OpenAI baselines, HF TRL).
         if hasattr(self.policy.config, "hidden_size"):
             hidden_size = self.policy.config.hidden_size
         elif hasattr(self.policy.config, "text_config") and hasattr(self.policy.config.text_config, "hidden_size"):
@@ -139,6 +147,8 @@ class Phase08PPOController:
         else:
             hidden_size = self.policy.get_input_embeddings().weight.shape[-1]
         self.value_head = nn.Linear(hidden_size, 1, bias=False).to(accelerator.device, dtype=torch.bfloat16)
+        with torch.no_grad():
+            self.value_head.weight.zero_()
         
         self.accelerator = accelerator
         self.fast_rl = fast_rl_node
@@ -942,7 +952,19 @@ class Phase08PPOController:
         v_loss = v_loss.mean()
         
         # 13. TOTAL LOSS
-        loss = pg_loss + self.vf_coef * v_loss + self.lambda_dispersive * dispersive_loss
+        # Value-head warmup: when `_value_only_mode` is set, we are pretraining
+        # the value head before the main PPO loop starts. We zero out the
+        # policy-update contributions so the LoRA weights stay frozen and only
+        # the Linear(D,1) value head gets trained. Gradients still flow back
+        # through the policy graph into LoRA params (because v_loss depends on
+        # hidden_states), but we discard them by skipping `optimizer_policy.step()`
+        # below. This isolates the seed-sensitive value-head fit from the
+        # policy update so the post-warmup starting point is roughly
+        # seed-independent.
+        if getattr(self, "_value_only_mode", False):
+            loss = self.vf_coef * v_loss
+        else:
+            loss = pg_loss + self.vf_coef * v_loss + self.lambda_dispersive * dispersive_loss
         
         # Backprop
         self.accelerator.backward(loss)
@@ -1005,7 +1027,15 @@ class Phase08PPOController:
                 self.value_head.parameters(), self.max_grad_norm,
             )
 
-        optimizer_policy.step()
+        # Value-head warmup: skip the policy optimizer step entirely. Any
+        # gradients that flowed into LoRA params via the v_loss → hidden_states
+        # path are discarded by `optimizer_policy.zero_grad()`. The KL
+        # controller is also frozen here because policy weights are not
+        # moving, so post-update KL would just measure rollout noise and
+        # erroneously shrink kl_beta toward kl_beta_min.
+        value_only = getattr(self, "_value_only_mode", False)
+        if not value_only:
+            optimizer_policy.step()
         optimizer_value.step()
         optimizer_policy.zero_grad()
         optimizer_value.zero_grad()
@@ -1019,7 +1049,11 @@ class Phase08PPOController:
         kl_observed = (
             token_kl[loss_mask.bool()].mean().item() if loss_mask.any() else 0.0
         )
-        if self.target_kl > 0.0 and self.accelerator.sync_gradients:
+        if (
+            not value_only
+            and self.target_kl > 0.0
+            and self.accelerator.sync_gradients
+        ):
             err = kl_observed / self.target_kl - 1.0
             step_factor = float(
                 max(0.5, min(2.0, 1.0 + self.kl_adapt_rate * err))
