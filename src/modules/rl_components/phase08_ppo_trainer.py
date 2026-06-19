@@ -973,7 +973,17 @@ class Phase08PPOController:
         # actually reached the trainable (LoRA) parameters. Fail loudly
         # rather than waiting for a 23-minute training run to discover
         # the policy never moved.
-        if not getattr(self, "_grad_flow_checked", False):
+        # NOTE: skipped during value-warmup (_value_only_mode=True). The
+        # warmup loss is `vf_coef * v_loss` and the policy optimizer step is
+        # also skipped, so zero policy-grad is expected by design. With the
+        # zero-init value head (Phase 0.8 KL fix), v_loss truly does not
+        # backprop into LoRA (since ∂values/∂hidden_states = value_head.weight = 0
+        # at step 0). The check will fire on the first post-warmup PPO step
+        # instead, when pg_loss enters the total loss.
+        if (
+            not getattr(self, "_grad_flow_checked", False)
+            and not getattr(self, "_value_only_mode", False)
+        ):
             n_trainable = 0
             n_with_grad = 0
             sample_zero_param = None
