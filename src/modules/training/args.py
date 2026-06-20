@@ -369,6 +369,33 @@ def parse_training_args() -> argparse.Namespace:
         default=None,
         help="Override value-head LR. Defaults to 5x --learning_rate.",
     )
+    parser.add_argument(
+        "--value_warmup_steps",
+        type=int,
+        default=0,
+        help=(
+            "If >0, run N rollout batches BEFORE the main PPO loop that train "
+            "the value head only (policy weights and KL-controller frozen). "
+            "Purpose: pretrain the Linear(D,1) value head so its first-step "
+            "fit quality does not depend on RNG-seeded init. Empirically the "
+            "seed-2 collapse trajectory in phase08_2k L13 reseeds (b01=2, "
+            "b10=35) coincided with a 4x higher v_loss tail than production, "
+            "and v_loss at step 0 spans 20x across seeds (0.49 -> 8.75) due "
+            "to the Linear head's random init. Pretraining the value head "
+            "for N=25-50 steps washes out that seed-dependent component. "
+            "0 disables (legacy behaviour, default)."
+        ),
+    )
+    parser.add_argument(
+        "--value_warmup_lr_multiplier",
+        type=float,
+        default=1.0,
+        help=(
+            "Multiplier applied to --value_learning_rate during the warmup "
+            "phase. >1 makes the value head fit faster while the policy is "
+            "frozen. Restored to 1x for the main PPO loop."
+        ),
+    )
 
     # ── Early stopping (eval-driven, based on rolling training accuracy) ──────
     parser.add_argument(

@@ -1,0 +1,431 @@
+{
+  "pairs_parquet": "Phase0.8/counterfactual_eval/cf_pairs.parquet",
+  "n_pairs_total": 6166,
+  "variants": {
+    "base": {
+      "n_pairs_total_in_gens": 244,
+      "n_pairs_clean": 244,
+      "n_dropped_unparseable": 0,
+      "micro": {
+        "flip_rate": 0.2459016393442623,
+        "flip_rate_se": 0.027567653229059057,
+        "acc_orig": 0.6475409836065574,
+        "acc_swap": 0.6434426229508197
+      },
+      "macro": {
+        "flip_rate": 0.23372610762703644,
+        "acc_orig": 0.6685931909125924,
+        "acc_swap": 0.6680650301806133
+      },
+      "per_axis": {
+        "Age": {
+          "n_pairs": 48,
+          "flip_rate": 0.2708333333333333,
+          "flip_rate_se": 0.0641421986177471,
+          "acc_orig": 0.5833333333333334,
+          "acc_swap": 0.625,
+          "n_correct_orig": 28,
+          "n_correct_swap": 30
+        },
+        "Disability": {
+          "n_pairs": 18,
+          "flip_rate": 0.2777777777777778,
+          "flip_rate_se": 0.10557179862029056,
+          "acc_orig": 0.5555555555555556,
+          "acc_swap": 0.7222222222222222,
+          "n_correct_orig": 10,
+          "n_correct_swap": 13
+        },
+        "Gender": {
+          "n_pairs": 36,
+          "flip_rate": 0.3055555555555556,
+          "flip_rate_se": 0.07677372199896759,
+          "acc_orig": 0.6666666666666666,
+          "acc_swap": 0.6388888888888888,
+          "n_correct_orig": 24,
+          "n_correct_swap": 23
+        },
+        "Nationality": {
+          "n_pairs": 17,
+          "flip_rate": 0.35294117647058826,
+          "flip_rate_se": 0.11590404307573858,
+          "acc_orig": 0.7058823529411765,
+          "acc_swap": 0.5882352941176471,
+          "n_correct_orig": 12,
+          "n_correct_swap": 10
+        },
+        "Physical Appearance": {
+          "n_pairs": 25,
+          "flip_rate": 0.24,
+          "flip_rate_se": 0.0854166260162505,
+          "acc_orig": 0.56,
+          "acc_swap": 0.56,
+          "n_correct_orig": 14,
+          "n_correct_swap": 14
+        },
+        "Race/Ethnicity": {
+          "n_pairs": 38,
+          "flip_rate": 0.2631578947368421,
+          "flip_rate_se": 0.0714337781619259,
+          "acc_orig": 0.5526315789473685,
+          "acc_swap": 0.5263157894736842,
+          "n_correct_orig": 21,
+          "n_correct_swap": 20
+        },
+        "Religion": {
+          "n_pairs": 16,
+          "flip_rate": 0.0625,
+          "flip_rate_se": 0.06051536478449089,
+          "acc_orig": 0.8125,
+          "acc_swap": 0.875,
+          "n_correct_orig": 13,
+          "n_correct_swap": 14
+        },
+        "SES": {
+          "n_pairs": 20,
+          "flip_rate": 0.1,
+          "flip_rate_se": 0.0670820393249937,
+          "acc_orig": 0.85,
+          "acc_swap": 0.9,
+          "n_correct_orig": 17,
+          "n_correct_swap": 18
+        },
+        "Sexual Orientation": {
+          "n_pairs": 26,
+          "flip_rate": 0.23076923076923078,
+          "flip_rate_se": 0.08262863931224225,
+          "acc_orig": 0.7307692307692307,
+          "acc_swap": 0.5769230769230769,
+          "n_correct_orig": 19,
+          "n_correct_swap": 15
+        }
+      }
+    },
+    "phase08_2k": {
+      "n_pairs_total_in_gens": 244,
+      "n_pairs_clean": 244,
+      "n_dropped_unparseable": 0,
+      "micro": {
+        "flip_rate": 0.22540983606557377,
+        "flip_rate_se": 0.026750229190872377,
+        "acc_orig": 0.6639344262295082,
+        "acc_swap": 0.6721311475409836
+      },
+      "macro": {
+        "flip_rate": 0.21113502921036462,
+        "acc_orig": 0.6898111396305411,
+        "acc_swap": 0.6968601871697846
+      },
+      "per_axis": {
+        "Age": {
+          "n_pairs": 48,
+          "flip_rate": 0.2916666666666667,
+          "flip_rate_se": 0.06560570704059439,
+          "acc_orig": 0.5833333333333334,
+          "acc_swap": 0.625,
+          "n_correct_orig": 28,
+          "n_correct_swap": 30
+        },
+        "Disability": {
+          "n_pairs": 18,
+          "flip_rate": 0.3888888888888889,
+          "flip_rate_se": 0.11490438561102646,
+          "acc_orig": 0.5555555555555556,
+          "acc_swap": 0.7222222222222222,
+          "n_correct_orig": 10,
+          "n_correct_swap": 13
+        },
+        "Gender": {
+          "n_pairs": 36,
+          "flip_rate": 0.2222222222222222,
+          "flip_rate_se": 0.06928995160692483,
+          "acc_orig": 0.6666666666666666,
+          "acc_swap": 0.6944444444444444,
+          "n_correct_orig": 24,
+          "n_correct_swap": 25
+        },
+        "Nationality": {
+          "n_pairs": 17,
+          "flip_rate": 0.29411764705882354,
+          "flip_rate_se": 0.11051016901502637,
+          "acc_orig": 0.7058823529411765,
+          "acc_swap": 0.6470588235294118,
+          "n_correct_orig": 12,
+          "n_correct_swap": 11
+        },
+        "Physical Appearance": {
+          "n_pairs": 25,
+          "flip_rate": 0.16,
+          "flip_rate_se": 0.07332121111929343,
+          "acc_orig": 0.6,
+          "acc_swap": 0.64,
+          "n_correct_orig": 15,
+          "n_correct_swap": 16
+        },
+        "Race/Ethnicity": {
+          "n_pairs": 38,
+          "flip_rate": 0.2894736842105263,
+          "flip_rate_se": 0.07357035128653369,
+          "acc_orig": 0.5526315789473685,
+          "acc_swap": 0.5526315789473685,
+          "n_correct_orig": 21,
+          "n_correct_swap": 21
+        },
+        "Religion": {
+          "n_pairs": 16,
+          "flip_rate": 0.0,
+          "flip_rate_se": 0.0,
+          "acc_orig": 0.875,
+          "acc_swap": 0.875,
+          "n_correct_orig": 14,
+          "n_correct_swap": 14
+        },
+        "SES": {
+          "n_pairs": 20,
+          "flip_rate": 0.1,
+          "flip_rate_se": 0.0670820393249937,
+          "acc_orig": 0.9,
+          "acc_swap": 0.9,
+          "n_correct_orig": 18,
+          "n_correct_swap": 18
+        },
+        "Sexual Orientation": {
+          "n_pairs": 26,
+          "flip_rate": 0.15384615384615385,
+          "flip_rate_se": 0.0707589393082923,
+          "acc_orig": 0.7692307692307693,
+          "acc_swap": 0.6153846153846154,
+          "n_correct_orig": 20,
+          "n_correct_swap": 16
+        }
+      }
+    },
+    "phase08_2k_corrOnly": {
+      "n_pairs_total_in_gens": 244,
+      "n_pairs_clean": 244,
+      "n_dropped_unparseable": 0,
+      "micro": {
+        "flip_rate": 0.2786885245901639,
+        "flip_rate_se": 0.02870291803095082,
+        "acc_orig": 0.5860655737704918,
+        "acc_swap": 0.5860655737704918
+      },
+      "macro": {
+        "flip_rate": 0.26299789191430056,
+        "acc_orig": 0.5972779453661806,
+        "acc_swap": 0.5992946145319726
+      },
+      "per_axis": {
+        "Age": {
+          "n_pairs": 48,
+          "flip_rate": 0.3125,
+          "flip_rate_se": 0.06690225301388088,
+          "acc_orig": 0.5833333333333334,
+          "acc_swap": 0.5833333333333334,
+          "n_correct_orig": 28,
+          "n_correct_swap": 28
+        },
+        "Disability": {
+          "n_pairs": 18,
+          "flip_rate": 0.3333333333333333,
+          "flip_rate_se": 0.11111111111111112,
+          "acc_orig": 0.4444444444444444,
+          "acc_swap": 0.6111111111111112,
+          "n_correct_orig": 8,
+          "n_correct_swap": 11
+        },
+        "Gender": {
+          "n_pairs": 36,
+          "flip_rate": 0.3333333333333333,
+          "flip_rate_se": 0.07856742013183862,
+          "acc_orig": 0.6388888888888888,
+          "acc_swap": 0.6111111111111112,
+          "n_correct_orig": 23,
+          "n_correct_swap": 22
+        },
+        "Nationality": {
+          "n_pairs": 17,
+          "flip_rate": 0.23529411764705882,
+          "flip_rate_se": 0.10287936849355367,
+          "acc_orig": 0.5294117647058824,
+          "acc_swap": 0.5294117647058824,
+          "n_correct_orig": 9,
+          "n_correct_swap": 9
+        },
+        "Physical Appearance": {
+          "n_pairs": 25,
+          "flip_rate": 0.28,
+          "flip_rate_se": 0.0897997772825746,
+          "acc_orig": 0.44,
+          "acc_swap": 0.56,
+          "n_correct_orig": 11,
+          "n_correct_swap": 14
+        },
+        "Race/Ethnicity": {
+          "n_pairs": 38,
+          "flip_rate": 0.3157894736842105,
+          "flip_rate_se": 0.07540530520119779,
+          "acc_orig": 0.5,
+          "acc_swap": 0.47368421052631576,
+          "n_correct_orig": 19,
+          "n_correct_swap": 18
+        },
+        "Religion": {
+          "n_pairs": 16,
+          "flip_rate": 0.1875,
+          "flip_rate_se": 0.09757809372497497,
+          "acc_orig": 0.8125,
+          "acc_swap": 0.625,
+          "n_correct_orig": 13,
+          "n_correct_swap": 10
+        },
+        "SES": {
+          "n_pairs": 20,
+          "flip_rate": 0.1,
+          "flip_rate_se": 0.0670820393249937,
+          "acc_orig": 0.85,
+          "acc_swap": 0.9,
+          "n_correct_orig": 17,
+          "n_correct_swap": 18
+        },
+        "Sexual Orientation": {
+          "n_pairs": 26,
+          "flip_rate": 0.2692307692307692,
+          "flip_rate_se": 0.08698929247330862,
+          "acc_orig": 0.5769230769230769,
+          "acc_swap": 0.5,
+          "n_correct_orig": 15,
+          "n_correct_swap": 13
+        }
+      }
+    },
+    "phase08_2k_biasOnly": {
+      "n_pairs_total_in_gens": 244,
+      "n_pairs_clean": 244,
+      "n_dropped_unparseable": 0,
+      "micro": {
+        "flip_rate": 0.2459016393442623,
+        "flip_rate_se": 0.027567653229059057,
+        "acc_orig": 0.639344262295082,
+        "acc_swap": 0.6229508196721312
+      },
+      "macro": {
+        "flip_rate": 0.22903877760430913,
+        "acc_orig": 0.6581468471329154,
+        "acc_swap": 0.6444944196001987
+      },
+      "per_axis": {
+        "Age": {
+          "n_pairs": 48,
+          "flip_rate": 0.2708333333333333,
+          "flip_rate_se": 0.0641421986177471,
+          "acc_orig": 0.5833333333333334,
+          "acc_swap": 0.6041666666666666,
+          "n_correct_orig": 28,
+          "n_correct_swap": 29
+        },
+        "Disability": {
+          "n_pairs": 18,
+          "flip_rate": 0.2777777777777778,
+          "flip_rate_se": 0.10557179862029056,
+          "acc_orig": 0.5,
+          "acc_swap": 0.6666666666666666,
+          "n_correct_orig": 9,
+          "n_correct_swap": 12
+        },
+        "Gender": {
+          "n_pairs": 36,
+          "flip_rate": 0.2777777777777778,
+          "flip_rate_se": 0.07465053470646806,
+          "acc_orig": 0.6666666666666666,
+          "acc_swap": 0.6388888888888888,
+          "n_correct_orig": 24,
+          "n_correct_swap": 23
+        },
+        "Nationality": {
+          "n_pairs": 17,
+          "flip_rate": 0.23529411764705882,
+          "flip_rate_se": 0.10287936849355367,
+          "acc_orig": 0.7058823529411765,
+          "acc_swap": 0.5294117647058824,
+          "n_correct_orig": 12,
+          "n_correct_swap": 9
+        },
+        "Physical Appearance": {
+          "n_pairs": 25,
+          "flip_rate": 0.24,
+          "flip_rate_se": 0.0854166260162505,
+          "acc_orig": 0.56,
+          "acc_swap": 0.56,
+          "n_correct_orig": 14,
+          "n_correct_swap": 14
+        },
+        "Race/Ethnicity": {
+          "n_pairs": 38,
+          "flip_rate": 0.2894736842105263,
+          "flip_rate_se": 0.07357035128653369,
+          "acc_orig": 0.5526315789473685,
+          "acc_swap": 0.5263157894736842,
+          "n_correct_orig": 21,
+          "n_correct_swap": 20
+        },
+        "Religion": {
+          "n_pairs": 16,
+          "flip_rate": 0.0625,
+          "flip_rate_se": 0.06051536478449089,
+          "acc_orig": 0.8125,
+          "acc_swap": 0.875,
+          "n_correct_orig": 13,
+          "n_correct_swap": 14
+        },
+        "SES": {
+          "n_pairs": 20,
+          "flip_rate": 0.1,
+          "flip_rate_se": 0.0670820393249937,
+          "acc_orig": 0.85,
+          "acc_swap": 0.9,
+          "n_correct_orig": 17,
+          "n_correct_swap": 18
+        },
+        "Sexual Orientation": {
+          "n_pairs": 26,
+          "flip_rate": 0.3076923076923077,
+          "flip_rate_se": 0.09051513929454648,
+          "acc_orig": 0.6923076923076923,
+          "acc_swap": 0.5,
+          "n_correct_orig": 18,
+          "n_correct_swap": 13
+        }
+      }
+    }
+  },
+  "comparisons": {
+    "phase08_2k_vs_base": {
+      "delta_flip_rate": -0.02049180327868852,
+      "z_score": -0.5334616127510796,
+      "approx_p_two_sided": 0.5937140770611069,
+      "base_flip_rate": 0.2459016393442623,
+      "variant_flip_rate": 0.22540983606557377,
+      "n_base": 244,
+      "n_variant": 244
+    },
+    "phase08_2k_corrOnly_vs_base": {
+      "delta_flip_rate": 0.03278688524590162,
+      "z_score": 0.8238449156622781,
+      "approx_p_two_sided": 0.4100276827286278,
+      "base_flip_rate": 0.2459016393442623,
+      "variant_flip_rate": 0.2786885245901639,
+      "n_base": 244,
+      "n_variant": 244
+    },
+    "phase08_2k_biasOnly_vs_base": {
+      "delta_flip_rate": 0.0,
+      "z_score": 0.0,
+      "approx_p_two_sided": 1.0,
+      "base_flip_rate": 0.2459016393442623,
+      "variant_flip_rate": 0.2459016393442623,
+      "n_base": 244,
+      "n_variant": 244
+    }
+  }
+}

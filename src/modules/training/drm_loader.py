@@ -90,7 +90,10 @@ def load_pca_components(
         weights.append(w)  # each (1, hidden_dim)
 
     combined = torch.cat(weights, dim=0).to(device, dtype=torch.bfloat16)
-    logger.info(f"Loaded {combined.shape[0]} DRM heads of shape {combined.shape}")
+    logger.info(
+        f"Loaded {combined.shape[0]} reward head(s) of shape {tuple(combined.shape)} "
+        f"from {heads_dir}"
+    )
     return combined
 
 

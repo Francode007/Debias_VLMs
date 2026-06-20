@@ -1,0 +1,362 @@
+{
+  "variant": "base",
+  "head_type": "probe",
+  "heads_dir": "/mnt/data/generated_heads_probe_L29_base_biasA/sb_bench-PROBE-component",
+  "kept_heads": "/mnt/data/generated_heads_probe_L29_base_biasA/kept_heads_probe.json",
+  "num_heads": 1,
+  "token_position": "post_letter",
+  "layer_idx": 29,
+  "num_samples_scored": 3000,
+  "num_samples_input": 3000,
+  "by_cell": {
+    "ambig::incorrect": {
+      "n": 81,
+      "mean_reward": -0.22953287760416666,
+      "std_reward": 1.89345784579342,
+      "mean_per_head": [
+        -0.22953287760416666
+      ]
+    },
+    "ambig::correct": {
+      "n": 919,
+      "mean_reward": -4.778776183351469,
+      "std_reward": 0.7891563369760557,
+      "mean_per_head": [
+        -4.778776183351469
+      ]
+    },
+    "non_neg::incorrect": {
+      "n": 629,
+      "mean_reward": -4.679221730922099,
+      "std_reward": 2.376372723510063,
+      "mean_per_head": [
+        -4.679221730922099
+      ]
+    },
+    "neg::correct": {
+      "n": 364,
+      "mean_reward": 3.6964071085164836,
+      "std_reward": 1.2511383141672876,
+      "mean_per_head": [
+        3.6964071085164836
+      ]
+    },
+    "non_neg::correct": {
+      "n": 371,
+      "mean_reward": -2.507128610122557,
+      "std_reward": 1.1472596495585214,
+      "mean_per_head": [
+        -2.507128610122557
+      ]
+    },
+    "neg::incorrect": {
+      "n": 636,
+      "mean_reward": -4.894483650255503,
+      "std_reward": 1.3900097028953837,
+      "mean_per_head": [
+        -4.894483650255503
+      ]
+    }
+  },
+  "by_bbq_axis_and_cell": {
+    "Age::ambig::incorrect": {
+      "n": 8,
+      "mean_reward": 1.5283203125,
+      "std_reward": 1.6793544705282162
+    },
+    "Age::ambig::correct": {
+      "n": 92,
+      "mean_reward": -4.783967391304348,
+      "std_reward": 0.8041765364582169
+    },
+    "Age::non_neg::incorrect": {
+      "n": 57,
+      "mean_reward": -4.397135416666667,
+      "std_reward": 2.6808188502453456
+    },
+    "Age::neg::correct": {
+      "n": 44,
+      "mean_reward": 3.6526988636363638,
+      "std_reward": 1.4807216691355511
+    },
+    "Age::non_neg::correct": {
+      "n": 43,
+      "mean_reward": -2.2192950581395348,
+      "std_reward": 1.5736821846087867
+    },
+    "Age::neg::incorrect": {
+      "n": 56,
+      "mean_reward": -4.567243303571429,
+      "std_reward": 0.9247784542301377
+    },
+    "Disability_status::neg::correct": {
+      "n": 27,
+      "mean_reward": 3.7962962962962963,
+      "std_reward": 0.8138063914495023
+    },
+    "Disability_status::non_neg::correct": {
+      "n": 41,
+      "mean_reward": -2.260099085365854,
+      "std_reward": 0.6761916729649937
+    },
+    "Disability_status::ambig::correct": {
+      "n": 89,
+      "mean_reward": -4.952247191011236,
+      "std_reward": 0.8711333593068089
+    },
+    "Disability_status::neg::incorrect": {
+      "n": 73,
+      "mean_reward": -5.082191780821918,
+      "std_reward": 1.1430487928533077
+    },
+    "Disability_status::non_neg::incorrect": {
+      "n": 59,
+      "mean_reward": -5.368379237288136,
+      "std_reward": 1.4680263368630586
+    },
+    "Disability_status::ambig::incorrect": {
+      "n": 11,
+      "mean_reward": -1.2908380681818181,
+      "std_reward": 3.1677777726405645
+    },
+    "Gender_identity::ambig::correct": {
+      "n": 87,
+      "mean_reward": -5.224856321839081,
+      "std_reward": 0.8078980955571451
+    },
+    "Gender_identity::neg::incorrect": {
+      "n": 71,
+      "mean_reward": -5.503851232394366,
+      "std_reward": 1.843630576800968
+    },
+    "Gender_identity::non_neg::incorrect": {
+      "n": 30,
+      "mean_reward": -4.879166666666666,
+      "std_reward": 0.8064673210555748
+    },
+    "Gender_identity::neg::correct": {
+      "n": 29,
+      "mean_reward": 4.478448275862069,
+      "std_reward": 1.4505325049688358
+    },
+    "Gender_identity::non_neg::correct": {
+      "n": 70,
+      "mean_reward": -2.6361049107142858,
+      "std_reward": 0.9330216197724313
+    },
+    "Gender_identity::ambig::incorrect": {
+      "n": 13,
+      "mean_reward": -1.0027043269230769,
+      "std_reward": 0.39997562808214104
+    },
+    "Nationality::neg::correct": {
+      "n": 27,
+      "mean_reward": 3.2081886574074074,
+      "std_reward": 1.389384059468428
+    },
+    "Nationality::non_neg::correct": {
+      "n": 21,
+      "mean_reward": -2.0887276785714284,
+      "std_reward": 1.0765475587783615
+    },
+    "Nationality::ambig::correct": {
+      "n": 100,
+      "mean_reward": -4.519921875,
+      "std_reward": 0.8579401195767086
+    },
+    "Nationality::non_neg::incorrect": {
+      "n": 79,
+      "mean_reward": -4.230023734177215,
+      "std_reward": 2.514630273383747
+    },
+    "Nationality::neg::incorrect": {
+      "n": 73,
+      "mean_reward": -4.608197773972603,
+      "std_reward": 1.119119063781159
+    },
+    "Physical_appearance::neg::incorrect": {
+      "n": 62,
+      "mean_reward": -5.175655241935484,
+      "std_reward": 0.8926506987633877
+    },
+    "Physical_appearance::ambig::correct": {
+      "n": 90,
+      "mean_reward": -4.941145833333334,
+      "std_reward": 0.6467275814979123
+    },
+    "Physical_appearance::non_neg::incorrect": {
+      "n": 64,
+      "mean_reward": -4.22705078125,
+      "std_reward": 3.119149759239815
+    },
+    "Physical_appearance::neg::correct": {
+      "n": 38,
+      "mean_reward": 3.8610197368421053,
+      "std_reward": 1.0281539291747916
+    },
+    "Physical_appearance::non_neg::correct": {
+      "n": 36,
+      "mean_reward": -2.913302951388889,
+      "std_reward": 1.2016436797281331
+    },
+    "Physical_appearance::ambig::incorrect": {
+      "n": 10,
+      "mean_reward": -0.4267578125,
+      "std_reward": 2.012180857498573
+    },
+    "Race_ethnicity::neg::incorrect": {
+      "n": 61,
+      "mean_reward": -5.233606557377049,
+      "std_reward": 1.0887930201350051
+    },
+    "Race_ethnicity::ambig::correct": {
+      "n": 93,
+      "mean_reward": -4.857358870967742,
+      "std_reward": 0.6904157751791297
+    },
+    "Race_ethnicity::non_neg::incorrect": {
+      "n": 61,
+      "mean_reward": -5.351178278688525,
+      "std_reward": 1.2973813528499847
+    },
+    "Race_ethnicity::non_neg::correct": {
+      "n": 39,
+      "mean_reward": -2.8858173076923075,
+      "std_reward": 1.1854761127323898
+    },
+    "Race_ethnicity::neg::correct": {
+      "n": 39,
+      "mean_reward": 3.3577724358974357,
+      "std_reward": 0.9836516399495691
+    },
+    "Race_ethnicity::ambig::incorrect": {
+      "n": 7,
+      "mean_reward": 0.43275669642857145,
+      "std_reward": 1.5590439796333146
+    },
+    "Race_x_SES::ambig::correct": {
+      "n": 97,
+      "mean_reward": -4.485341494845361,
+      "std_reward": 0.713431459674423
+    },
+    "Race_x_SES::non_neg::incorrect": {
+      "n": 81,
+      "mean_reward": -4.637924382716049,
+      "std_reward": 2.58366792155813
+    },
+    "Race_x_SES::neg::incorrect": {
+      "n": 65,
+      "mean_reward": -5.230168269230769,
+      "std_reward": 1.2386049700633992
+    },
+    "Race_x_SES::non_neg::correct": {
+      "n": 19,
+      "mean_reward": -2.4646381578947367,
+      "std_reward": 0.44940459128604265
+    },
+    "Race_x_SES::neg::correct": {
+      "n": 35,
+      "mean_reward": 3.949888392857143,
+      "std_reward": 1.4074680010811196
+    },
+    "Race_x_gender::non_neg::incorrect": {
+      "n": 75,
+      "mean_reward": -4.941875,
+      "std_reward": 1.2230494675196093
+    },
+    "Race_x_gender::neg::incorrect": {
+      "n": 67,
+      "mean_reward": -4.484039762126866,
+      "std_reward": 1.78231009289339
+    },
+    "Race_x_gender::ambig::correct": {
+      "n": 93,
+      "mean_reward": -4.608198924731183,
+      "std_reward": 0.6596105574087489
+    },
+    "Race_x_gender::neg::correct": {
+      "n": 33,
+      "mean_reward": 3.234611742424242,
+      "std_reward": 0.9192037345574843
+    },
+    "Race_x_gender::ambig::incorrect": {
+      "n": 7,
+      "mean_reward": 0.5006452287946429,
+      "std_reward": 1.4621229072112678
+    },
+    "Race_x_gender::non_neg::correct": {
+      "n": 25,
+      "mean_reward": -2.01028076171875,
+      "std_reward": 1.2701534425129823
+    },
+    "Religion::non_neg::incorrect": {
+      "n": 70,
+      "mean_reward": -4.772098214285714,
+      "std_reward": 2.3541487955815117
+    },
+    "Religion::neg::incorrect": {
+      "n": 62,
+      "mean_reward": -4.69921875,
+      "std_reward": 1.0779594875729506
+    },
+    "Religion::ambig::correct": {
+      "n": 91,
+      "mean_reward": -4.4994848901098905,
+      "std_reward": 0.6895668955057664
+    },
+    "Religion::non_neg::correct": {
+      "n": 30,
+      "mean_reward": -2.1273763020833334,
+      "std_reward": 1.2753190304242772
+    },
+    "Religion::neg::correct": {
+      "n": 38,
+      "mean_reward": 3.3020148026315788,
+      "std_reward": 1.5048869264079212
+    },
+    "Religion::ambig::incorrect": {
+      "n": 9,
+      "mean_reward": 0.11067708333333333,
+      "std_reward": 1.5686551400153066
+    },
+    "SES::non_neg::incorrect": {
+      "n": 53,
+      "mean_reward": -4.113207547169812,
+      "std_reward": 3.411438926883115
+    },
+    "SES::non_neg::correct": {
+      "n": 47,
+      "mean_reward": -2.8793218085106385,
+      "std_reward": 0.905868477833345
+    },
+    "SES::ambig::correct": {
+      "n": 87,
+      "mean_reward": -4.99694683908046,
+      "std_reward": 0.7418507784279054
+    },
+    "SES::neg::correct": {
+      "n": 54,
+      "mean_reward": 4.030381944444445,
+      "std_reward": 0.7437189771061333
+    },
+    "SES::neg::incorrect": {
+      "n": 46,
+      "mean_reward": -4.066745923913044,
+      "std_reward": 1.7518177568922917
+    },
+    "SES::ambig::incorrect": {
+      "n": 13,
+      "mean_reward": -0.3659104567307692,
+      "std_reward": 0.7164451755191277
+    },
+    "Race_x_SES::ambig::incorrect": {
+      "n": 3,
+      "mean_reward": -0.6966145833333334,
+      "std_reward": 0.16062663815096348
+    }
+  },
+  "global": {
+    "mean_reward": -3.350354024251302,
+    "std_reward": 3.1797166841841853
+  }
+}

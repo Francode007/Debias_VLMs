@@ -1,0 +1,275 @@
+{
+  "variant": "L17",
+  "vanilla_gen": "Phase0.8/counterfactual_eval/cf_runs/9axis_base_sbbench_gen.jsonl",
+  "vanilla_metrics": {
+    "n": 3747,
+    "n_valid": 3747,
+    "accuracy": 0.4859887910328263,
+    "macro_accuracy": 0.5150578448682733,
+    "per_axis": {
+      "Age": {
+        "n": 768,
+        "accuracy": 0.4166666666666667
+      },
+      "Disability": {
+        "n": 199,
+        "accuracy": 0.5025125628140703
+      },
+      "Gender": {
+        "n": 1342,
+        "accuracy": 0.43889716840536513
+      },
+      "Nationality": {
+        "n": 69,
+        "accuracy": 0.30434782608695654
+      },
+      "Physical Appearance": {
+        "n": 239,
+        "accuracy": 0.5397489539748954
+      },
+      "Race/Ethnicity": {
+        "n": 753,
+        "accuracy": 0.5604249667994687
+      },
+      "Religion": {
+        "n": 60,
+        "accuracy": 0.6166666666666667
+      },
+      "SES": {
+        "n": 234,
+        "accuracy": 0.6538461538461539
+      },
+      "Sexual Orientation": {
+        "n": 83,
+        "accuracy": 0.6024096385542169
+      }
+    }
+  },
+  "n_seeds": 3,
+  "per_seed": {
+    "9axis_L17_s1_sbbench_gen": {
+      "n": 3747,
+      "n_valid": 3747,
+      "accuracy": 0.49186015479049905,
+      "macro_accuracy": 0.5202540007648847,
+      "per_axis": {
+        "Age": {
+          "n": 768,
+          "accuracy": 0.4205729166666667
+        },
+        "Disability": {
+          "n": 199,
+          "accuracy": 0.49748743718592964
+        },
+        "Gender": {
+          "n": 1342,
+          "accuracy": 0.4463487332339791
+        },
+        "Nationality": {
+          "n": 69,
+          "accuracy": 0.30434782608695654
+        },
+        "Physical Appearance": {
+          "n": 239,
+          "accuracy": 0.5481171548117155
+        },
+        "Race/Ethnicity": {
+          "n": 753,
+          "accuracy": 0.5683930942895087
+        },
+        "Religion": {
+          "n": 60,
+          "accuracy": 0.6166666666666667
+        },
+        "SES": {
+          "n": 234,
+          "accuracy": 0.6538461538461539
+        },
+        "Sexual Orientation": {
+          "n": 83,
+          "accuracy": 0.6265060240963856
+        }
+      }
+    },
+    "9axis_L17_s2_sbbench_gen": {
+      "n": 3747,
+      "n_valid": 3747,
+      "accuracy": 0.4750467040298906,
+      "macro_accuracy": 0.5069204798343754,
+      "per_axis": {
+        "Age": {
+          "n": 768,
+          "accuracy": 0.4088541666666667
+        },
+        "Disability": {
+          "n": 199,
+          "accuracy": 0.4824120603015075
+        },
+        "Gender": {
+          "n": 1342,
+          "accuracy": 0.4277198211624441
+        },
+        "Nationality": {
+          "n": 69,
+          "accuracy": 0.3188405797101449
+        },
+        "Physical Appearance": {
+          "n": 239,
+          "accuracy": 0.5188284518828452
+        },
+        "Race/Ethnicity": {
+          "n": 753,
+          "accuracy": 0.549800796812749
+        },
+        "Religion": {
+          "n": 60,
+          "accuracy": 0.6166666666666667
+        },
+        "SES": {
+          "n": 234,
+          "accuracy": 0.6367521367521367
+        },
+        "Sexual Orientation": {
+          "n": 83,
+          "accuracy": 0.6024096385542169
+        }
+      }
+    },
+    "9axis_L17_s4_sbbench_gen": {
+      "n": 3747,
+      "n_valid": 3747,
+      "accuracy": 0.5065385641846811,
+      "macro_accuracy": 0.5329644963865763,
+      "per_axis": {
+        "Age": {
+          "n": 768,
+          "accuracy": 0.4322916666666667
+        },
+        "Disability": {
+          "n": 199,
+          "accuracy": 0.507537688442211
+        },
+        "Gender": {
+          "n": 1342,
+          "accuracy": 0.46497764530551416
+        },
+        "Nationality": {
+          "n": 69,
+          "accuracy": 0.3188405797101449
+        },
+        "Physical Appearance": {
+          "n": 239,
+          "accuracy": 0.5648535564853556
+        },
+        "Race/Ethnicity": {
+          "n": 753,
+          "accuracy": 0.5816733067729084
+        },
+        "Religion": {
+          "n": 60,
+          "accuracy": 0.6333333333333333
+        },
+        "SES": {
+          "n": 234,
+          "accuracy": 0.6666666666666666
+        },
+        "Sexual Orientation": {
+          "n": 83,
+          "accuracy": 0.6265060240963856
+        }
+      }
+    }
+  },
+  "mcnemar_vs_vanilla": {
+    "9axis_L17_s1_sbbench_gen": {
+      "n_paired": 3747,
+      "b01": 45,
+      "b10": 23,
+      "chi2": 6.485294117647059,
+      "p": 0.010877054041207873,
+      "delta_accuracy": 0.005871363757672776
+    },
+    "9axis_L17_s2_sbbench_gen": {
+      "n_paired": 3747,
+      "b01": 13,
+      "b10": 54,
+      "chi2": 23.880597014925375,
+      "p": 1.02499676624711e-06,
+      "delta_accuracy": -0.010942087002935696
+    },
+    "9axis_L17_s4_sbbench_gen": {
+      "n_paired": 3747,
+      "b01": 81,
+      "b10": 4,
+      "chi2": 67.95294117647059,
+      "p": 1.67444459188697e-16,
+      "delta_accuracy": 0.020549773151854855
+    }
+  },
+  "aggregate": {
+    "mean_accuracy": 0.4911484743350236,
+    "std_accuracy": 0.015757987841258494,
+    "mean_macro_accuracy": 0.5200463256619454,
+    "std_macro_accuracy": 0.013023250218517428,
+    "delta_mean_vs_vanilla": 0.005159683302197349,
+    "delta_macro_vs_vanilla": 0.00498848079367209,
+    "stouffer_z_vs_vanilla": 3.4082162370421534,
+    "stouffer_p_vs_vanilla": 0.0006538905513701328
+  },
+  "per_axis_aggregate": {
+    "Age": {
+      "mean_acc": 0.4205729166666667,
+      "std_acc": 0.01171875,
+      "vanilla_acc": 0.4166666666666667,
+      "n_seeds": 3
+    },
+    "Disability": {
+      "mean_acc": 0.4958123953098827,
+      "std_acc": 0.012646288836299414,
+      "vanilla_acc": 0.5025125628140703,
+      "n_seeds": 3
+    },
+    "Gender": {
+      "mean_acc": 0.4463487332339791,
+      "std_acc": 0.018628912071535025,
+      "vanilla_acc": 0.43889716840536513,
+      "n_seeds": 3
+    },
+    "Nationality": {
+      "mean_acc": 0.3140096618357488,
+      "std_acc": 0.008367395205646723,
+      "vanilla_acc": 0.30434782608695654,
+      "n_seeds": 3
+    },
+    "Physical Appearance": {
+      "mean_acc": 0.5439330543933055,
+      "std_acc": 0.023296085200125594,
+      "vanilla_acc": 0.5397489539748954,
+      "n_seeds": 3
+    },
+    "Race/Ethnicity": {
+      "mean_acc": 0.566622399291722,
+      "std_acc": 0.01600986393981866,
+      "vanilla_acc": 0.5604249667994687,
+      "n_seeds": 3
+    },
+    "Religion": {
+      "mean_acc": 0.6222222222222222,
+      "std_acc": 0.00962250448649373,
+      "vanilla_acc": 0.6166666666666667,
+      "n_seeds": 3
+    },
+    "SES": {
+      "mean_acc": 0.6524216524216523,
+      "std_acc": 0.015008053778992511,
+      "vanilla_acc": 0.6538461538461539,
+      "n_seeds": 3
+    },
+    "Sexual Orientation": {
+      "mean_acc": 0.6184738955823293,
+      "std_acc": 0.013912054679268072,
+      "vanilla_acc": 0.6024096385542169,
+      "n_seeds": 3
+    }
+  }
+}

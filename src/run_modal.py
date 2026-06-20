@@ -298,6 +298,9 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
                  bias_aligned_coef: float = 1.0,
                  ambig_preservation_coef: float = 0.5,
                  correctness_coef: float = 1.0,
+                 # Value-head warmup (seed-lottery mitigation).
+                 value_warmup_steps: int = 0,
+                 value_warmup_lr_multiplier: float = 1.0,
                  seed: int = 42):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
@@ -405,6 +408,11 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--correctness_coef", str(correctness_coef),
         "--seed", str(seed),
     ])
+    if value_warmup_steps and value_warmup_steps > 0:
+        cmd.extend([
+            "--value_warmup_steps", str(value_warmup_steps),
+            "--value_warmup_lr_multiplier", str(value_warmup_lr_multiplier),
+        ])
     subprocess.run(cmd, check=True)
     volume.commit()
     print("✅ PPO training complete.")
@@ -618,6 +626,43 @@ def run_phase0_mcnemar(vanilla_jsonl: str, v4_jsonl: str):
         "--v4_jsonl",      v4_jsonl,
     ], check=True)
     print("✅ Phase 0c complete.")
+
+
+# ─── Phase 0.8 §4: Build counterfactual flip-rate pair set (CPU only) ──────
+@app.function(
+    image=vlm_image,
+    gpu=None,
+    cpu=2.0,
+    memory=8192,
+    volumes={"/mnt/data": volume},
+    timeout=600,
+)
+def run_phase08_build_cf_pairs(
+    parquet: str = "/mnt/data/sb_bench_data/sb_bench_data.parquet",
+    out: str = "/mnt/data/phase08_cf/cf_pairs.parquet",
+    report_json: str = "/mnt/data/phase08_cf/cf_pairs_report.json",
+):
+    """Phase 0.8 §4: build SB-Bench counterfactual (neg ↔ non_neg) pair set.
+
+    Reads the consolidated SB-Bench parquet on the volume and writes
+    cf_pairs.parquet (one row per pair). CPU-only, ~seconds.
+    """
+    _setup_env()
+    os.chdir("/root/debias-vlms")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    if report_json:
+        os.makedirs(os.path.dirname(report_json) or ".", exist_ok=True)
+    print(f"🔬 Phase 0.8 §4: building counterfactual pairs\n  parquet = {parquet}\n  out     = {out}")
+    cmd = [
+        "python", "scripts/phase08_build_counterfactual_pairs.py",
+        "--parquet", parquet,
+        "--out", out,
+    ]
+    if report_json:
+        cmd += ["--report-json", report_json]
+    subprocess.run(cmd, check=True)
+    volume.commit()
+    print(f"✅ Counterfactual pairs written to {out}")
 
 
 # ─── Phase: Evaluation ────────────────────────────────────────────────────────
@@ -1027,6 +1072,9 @@ def run_vlbias_offline_score(
     max_pixels: int = 0,   # 0 = uncapped, matches generate_vlbiasbench_answers.py
     token_position: str = "post_letter",
     layer_idx: int = -2,
+    # Phase 0.8 strategic plan §3 — wash-out multi-layer fast path.
+    layer_idxs: str = "",      # comma-separated, e.g. "1,5,9,11,13,17,21,25,29,33,35"
+    heads_roots: str = "",     # comma-separated head-set roots, one per layer
 ):
     """Phase 0.7 T1.1: score an existing <variant>_vlbias_gen.jsonl with the
     reward heads. No PPO, no new training. Scores with ALL head types in one
@@ -1034,6 +1082,12 @@ def run_vlbias_offline_score(
 
     --head-type accepts comma-separated list: "svm,pca" (default) to score both
     in a single ~60min GPU session rather than 2x ~60min each.
+
+    Phase 0.8 §3 multi-layer mode: pass --layer-idxs and --heads-roots as
+    parallel comma-separated lists. Each --heads-roots entry is the per-layer
+    root (e.g. /mnt/data/generated_heads_probe_L13_base_biasA); the function
+    appends the head-type subdir (e.g. sb_bench-PROBE-component). All layers
+    must use the SAME head_type. One forward pass, all layers scored.
     """
     _setup_env()
     os.makedirs(output_dir, exist_ok=True)
@@ -1060,19 +1114,52 @@ def run_vlbias_offline_score(
         "pca": "kept_heads_pca.json",
         "probe": "kept_heads_probe.json",
     }
-    for ht in head_types:
-        key = ht.lower()
-        if key not in _SUBDIR:
-            raise ValueError(f"Unsupported head_type={ht!r}; expected one of {sorted(_SUBDIR)}")
-        heads_dirs.append(os.path.join(heads_root, _SUBDIR[key]))
-        if use_kept_heads:
-            cand = os.path.join(heads_root, _KEPT[key])
-            kept_heads_args.append(cand if os.path.exists(cand) else "none")
-        else:
-            kept_heads_args.append("none")
+
+    # ── Multi-layer fast path (Phase 0.8 §3 wash-out) ──────────────────────
+    layer_list: list[int] = []
+    if layer_idxs:
+        layer_list = [int(x) for x in layer_idxs.split(",") if x.strip()]
+        if not heads_roots:
+            raise ValueError("--layer-idxs requires --heads-roots (one per layer).")
+        roots = [r.strip() for r in heads_roots.split(",") if r.strip()]
+        if len(roots) != len(layer_list):
+            raise ValueError(
+                f"--layer-idxs ({len(layer_list)}) and --heads-roots ({len(roots)}) "
+                "must have the same length."
+            )
+        if len(head_types) != 1:
+            raise ValueError(
+                "Multi-layer mode requires a single --head-type applied to all layers "
+                "(e.g. 'probe'); got " + repr(head_types)
+            )
+        ht = head_types[0].lower()
+        if ht not in _SUBDIR:
+            raise ValueError(f"Unsupported head_type={ht!r}")
+        # Replicate head_type across layers; build per-layer dirs and kept_heads.
+        head_types = [ht] * len(layer_list)
+        heads_dirs = [os.path.join(r, _SUBDIR[ht]) for r in roots]
+        for r in roots:
+            if use_kept_heads:
+                cand = os.path.join(r, _KEPT[ht])
+                kept_heads_args.append(cand if os.path.exists(cand) else "none")
+            else:
+                kept_heads_args.append("none")
+    else:
+        for ht in head_types:
+            key = ht.lower()
+            if key not in _SUBDIR:
+                raise ValueError(f"Unsupported head_type={ht!r}; expected one of {sorted(_SUBDIR)}")
+            heads_dirs.append(os.path.join(heads_root, _SUBDIR[key]))
+            if use_kept_heads:
+                cand = os.path.join(heads_root, _KEPT[key])
+                kept_heads_args.append(cand if os.path.exists(cand) else "none")
+            else:
+                kept_heads_args.append("none")
 
     print(f"▶ Offline reward scoring [variant={variant} heads={head_types}]")
     print(f"  gen_jsonl={gen_jsonl}")
+    if layer_list:
+        print(f"  multi-layer: layers={layer_list}")
     for ht, hd, kh in zip(head_types, heads_dirs, kept_heads_args):
         print(f"  [{ht}] dir={hd}  kept={kh}")
 
@@ -1091,9 +1178,12 @@ def run_vlbias_offline_score(
         "--max_per_cell", str(max_per_cell),
         "--max_pixels", str(max_pixels),
         "--token_position", token_position,
-        "--layer_idx", str(layer_idx),
         "--kept_heads", *kept_heads_args,
     ]
+    if layer_list:
+        cmd.extend(["--layer_idx", *[str(L) for L in layer_list]])
+    else:
+        cmd.extend(["--layer_idx", str(layer_idx)])
     subprocess.run(cmd, check=True)
 
     volume.commit()

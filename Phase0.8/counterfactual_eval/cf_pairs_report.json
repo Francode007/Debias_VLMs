@@ -1,0 +1,18 @@
+{
+  "total_pairs": 6166,
+  "incomplete": 0,
+  "label_mismatch": 0,
+  "answer_mismatch": 0,
+  "skipped_rows": 0,
+  "by_axis": {
+    "Age": 1141,
+    "Disability": 387,
+    "Gender": 1088,
+    "Nationality": 486,
+    "Physical Appearance": 442,
+    "Race/Ethnicity": 1189,
+    "Religion": 326,
+    "SES": 452,
+    "Sexual Orientation": 655
+  }
+}

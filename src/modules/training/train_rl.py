@@ -22,6 +22,7 @@ Usage (Modal — via run_modal.py):
 import functools
 import json
 import logging
+import os
 import warnings
 
 # Suppress kernel version warning from accelerate (Modal host kernel is 4.4.0)
@@ -77,7 +78,12 @@ def main() -> None:
     active_policy, processor = build_policy_model(args, accelerator)
 
     # ── 4. DRM reward heads ───────────────────────────────────────────────────
-    logger.info("Loading Phase 1 PCA DRM heads...")
+    # NOTE: `load_pca_components` is a generic .pth-loader despite its name.
+    # It loads whatever `component*.pth` files live in `args.reward_heads_dir`,
+    # which can be PCA components, SVM weights, or — in Phase 0.8 — single
+    # linear-probe vectors (probe-as-head). The legacy log line is kept
+    # qualified to avoid confusion.
+    logger.info(f"Loading reward heads from {args.reward_heads_dir} ...")
     try:
         reward_heads_weight = load_pca_components(
             args.reward_heads_dir,
@@ -217,6 +223,76 @@ def main() -> None:
             optimizer_policy=optimizer_policy,
             optimizer_value=optimizer_value,
         )
+
+    # ── 10b. Value-head warmup (seed-lottery mitigation) ─────────────────────
+    # Pretrain the Linear(D,1) value head before the main PPO loop starts so
+    # that its first-step fit quality is not RNG-dependent. See
+    # `--value_warmup_steps` help text in args.py + the seed-2/3 diagnostic
+    # notes in /memories/repo/ppo_architecture_audit.md for the rationale.
+    # No-op when --value_warmup_steps == 0 (default) or when resuming.
+    value_warmup_steps = int(getattr(args, "value_warmup_steps", 0) or 0)
+    if value_warmup_steps > 0 and start_epoch == 0 and resume_step == 0:
+        warmup_lr_mult = float(getattr(args, "value_warmup_lr_multiplier", 1.0))
+        logger.info(
+            f"[value-warmup] running {value_warmup_steps} value-only steps "
+            f"(policy frozen, KL-controller frozen, value_lr x {warmup_lr_mult})"
+        )
+
+        # Temporarily boost the value LR; restore after warmup.
+        saved_value_lrs = [pg["lr"] for pg in optimizer_value.param_groups]
+        for pg in optimizer_value.param_groups:
+            pg["lr"] = pg["lr"] * warmup_lr_mult
+
+        ppo_controller._value_only_mode = True
+
+        warmup_log_path = None
+        warmup_log_fh = None
+        if getattr(accelerator, "is_main_process", True) and getattr(args, "output_dir", None):
+            os.makedirs(args.output_dir, exist_ok=True)
+            warmup_log_path = os.path.join(args.output_dir, "value_warmup_metrics.jsonl")
+            warmup_log_fh = open(warmup_log_path, "a", buffering=1)
+            logger.info(f"[value-warmup] per-step metrics → {warmup_log_path}")
+
+        try:
+            warmup_iter = iter(train_dataloader)
+            for w_step in range(value_warmup_steps):
+                try:
+                    batch = next(warmup_iter)
+                except StopIteration:
+                    # Loader exhausted before warmup target reached; restart.
+                    warmup_iter = iter(train_dataloader)
+                    batch = next(warmup_iter)
+                with accelerator.accumulate(active_policy):
+                    metrics = ppo_controller.step(
+                        batch, optimizer_policy, optimizer_value
+                    )
+                    torch.cuda.empty_cache()
+                # Do NOT step LR schedulers during warmup — they would advance
+                # past the warmup-ramp on real PPO steps.
+                if warmup_log_fh is not None:
+                    rec = {"warmup_step": w_step}
+                    for k, v in metrics.items():
+                        if isinstance(v, (int, float, bool)) or v is None:
+                            rec[k] = v
+                        else:
+                            try:
+                                rec[k] = float(v)
+                            except Exception:
+                                pass
+                    warmup_log_fh.write(json.dumps(rec) + "\n")
+                logger.info(
+                    f"[value-warmup {w_step + 1}/{value_warmup_steps}] "
+                    f"v_loss={metrics.get('v_loss', 0):.4f} "
+                    f"v_gn={metrics.get('value_grad_norm', 0):.4f} "
+                    f"r_task={metrics.get('reward_task', 0):.4f}"
+                )
+        finally:
+            ppo_controller._value_only_mode = False
+            for pg, saved in zip(optimizer_value.param_groups, saved_value_lrs):
+                pg["lr"] = saved
+            if warmup_log_fh is not None:
+                warmup_log_fh.close()
+            logger.info("[value-warmup] done; resuming normal PPO loop")
 
     # ── 11. Training loop ─────────────────────────────────────────────────────
     logger.info("Starting PPO training...")

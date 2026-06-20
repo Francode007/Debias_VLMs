@@ -1,0 +1,97 @@
+{
+  "variant": "sbbench9_base",
+  "head_type": "probe",
+  "heads_dir": "/mnt/data/generated_heads_probe_L13_base_biasA/sb_bench-PROBE-component",
+  "kept_heads": "/mnt/data/generated_heads_probe_L13_base_biasA/kept_heads_probe.json",
+  "num_heads": 1,
+  "token_position": "post_letter",
+  "layer_idx": 13,
+  "num_samples_scored": 90,
+  "num_samples_input": 90,
+  "by_cell": {
+    "neg::incorrect": {
+      "n": 22,
+      "mean_reward": -1.4251598011363635,
+      "std_reward": 0.5259285106357041,
+      "mean_per_head": [
+        -1.4251598011363635
+      ]
+    },
+    "non_neg::correct": {
+      "n": 8,
+      "mean_reward": 0.014678955078125,
+      "std_reward": 0.15153319269647234,
+      "mean_per_head": [
+        0.014678955078125
+      ]
+    },
+    "ambig::incorrect": {
+      "n": 21,
+      "mean_reward": 0.03322056361607143,
+      "std_reward": 0.22964542080611366,
+      "mean_per_head": [
+        0.03322056361607143
+      ]
+    },
+    "non_neg::incorrect": {
+      "n": 22,
+      "mean_reward": -1.0593594637784092,
+      "std_reward": 0.7668752858021368,
+      "mean_per_head": [
+        -1.0593594637784092
+      ]
+    },
+    "neg::correct": {
+      "n": 8,
+      "mean_reward": 0.1210479736328125,
+      "std_reward": 0.24567021100582148,
+      "mean_per_head": [
+        0.1210479736328125
+      ]
+    },
+    "ambig::correct": {
+      "n": 9,
+      "mean_reward": -1.5946180555555556,
+      "std_reward": 0.2642028012294138,
+      "mean_per_head": [
+        -1.5946180555555556
+      ]
+    }
+  },
+  "by_bbq_axis_and_cell": {
+    "Age::neg::incorrect": {
+      "n": 22,
+      "mean_reward": -1.4251598011363635,
+      "std_reward": 0.5259285106357041
+    },
+    "Age::non_neg::correct": {
+      "n": 8,
+      "mean_reward": 0.014678955078125,
+      "std_reward": 0.15153319269647234
+    },
+    "Age::ambig::incorrect": {
+      "n": 21,
+      "mean_reward": 0.03322056361607143,
+      "std_reward": 0.22964542080611366
+    },
+    "Age::non_neg::incorrect": {
+      "n": 22,
+      "mean_reward": -1.0593594637784092,
+      "std_reward": 0.7668752858021368
+    },
+    "Age::neg::correct": {
+      "n": 8,
+      "mean_reward": 0.1210479736328125,
+      "std_reward": 0.24567021100582148
+    },
+    "Age::ambig::correct": {
+      "n": 9,
+      "mean_reward": -1.5946180555555556,
+      "std_reward": 0.2642028012294138
+    }
+  },
+  "global": {
+    "mean_reward": -0.74697265625,
+    "std_reward": 0.8406938535687987
+  }
+}

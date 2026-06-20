@@ -69,7 +69,6 @@ from transformers import AutoModelForImageTextToText, AutoProcessor
 from modules.training.drm_loader import load_pca_components
 from modules.utils.model_architecture import create_custom_forward
 
-
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--gen_jsonl", required=True,
@@ -110,10 +109,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--token_position", default="post_letter",
                    choices=["post_letter", "pre_letter"],
                    help="Embedding extraction position. Must match how the heads were built.")
-    p.add_argument("--layer_idx", type=int, default=-2,
-                   help="Which entry of hidden_states to extract the embedding from. "
+    p.add_argument("--layer_idx", type=int, default=[-2], nargs="+",
+                   help="Which entry/entries of hidden_states to extract embeddings from. "
                         "-2 (default) = penultimate, matching Phase 0.6/0.7 heads. "
-                        "Phase 0.8 A2 uses {9, 11, 13}. MUST match the layer the heads_dir was built at.")
+                        "Phase 0.8 A2 single-layer uses one of {9, 11, 13}. "
+                        "Phase 0.8 strategic plan §3 wash-out diagnostic passes a list "
+                        "(e.g. 1 5 9 11 13 17 21 25 29 33 35) — in that case --heads_dir "
+                        "must be a parallel list of the same length, one head dir per layer, "
+                        "and a single forward pass scores all layers at once. "
+                        "MUST match the layer(s) the heads_dir(s) were built at.")
     p.add_argument("--completion_format", default="letter",
                    choices=["letter"],
                    help="Reserved; only 'letter' is currently supported (assistant turn = single A/B/C).")
@@ -255,6 +259,33 @@ def main():
     print(f"  → {len(records)} records ready to score")
 
     print(f"▶ Loading reward base model: {args.reward_base}")
+    # Phase 0.8 §3 fix: support PEFT-adapter checkpoint directories produced
+    # by PPO (e.g. /mnt/data/output_ppo_phase08_2k/final_debiased_model).
+    # Such dirs only contain adapter_config.json + adapter_model.safetensors,
+    # so AutoProcessor / AutoModel cannot load them directly. Detect adapter
+    # dirs, resolve the underlying base model from adapter_config.json, load
+    # processor + base from there, then attach the adapter and merge it into
+    # the base weights so downstream code (single-layer custom_forward AND
+    # multi-layer manual forward) sees a plain Qwen2.5-VL model.
+    adapter_cfg_path = os.path.join(args.reward_base, "adapter_config.json") \
+        if os.path.isdir(args.reward_base) else None
+    is_adapter_dir = adapter_cfg_path is not None and os.path.isfile(adapter_cfg_path)
+    if is_adapter_dir:
+        with open(adapter_cfg_path, "r") as f:
+            adapter_cfg = json.load(f)
+        base_model_id = adapter_cfg.get("base_model_name_or_path")
+        if not base_model_id:
+            raise ValueError(
+                f"adapter_config.json at {adapter_cfg_path} has no "
+                "'base_model_name_or_path'; cannot resolve base model."
+            )
+        print(f"  → adapter dir detected; base = {base_model_id}")
+        processor_src = base_model_id
+        base_src = base_model_id
+    else:
+        processor_src = args.reward_base
+        base_src = args.reward_base
+
     # Mirror generate_vlbiasbench_answers.py processor init: no trust_remote_code
     # (the generator omits it), padding_side='left' (left-padding is required for
     # last-token / post_letter embedding extraction in batched runs anyway), and
@@ -268,19 +299,31 @@ def main():
         print(f"  image pixel cap: {proc_kwargs}")
     else:
         print("  image pixel cap: none (matches generator pipeline)")
-    processor = AutoProcessor.from_pretrained(args.reward_base, **proc_kwargs)
+    processor = AutoProcessor.from_pretrained(processor_src, **proc_kwargs)
     processor.tokenizer.padding_side = "left"
     if processor.tokenizer.pad_token is None:
         processor.tokenizer.pad_token = processor.tokenizer.eos_token
 
     # Match generator's model init: flash-attn-2 on CUDA, device_map='auto'.
     model = AutoModelForImageTextToText.from_pretrained(
-        args.reward_base,
+        base_src,
         torch_dtype=torch.bfloat16,
         attn_implementation="flash_attention_2" if torch.cuda.is_available() else "eager",
         device_map="auto" if torch.cuda.is_available() else None,
         trust_remote_code=True,
     )
+
+    if is_adapter_dir:
+        from peft import PeftModel
+        print(f"▶ Attaching LoRA adapter from {args.reward_base}")
+        model = PeftModel.from_pretrained(model, args.reward_base)
+        # Merge so the single-layer custom_forward path (which rebinds
+        # `model.forward`) and the multi-layer manual forward path both see a
+        # plain HF model with intact `.config`, `.hidden_states`, and module
+        # peeling semantics — no PEFT proxy in the hot path.
+        print("  → merging adapter weights into base for inference")
+        model = model.merge_and_unload()
+
     if not torch.cuda.is_available():
         model = model.to(device)
     model.eval()
@@ -291,13 +334,28 @@ def main():
     letter_ids = resolve_letter_token_ids(processor.tokenizer)
     print(f"  → letter_token_ids = {letter_ids}")
 
-    forward_fn = create_custom_forward(
-        model, dtype=torch.bfloat16,
-        token_position=args.token_position,
-        letter_token_ids=letter_ids,
-        layer_idx=args.layer_idx,
+    # Phase 0.8 strategic plan §3: when multiple layers are requested, score all
+    # of them in ONE forward pass instead of installing the legacy single-layer
+    # custom forward and re-running the model per layer.
+    layer_idx_list: List[int] = (
+        list(args.layer_idx) if isinstance(args.layer_idx, (list, tuple)) else [int(args.layer_idx)]
     )
-    model.forward = forward_fn.__get__(model, type(model))
+    multi_layer = len(layer_idx_list) > 1
+    if multi_layer:
+        if len(layer_idx_list) != n_head_sets:
+            raise ValueError(
+                f"--layer_idx has {len(layer_idx_list)} layers but --heads_dir has "
+                f"{n_head_sets} entries; pass exactly one head dir per layer."
+            )
+        print(f"▶ Multi-layer mode: scoring layers {layer_idx_list} in a single forward pass.")
+    else:
+        forward_fn = create_custom_forward(
+            model, dtype=torch.bfloat16,
+            token_position=args.token_position,
+            letter_token_ids=letter_ids,
+            layer_idx=layer_idx_list[0],
+        )
+        model.forward = forward_fn.__get__(model, type(model))
 
     # Load ALL head sets up front — we apply them all to the same embeddings.
     all_heads: List[torch.Tensor] = []
@@ -392,22 +450,64 @@ def main():
         inputs = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in inputs.items()}
 
         try:
-            with torch.no_grad():
-                out = model(**inputs, return_dict=True)
-            emb = out.hidden_states  # (B, hidden_dim)
-            if emb.dim() != 2:
-                raise RuntimeError(f"Expected 2D embeddings, got shape {tuple(emb.shape)}")
+            if multi_layer:
+                # ── Multi-layer fast path ─────────────────────────────────
+                # One forward pass, all hidden_states, slice each requested
+                # layer at the same per-row position, then project against
+                # its corresponding head set.
+                with torch.no_grad():
+                    out = model(**inputs, output_hidden_states=True, return_dict=True)
+                all_hidden = out.hidden_states  # tuple of (B, T, D), len = N+1
+                input_ids = inputs["input_ids"]
+                B, T = input_ids.shape
+
+                pad_id = model.config.pad_token_id
+                if pad_id is None:
+                    raise RuntimeError("pad_token_id must be set for batched multi-layer scoring")
+
+                is_pad = (input_ids == pad_id)
+                seq_lengths = is_pad.int().argmax(-1) - 1
+                seq_lengths = seq_lengths % T  # if no pad found, argmax=0 → -1 → T-1
+
+                if args.token_position in ("post_letter", "pre_letter"):
+                    letter_ids_dev = torch.tensor(letter_ids, device=input_ids.device)
+                    is_letter = torch.isin(input_ids, letter_ids_dev)
+                    rev = torch.flip(is_letter.int(), dims=[-1])
+                    any_letter = is_letter.any(dim=-1)
+                    offset_from_end = rev.argmax(dim=-1)
+                    letter_pos = (T - 1 - offset_from_end)
+                    letter_pos = torch.where(any_letter, letter_pos, seq_lengths.to(letter_pos.dtype))
+                    if args.token_position == "post_letter":
+                        slice_indices = letter_pos
+                    else:
+                        slice_indices = (letter_pos - 1).clamp(min=0)
+                else:
+                    slice_indices = seq_lengths
+
+                row_arange = torch.arange(B, device=input_ids.device)
+                # Score each (layer, heads) pair on its own sliced embedding.
+                for i, (L, heads) in enumerate(zip(layer_idx_list, all_heads)):
+                    layer_h = all_hidden[L]  # (B, T, D)
+                    emb_L = layer_h[row_arange, slice_indices]  # (B, D)
+                    rewards = (emb_L.to(heads.dtype) @ heads.t()).float().cpu().numpy()
+                    for row in rewards:
+                        per_head_rewards[i].append(row)
+            else:
+                # ── Legacy single-layer path (custom forward returns (B, D)).
+                with torch.no_grad():
+                    out = model(**inputs, return_dict=True)
+                emb = out.hidden_states  # (B, hidden_dim)
+                if emb.dim() != 2:
+                    raise RuntimeError(f"Expected 2D embeddings, got shape {tuple(emb.shape)}")
+                for i, heads in enumerate(all_heads):
+                    rewards = (emb.to(heads.dtype) @ heads.t()).float().cpu().numpy()
+                    for row in rewards:
+                        per_head_rewards[i].append(row)
         except torch.cuda.OutOfMemoryError as oom:
             torch.cuda.empty_cache()
             print(f"⚠  CUDA OOM on batch of {len(chats)} (skipping, not falling back to text-only): {oom}")
             pbar.update(len(batch))
             continue
-
-        # Score with ALL head sets in one go (cheap matmuls).
-        for i, heads in enumerate(all_heads):
-            rewards = (emb.to(heads.dtype) @ heads.t()).float().cpu().numpy()
-            for row in rewards:
-                per_head_rewards[i].append(row)
 
         for local_j in ok_indices_in_batch:
             scored_records.append(batch[local_j])
@@ -463,7 +563,9 @@ def main():
 
         # Phase 0.8 A2: tag output with _L{layer_idx} so multi-layer sweeps
         # don't clobber Phase 0.7 penultimate (-2) results.
-        layer_tag = "" if args.layer_idx == -2 else f"_L{args.layer_idx}"
+        # Phase 0.8 strategic plan §3: multi-layer mode picks per-head-set L.
+        L_for_this = layer_idx_list[i] if multi_layer else layer_idx_list[0]
+        layer_tag = "" if L_for_this == -2 else f"_L{L_for_this}"
         output_json = os.path.join(args.output_dir, f"{args.variant}__{ht}{layer_tag}__offline_reward.json")
         summary = {
             "variant": args.variant,
@@ -472,7 +574,7 @@ def main():
             "kept_heads": kept_heads_list[i],
             "num_heads": int(K),
             "token_position": args.token_position,
-            "layer_idx": int(args.layer_idx),
+            "layer_idx": int(L_for_this),
             "num_samples_scored": len(scored_records),
             "num_samples_input": len(records),
             "by_cell": _finalise(by_cell, include_per_head=True),

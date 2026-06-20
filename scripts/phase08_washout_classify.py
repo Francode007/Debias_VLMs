@@ -29,7 +29,12 @@ import numpy as np
 
 
 SWEEP_LAYERS = [1, 5, 9, 11, 13, 17, 21, 25, 29, 33, 35]
-DEFAULT_VARIANTS = ["vanilla", "phase08_full", "phase08_corrOnly", "phase08_biasOnly"]
+# Variant labels MUST match the prefixes used in
+# scripts/phase08_washout_score.sh. They are the <prefix> in
+# <prefix>_vlbias_gen.jsonl on the volume.
+DEFAULT_VARIANTS = ["base", "phase08_2k", "phase08_2k_corrOnly", "phase08_2k_biasOnly"]
+# Logical → physical alias (the verdict still talks about "phase08_full").
+VARIANT_ALIAS = {"phase08_full": "phase08_2k", "vanilla": "base"}
 
 
 def load_summary(score_root: str, variant: str, layer: int) -> dict | None:
@@ -127,9 +132,9 @@ def main() -> None:
                 "n_samples": summ.get("num_samples_scored"),
             }
 
-    sigma_van = {L: table.get("vanilla", {}).get(L, {}).get("sigma_pooled")
+    sigma_van = {L: table.get("base", {}).get(L, {}).get("sigma_pooled")
                  for L in args.layers}
-    deltas_full = {L: table.get("phase08_full", {}).get(L, {}).get("delta_mu_corr")
+    deltas_full = {L: table.get("phase08_2k", {}).get(L, {}).get("delta_mu_corr")
                    for L in args.layers}
     pattern = classify(
         {L: deltas_full[L] for L in args.layers if isinstance(deltas_full.get(L), (int, float))},
