@@ -1,0 +1,635 @@
+{
+  "layers": [
+    1,
+    5,
+    9,
+    13,
+    17,
+    21,
+    25,
+    29,
+    33,
+    35
+  ],
+  "axes": [
+    "Age",
+    "Disability_status",
+    "Gender_identity",
+    "Nationality",
+    "Physical_appearance",
+    "Race_ethnicity",
+    "Race_x_SES",
+    "Race_x_gender",
+    "Religion",
+    "SES"
+  ],
+  "n_folds": 5,
+  "C_reg": 1.0,
+  "n_total_disambig": 600,
+  "per_axis_n": {
+    "Age": 60,
+    "Disability_status": 60,
+    "Gender_identity": 60,
+    "Nationality": 60,
+    "Physical_appearance": 60,
+    "Race_ethnicity": 60,
+    "Race_x_SES": 60,
+    "Race_x_gender": 60,
+    "Religion": 60,
+    "SES": 60
+  },
+  "per_axis_pos_rate": {
+    "Age": 0.23333333333333334,
+    "Disability_status": 0.15,
+    "Gender_identity": 0.23333333333333334,
+    "Nationality": 0.25,
+    "Physical_appearance": 0.2833333333333333,
+    "Race_ethnicity": 0.2,
+    "Race_x_SES": 0.2,
+    "Race_x_gender": 0.2,
+    "Religion": 0.23333333333333334,
+    "SES": 0.31666666666666665
+  },
+  "by_layer": {
+    "1": {
+      "pc_explained_variance_ratio": [
+        0.19382475413198832,
+        0.17050688661634875,
+        0.13040867908856824,
+        0.12314489016871791,
+        0.09754331212044164
+      ],
+      "pc_cumulative_evr": [
+        0.19382475413198832,
+        0.36433164074833707,
+        0.4947403198369053,
+        0.6178852100056232,
+        0.7154285221260649
+      ],
+      "mean_pairwise_abs_cos_per_axis": 0.34886807020142313,
+      "mean_pairwise_signed_cos_per_axis": 0.34886807020142313,
+      "mean_abs_cos_axis_vs_shared": 0.4347417114080169,
+      "per_axis_cv_acc_mean": 0.835,
+      "per_axis_cv_acc_min": 0.7333333333333334,
+      "shared_probe_cv_acc": 0.8466666666666667,
+      "per_axis_cv_acc": {
+        "Age": 0.7333333333333334,
+        "Disability_status": 0.8,
+        "Gender_identity": 0.75,
+        "Nationality": 0.9,
+        "Physical_appearance": 0.9,
+        "Race_ethnicity": 0.8333333333333334,
+        "Race_x_SES": 0.8666666666666668,
+        "Race_x_gender": 0.8833333333333332,
+        "Religion": 0.8833333333333332,
+        "SES": 0.8
+      },
+      "per_axis_n": {
+        "Age": 60,
+        "Disability_status": 60,
+        "Gender_identity": 60,
+        "Nationality": 60,
+        "Physical_appearance": 60,
+        "Race_ethnicity": 60,
+        "Race_x_SES": 60,
+        "Race_x_gender": 60,
+        "Religion": 60,
+        "SES": 60
+      },
+      "cos_axis_vs_shared": {
+        "Age": 0.5422900273675043,
+        "Disability_status": 0.5342740407716369,
+        "Gender_identity": 0.4555381962827689,
+        "Nationality": 0.5185157819151012,
+        "Physical_appearance": 0.22144310466718856,
+        "Race_ethnicity": 0.37406079930922553,
+        "Race_x_SES": 0.3885404511119054,
+        "Race_x_gender": 0.4280688219711837,
+        "Religion": 0.23141678357676573,
+        "SES": 0.6532691071068881
+      }
+    },
+    "5": {
+      "pc_explained_variance_ratio": [
+        0.20381791247480174,
+        0.17459777750496228,
+        0.12158005922188077,
+        0.1126549528867923,
+        0.10104084501751348
+      ],
+      "pc_cumulative_evr": [
+        0.20381791247480174,
+        0.37841568997976405,
+        0.4999957492016448,
+        0.6126507020884371,
+        0.7136915471059506
+      ],
+      "mean_pairwise_abs_cos_per_axis": 0.12485760027678712,
+      "mean_pairwise_signed_cos_per_axis": 0.09277816357210386,
+      "mean_abs_cos_axis_vs_shared": 0.3230174057883388,
+      "per_axis_cv_acc_mean": 0.8816666666666666,
+      "per_axis_cv_acc_min": 0.8,
+      "shared_probe_cv_acc": 0.8716666666666667,
+      "per_axis_cv_acc": {
+        "Age": 0.8,
+        "Disability_status": 0.8666666666666666,
+        "Gender_identity": 0.8833333333333332,
+        "Nationality": 0.9166666666666666,
+        "Physical_appearance": 0.9,
+        "Race_ethnicity": 0.8833333333333334,
+        "Race_x_SES": 0.8666666666666668,
+        "Race_x_gender": 0.9333333333333332,
+        "Religion": 0.9166666666666666,
+        "SES": 0.85
+      },
+      "per_axis_n": {
+        "Age": 60,
+        "Disability_status": 60,
+        "Gender_identity": 60,
+        "Nationality": 60,
+        "Physical_appearance": 60,
+        "Race_ethnicity": 60,
+        "Race_x_SES": 60,
+        "Race_x_gender": 60,
+        "Religion": 60,
+        "SES": 60
+      },
+      "cos_axis_vs_shared": {
+        "Age": 0.40466181680709257,
+        "Disability_status": 0.2767032052382352,
+        "Gender_identity": 0.42586961336849927,
+        "Nationality": 0.3194145220660716,
+        "Physical_appearance": 0.23994136817238423,
+        "Race_ethnicity": 0.31839471905212713,
+        "Race_x_SES": 0.28855599319900804,
+        "Race_x_gender": 0.24444039095372294,
+        "Religion": 0.2540748410910435,
+        "SES": 0.45811758793520324
+      }
+    },
+    "9": {
+      "pc_explained_variance_ratio": [
+        0.183654228708293,
+        0.15876625520663148,
+        0.12796830117180769,
+        0.1105383580975678,
+        0.10212199289778032
+      ],
+      "pc_cumulative_evr": [
+        0.183654228708293,
+        0.3424204839149245,
+        0.4703887850867322,
+        0.5809271431843,
+        0.6830491360820804
+      ],
+      "mean_pairwise_abs_cos_per_axis": 0.09562758502535675,
+      "mean_pairwise_signed_cos_per_axis": 0.05137011624487249,
+      "mean_abs_cos_axis_vs_shared": 0.2910842330795065,
+      "per_axis_cv_acc_mean": 0.885,
+      "per_axis_cv_acc_min": 0.7833333333333333,
+      "shared_probe_cv_acc": 0.8883333333333334,
+      "per_axis_cv_acc": {
+        "Age": 0.7833333333333333,
+        "Disability_status": 0.8833333333333334,
+        "Gender_identity": 0.9,
+        "Nationality": 0.9333333333333332,
+        "Physical_appearance": 0.8833333333333332,
+        "Race_ethnicity": 0.9166666666666667,
+        "Race_x_SES": 0.8666666666666666,
+        "Race_x_gender": 0.9166666666666666,
+        "Religion": 0.9333333333333333,
+        "SES": 0.8333333333333333
+      },
+      "per_axis_n": {
+        "Age": 60,
+        "Disability_status": 60,
+        "Gender_identity": 60,
+        "Nationality": 60,
+        "Physical_appearance": 60,
+        "Race_ethnicity": 60,
+        "Race_x_SES": 60,
+        "Race_x_gender": 60,
+        "Religion": 60,
+        "SES": 60
+      },
+      "cos_axis_vs_shared": {
+        "Age": 0.3361178276830602,
+        "Disability_status": 0.31118321942899163,
+        "Gender_identity": 0.36257184006923987,
+        "Nationality": 0.2843536217624052,
+        "Physical_appearance": 0.21326194238739649,
+        "Race_ethnicity": 0.32574752751590175,
+        "Race_x_SES": 0.3126746483504318,
+        "Race_x_gender": 0.21539295446199164,
+        "Religion": 0.19368616815442175,
+        "SES": 0.35585258098122463
+      }
+    },
+    "13": {
+      "pc_explained_variance_ratio": [
+        0.1724472676526098,
+        0.1548970113029533,
+        0.13715309703302986,
+        0.1108854257376051,
+        0.09929011165914872
+      ],
+      "pc_cumulative_evr": [
+        0.1724472676526098,
+        0.32734427895556306,
+        0.4644973759885929,
+        0.575382801726198,
+        0.6746729133853467
+      ],
+      "mean_pairwise_abs_cos_per_axis": 0.09506098091965638,
+      "mean_pairwise_signed_cos_per_axis": 0.06779567869560937,
+      "mean_abs_cos_axis_vs_shared": 0.310823113990578,
+      "per_axis_cv_acc_mean": 0.8916666666666666,
+      "per_axis_cv_acc_min": 0.8166666666666667,
+      "shared_probe_cv_acc": 0.8966666666666667,
+      "per_axis_cv_acc": {
+        "Age": 0.8166666666666667,
+        "Disability_status": 0.9166666666666666,
+        "Gender_identity": 0.9166666666666666,
+        "Nationality": 0.9333333333333332,
+        "Physical_appearance": 0.9,
+        "Race_ethnicity": 0.9166666666666667,
+        "Race_x_SES": 0.8666666666666668,
+        "Race_x_gender": 0.9166666666666666,
+        "Religion": 0.9166666666666666,
+        "SES": 0.8166666666666668
+      },
+      "per_axis_n": {
+        "Age": 60,
+        "Disability_status": 60,
+        "Gender_identity": 60,
+        "Nationality": 60,
+        "Physical_appearance": 60,
+        "Race_ethnicity": 60,
+        "Race_x_SES": 60,
+        "Race_x_gender": 60,
+        "Religion": 60,
+        "SES": 60
+      },
+      "cos_axis_vs_shared": {
+        "Age": 0.3693059153143291,
+        "Disability_status": 0.33152748645957697,
+        "Gender_identity": 0.4224711731669814,
+        "Nationality": 0.2853586520911727,
+        "Physical_appearance": 0.2565649426717024,
+        "Race_ethnicity": 0.3047348735921044,
+        "Race_x_SES": 0.2805431230247416,
+        "Race_x_gender": 0.22234522425999323,
+        "Religion": 0.2474169550313765,
+        "SES": 0.38796279429380176
+      }
+    },
+    "17": {
+      "pc_explained_variance_ratio": [
+        0.17168874378560767,
+        0.140549568034451,
+        0.1379291799058636,
+        0.12158208862753758,
+        0.10260017142444647
+      ],
+      "pc_cumulative_evr": [
+        0.17168874378560767,
+        0.3122383118200587,
+        0.4501674917259223,
+        0.5717495803534599,
+        0.6743497517779063
+      ],
+      "mean_pairwise_abs_cos_per_axis": 0.10500465827053723,
+      "mean_pairwise_signed_cos_per_axis": 0.08373026215629445,
+      "mean_abs_cos_axis_vs_shared": 0.31678100340464,
+      "per_axis_cv_acc_mean": 0.8933333333333332,
+      "per_axis_cv_acc_min": 0.85,
+      "shared_probe_cv_acc": 0.9199999999999999,
+      "per_axis_cv_acc": {
+        "Age": 0.8666666666666666,
+        "Disability_status": 0.9,
+        "Gender_identity": 0.8833333333333334,
+        "Nationality": 0.9333333333333332,
+        "Physical_appearance": 0.9,
+        "Race_ethnicity": 0.85,
+        "Race_x_SES": 0.8666666666666668,
+        "Race_x_gender": 0.9166666666666666,
+        "Religion": 0.9333333333333333,
+        "SES": 0.8833333333333332
+      },
+      "per_axis_n": {
+        "Age": 60,
+        "Disability_status": 60,
+        "Gender_identity": 60,
+        "Nationality": 60,
+        "Physical_appearance": 60,
+        "Race_ethnicity": 60,
+        "Race_x_SES": 60,
+        "Race_x_gender": 60,
+        "Religion": 60,
+        "SES": 60
+      },
+      "cos_axis_vs_shared": {
+        "Age": 0.34291986344215664,
+        "Disability_status": 0.32863071400695165,
+        "Gender_identity": 0.4641217144487401,
+        "Nationality": 0.3142003217257824,
+        "Physical_appearance": 0.28361736428119,
+        "Race_ethnicity": 0.32850207072952897,
+        "Race_x_SES": 0.2962317701866669,
+        "Race_x_gender": 0.1754578603570498,
+        "Religion": 0.24745917048099234,
+        "SES": 0.386669184387341
+      }
+    },
+    "21": {
+      "pc_explained_variance_ratio": [
+        0.15664802556794785,
+        0.13162900125419144,
+        0.1260315820156782,
+        0.12419110815261428,
+        0.11773868545163277
+      ],
+      "pc_cumulative_evr": [
+        0.15664802556794785,
+        0.2882770268221393,
+        0.4143086088378175,
+        0.5384997169904318,
+        0.6562384024420646
+      ],
+      "mean_pairwise_abs_cos_per_axis": 0.1387868188197634,
+      "mean_pairwise_signed_cos_per_axis": 0.1373207137112996,
+      "mean_abs_cos_axis_vs_shared": 0.3854237995311155,
+      "per_axis_cv_acc_mean": 0.9166666666666666,
+      "per_axis_cv_acc_min": 0.8166666666666668,
+      "shared_probe_cv_acc": 0.9616666666666666,
+      "per_axis_cv_acc": {
+        "Age": 0.8166666666666668,
+        "Disability_status": 0.9333333333333333,
+        "Gender_identity": 0.95,
+        "Nationality": 0.9666666666666666,
+        "Physical_appearance": 0.9333333333333333,
+        "Race_ethnicity": 0.8833333333333334,
+        "Race_x_SES": 0.8833333333333334,
+        "Race_x_gender": 0.9166666666666666,
+        "Religion": 0.9333333333333333,
+        "SES": 0.95
+      },
+      "per_axis_n": {
+        "Age": 60,
+        "Disability_status": 60,
+        "Gender_identity": 60,
+        "Nationality": 60,
+        "Physical_appearance": 60,
+        "Race_ethnicity": 60,
+        "Race_x_SES": 60,
+        "Race_x_gender": 60,
+        "Religion": 60,
+        "SES": 60
+      },
+      "cos_axis_vs_shared": {
+        "Age": 0.4329473958158908,
+        "Disability_status": 0.45244849728463066,
+        "Gender_identity": 0.4627356060961109,
+        "Nationality": 0.3074413039458046,
+        "Physical_appearance": 0.41551272100907866,
+        "Race_ethnicity": 0.43423886564447123,
+        "Race_x_SES": 0.4294439470637228,
+        "Race_x_gender": 0.23963384758933215,
+        "Religion": 0.2716651828338337,
+        "SES": 0.4081706280282794
+      }
+    },
+    "25": {
+      "pc_explained_variance_ratio": [
+        0.250210284059726,
+        0.15701681413950086,
+        0.13776407706724325,
+        0.1214126871094812,
+        0.08801856281466172
+      ],
+      "pc_cumulative_evr": [
+        0.250210284059726,
+        0.40722709819922687,
+        0.5449911752664701,
+        0.6664038623759513,
+        0.754422425190613
+      ],
+      "mean_pairwise_abs_cos_per_axis": 0.5750816477251435,
+      "mean_pairwise_signed_cos_per_axis": 0.5750816477251435,
+      "mean_abs_cos_axis_vs_shared": 0.49008414971596836,
+      "per_axis_cv_acc_mean": 0.9733333333333333,
+      "per_axis_cv_acc_min": 0.9166666666666667,
+      "shared_probe_cv_acc": 0.99,
+      "per_axis_cv_acc": {
+        "Age": 0.9166666666666667,
+        "Disability_status": 0.9833333333333332,
+        "Gender_identity": 0.9666666666666666,
+        "Nationality": 0.9833333333333332,
+        "Physical_appearance": 1.0,
+        "Race_ethnicity": 0.9833333333333334,
+        "Race_x_SES": 1.0,
+        "Race_x_gender": 0.9333333333333332,
+        "Religion": 0.9666666666666666,
+        "SES": 1.0
+      },
+      "per_axis_n": {
+        "Age": 60,
+        "Disability_status": 60,
+        "Gender_identity": 60,
+        "Nationality": 60,
+        "Physical_appearance": 60,
+        "Race_ethnicity": 60,
+        "Race_x_SES": 60,
+        "Race_x_gender": 60,
+        "Religion": 60,
+        "SES": 60
+      },
+      "cos_axis_vs_shared": {
+        "Age": 0.6153417506162887,
+        "Disability_status": 0.4613495294506389,
+        "Gender_identity": 0.5564382350531742,
+        "Nationality": 0.44364409670654037,
+        "Physical_appearance": 0.46677547427531374,
+        "Race_ethnicity": 0.4880080149447668,
+        "Race_x_SES": 0.4117133550587949,
+        "Race_x_gender": 0.4123304618928456,
+        "Religion": 0.5288053937822984,
+        "SES": 0.5164351853790219
+      }
+    },
+    "29": {
+      "pc_explained_variance_ratio": [
+        0.23234699111441653,
+        0.151750405806501,
+        0.13683927856596734,
+        0.12882552160315983,
+        0.08740710491949832
+      ],
+      "pc_cumulative_evr": [
+        0.23234699111441653,
+        0.38409739692091754,
+        0.5209366754868849,
+        0.6497621970900448,
+        0.7371693020095431
+      ],
+      "mean_pairwise_abs_cos_per_axis": 0.5533484728263668,
+      "mean_pairwise_signed_cos_per_axis": 0.5533484728263668,
+      "mean_abs_cos_axis_vs_shared": 0.5385096130069856,
+      "per_axis_cv_acc_mean": 0.9683333333333334,
+      "per_axis_cv_acc_min": 0.9166666666666667,
+      "shared_probe_cv_acc": 0.9883333333333333,
+      "per_axis_cv_acc": {
+        "Age": 0.9166666666666667,
+        "Disability_status": 0.9833333333333332,
+        "Gender_identity": 0.9666666666666666,
+        "Nationality": 0.9666666666666668,
+        "Physical_appearance": 0.9666666666666668,
+        "Race_ethnicity": 0.9833333333333334,
+        "Race_x_SES": 1.0,
+        "Race_x_gender": 0.9333333333333332,
+        "Religion": 0.9666666666666666,
+        "SES": 1.0
+      },
+      "per_axis_n": {
+        "Age": 60,
+        "Disability_status": 60,
+        "Gender_identity": 60,
+        "Nationality": 60,
+        "Physical_appearance": 60,
+        "Race_ethnicity": 60,
+        "Race_x_SES": 60,
+        "Race_x_gender": 60,
+        "Religion": 60,
+        "SES": 60
+      },
+      "cos_axis_vs_shared": {
+        "Age": 0.6468707415465527,
+        "Disability_status": 0.5323632698297075,
+        "Gender_identity": 0.6280650858383872,
+        "Nationality": 0.4937769330832813,
+        "Physical_appearance": 0.5150935315792279,
+        "Race_ethnicity": 0.517286806474079,
+        "Race_x_SES": 0.4833867096170533,
+        "Race_x_gender": 0.4792642686595825,
+        "Religion": 0.5056137280848703,
+        "SES": 0.5833750553571144
+      }
+    },
+    "33": {
+      "pc_explained_variance_ratio": [
+        0.2197375302745989,
+        0.1523808782225148,
+        0.13235669937223357,
+        0.11898137418430418,
+        0.09805671094217372
+      ],
+      "pc_cumulative_evr": [
+        0.2197375302745989,
+        0.37211840849711375,
+        0.5044751078693474,
+        0.6234564820536516,
+        0.7215131929958253
+      ],
+      "mean_pairwise_abs_cos_per_axis": 0.5043940695480901,
+      "mean_pairwise_signed_cos_per_axis": 0.5043940695480901,
+      "mean_abs_cos_axis_vs_shared": 0.5325043293547022,
+      "per_axis_cv_acc_mean": 0.9683333333333334,
+      "per_axis_cv_acc_min": 0.9,
+      "shared_probe_cv_acc": 0.9866666666666667,
+      "per_axis_cv_acc": {
+        "Age": 0.9,
+        "Disability_status": 0.9833333333333332,
+        "Gender_identity": 0.9666666666666666,
+        "Nationality": 0.9833333333333332,
+        "Physical_appearance": 0.9666666666666668,
+        "Race_ethnicity": 1.0,
+        "Race_x_SES": 1.0,
+        "Race_x_gender": 0.9166666666666666,
+        "Religion": 0.9666666666666666,
+        "SES": 1.0
+      },
+      "per_axis_n": {
+        "Age": 60,
+        "Disability_status": 60,
+        "Gender_identity": 60,
+        "Nationality": 60,
+        "Physical_appearance": 60,
+        "Race_ethnicity": 60,
+        "Race_x_SES": 60,
+        "Race_x_gender": 60,
+        "Religion": 60,
+        "SES": 60
+      },
+      "cos_axis_vs_shared": {
+        "Age": 0.6363965121428472,
+        "Disability_status": 0.5045999121806495,
+        "Gender_identity": 0.6239285335780442,
+        "Nationality": 0.49452987308464946,
+        "Physical_appearance": 0.5357229782972932,
+        "Race_ethnicity": 0.5090329346611722,
+        "Race_x_SES": 0.49312988441215966,
+        "Race_x_gender": 0.47569844249377624,
+        "Religion": 0.47686992141356466,
+        "SES": 0.5751343012828649
+      }
+    },
+    "35": {
+      "pc_explained_variance_ratio": [
+        0.19415660748810615,
+        0.14326503982257568,
+        0.1317126332566937,
+        0.11911081018662409,
+        0.1104524705479067
+      ],
+      "pc_cumulative_evr": [
+        0.19415660748810615,
+        0.3374216473106818,
+        0.4691342805673755,
+        0.5882450907539996,
+        0.6986975613019063
+      ],
+      "mean_pairwise_abs_cos_per_axis": 0.4741689992251634,
+      "mean_pairwise_signed_cos_per_axis": 0.4741689992251634,
+      "mean_abs_cos_axis_vs_shared": 0.5249559283216876,
+      "per_axis_cv_acc_mean": 0.9650000000000001,
+      "per_axis_cv_acc_min": 0.8833333333333334,
+      "shared_probe_cv_acc": 0.985,
+      "per_axis_cv_acc": {
+        "Age": 0.8833333333333334,
+        "Disability_status": 0.9833333333333332,
+        "Gender_identity": 0.9666666666666666,
+        "Nationality": 0.9666666666666668,
+        "Physical_appearance": 0.9666666666666668,
+        "Race_ethnicity": 1.0,
+        "Race_x_SES": 1.0,
+        "Race_x_gender": 0.9166666666666666,
+        "Religion": 0.9666666666666666,
+        "SES": 1.0
+      },
+      "per_axis_n": {
+        "Age": 60,
+        "Disability_status": 60,
+        "Gender_identity": 60,
+        "Nationality": 60,
+        "Physical_appearance": 60,
+        "Race_ethnicity": 60,
+        "Race_x_SES": 60,
+        "Race_x_gender": 60,
+        "Religion": 60,
+        "SES": 60
+      },
+      "cos_axis_vs_shared": {
+        "Age": 0.6377679909164237,
+        "Disability_status": 0.5054830345513704,
+        "Gender_identity": 0.5869560284601174,
+        "Nationality": 0.45969810074770556,
+        "Physical_appearance": 0.5452507313247966,
+        "Race_ethnicity": 0.4984630816374523,
+        "Race_x_SES": 0.4862989860288076,
+        "Race_x_gender": 0.4549876627972209,
+        "Religion": 0.5051568384648814,
+        "SES": 0.5694968282881002
+      }
+    }
+  }
+}

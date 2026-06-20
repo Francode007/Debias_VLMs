@@ -55,6 +55,36 @@ below the original ≤ −0.30σ Pattern-1 cut-off. KLFIX-s1 is the flattest
 
 This is the empirical justification for re-ranking T1#6 → Action 1 below.
 
+### Secondary mechanistic finding — two-regime bias geometry (rank-1 PCA experiment, 2026-06-20)
+
+Per-axis `bias_aligned` probes fit at each layer (n=60 disambig records × 10 BBQ axes,
+5-fold CV, robust at L2 C ∈ {0.1, 10.0}) and their unit-normalised weight vectors
+stacked + PCA'd reveal a **two-regime structure**:
+
+| layer band | PC0 evr | mean pairwise \|cos\| | per-axis CV acc | regime |
+|---|---:|---:|---:|---|
+| L5–L21 | 0.16–0.20 | **0.10–0.14** | 0.88–0.92 | **disentangled** per-category circuits |
+| **L25–L35** | **0.22–0.25** | **0.47–0.58** | **0.97** | **convergent shared subspace** |
+
+(Uniform-spectrum baseline for 10 orthogonal vectors in 2048-d: PC0 = 0.10.)
+
+**Interpretation.** At mid-depth (L9–L21) each demographic category has its own
+distinct linear bias circuit (axes near-orthogonal). At terminal depth (L25–L35) those
+per-axis circuits partially collapse onto a common readout axis, with per-axis
+discriminability simultaneously sharpening (CV acc 0.89 → 0.97).
+
+**Implication for Action 1.** The L13 reward (deployment layer) sits in the
+*disentangled* regime — a single 1-D selector cannot efficiently move 10
+nearly-orthogonal per-category circuits. A multi-layer ensemble that aggregates
+{L13, L17, L21} (disentangled) + {L25, L29, L33} (convergent) samples *both* regimes.
+This corroborates the offline ensemble result (Cohen-d 3.70 → 7.21).
+
+**Status.** Supporting evidence with limitations (n=60, single dataset). R1 (bootstrap
+CIs) and R2 (cross-dataset replication on SB-Bench) are pre-registered as
+publication-grade hardening — see §3ter. Source: [scripts/rank1_bias_geometry.py](scripts/rank1_bias_geometry.py),
+[Phase0.8/a3_results/rank1_bias_geometry.json](Phase0.8/a3_results/rank1_bias_geometry.json).
+Detailed write-up: [Workshop_Submission/REPORT_EXTENSIVE.md](Workshop_Submission/REPORT_EXTENSIVE.md) §9.
+
 ---
 
 ## 0. Guiding principles
@@ -75,12 +105,21 @@ This is the empirical justification for re-ranking T1#6 → Action 1 below.
 > Original v1 tier table preserved in [archive/Phase0.8_Strategic_Plan_v1.md](Phase0.8/archive/Phase0.8_Strategic_Plan_v1.md) §1; revised
 > table below reflects T0#1 / T0#3 closure and the promotion of T1#6 → Action 1.
 
-### Tier 0 — Live items (do next)
+### Tier 0 — Live items (do next, in dependency order)
 
 | # | Item                                              | Cost           | Decision rule                                                                                                                  |
 |---|---------------------------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------|
+| **R1** | **Bootstrap PC0 confidence intervals on the two-regime bias geometry** | ~10 min CPU | Pre-Action-1 hardening. Resample 100× per axis with replacement; report 95% CI on PC0 evr and mean \|cos\| at each layer. Promote two-regime finding to publication-grade iff the L13-vs-L25 PC0 gap remains separable at 95% CI. See §3ter. |
+| **R2** | **Cross-dataset replication of two-regime finding (SB-Bench)** | ~30 min Modal once HS pulled | Pre-Action-1 hardening. Re-fit 10 per-axis `bias_aligned` probes on SB-Bench-derived hidden states; re-PCA. Promote to "model property" iff both datasets reproduce the two-regime pattern. Otherwise report as dataset-coupled probe artefact. See §3ter. |
 | **A1** | **Multi-layer ensemble reward (zmean-top5)** under KLFIX backbone | ½-day code + ~5 h GPU | Adopt as new baseline iff: (i) mean canonical Δacc vs vanilla ≥ +1.5 pp; (ii) cross-seed std ≤ 0.5 pp; (iii) beats KLFIX on ≥ 6/9 axes; (iv) tail-KL std ≤ 0.005 (matches KLFIX). See §3bis. |
 | **A3** | **Counterfactual n=6166** on KLFIX-mean + variants | ½-day build + ~3 h GPU | Causal claim accepted iff `flip_rate(KLFIX) ≤ 0.7 × flip_rate(vanilla)` AND `accuracy_swap − accuracy_orig` within ±2 pp. See §4 (refreshed). |
+
+**Sequencing.** R1 + R2 run before A1 (~½ day total work, mostly CPU). A1 launches as
+soon as both R1 and R2 are landed in the report; A3 runs in parallel with A1 (independent
+diagnostic). R1 + R2 are blockers for the two-regime mechanism claim in
+[Workshop_Submission/REPORT_EXTENSIVE.md](Workshop_Submission/REPORT_EXTENSIVE.md) §9
+landing as publication-grade. They are *not* blockers for A1 itself — A1 can launch
+independently — but they harden the mechanism story that justifies A1's design.
 
 ### Tier 0 — Closed items (do not re-run)
 
@@ -257,6 +296,91 @@ noise).
 - `Phase0.8/ensemble/seed_{1..4}/...` (training logs, final checkpoints)
 - `Phase0.8/ensemble/canonical_eval_summary.json`
 - `Phase0.8/ensemble/FINAL_REPORT.md` mirroring `seed_diag/klfix/FINAL_REPORT.md`
+
+---
+
+## 3ter. R1 + R2 — Two-regime bias-geometry hardening (pre-Action-1)
+
+> **Provenance.** Added 2026-06-20 after the rank-1 PCA-on-stacked-per-axis-probes
+> experiment ([scripts/rank1_bias_geometry.py](scripts/rank1_bias_geometry.py),
+> [Phase0.8/a3_results/rank1_bias_geometry.json](Phase0.8/a3_results/rank1_bias_geometry.json))
+> revealed a two-regime structure (disentangled L9–L21 + convergent L25–L35) that the
+> Phase 0.8 extensive report ([Workshop_Submission/REPORT_EXTENSIVE.md](Workshop_Submission/REPORT_EXTENSIVE.md) §9)
+> currently treats as **supporting evidence**. R1 + R2 are the cheap experiments that
+> determine whether this gets promoted to publication-grade contribution.
+
+### R1 — Bootstrap PC0 confidence intervals
+
+**Question.** Are the per-layer PC0 values from §9.4 of REPORT_EXTENSIVE statistically
+separable across the L13 → L25 regime transition?
+
+**Method.**
+1. For each layer L ∈ {1, 5, 9, 13, 17, 21, 25, 29, 33, 35}:
+   - Repeat 100×: resample each axis's 60 records with replacement (block bootstrap
+     preserving the per-axis structure); fit the 10 per-axis probes; stack and PCA.
+   - Report 95% CI on PC0 evr, PC1 evr, mean pairwise |cos|, mean axis-shared |cos|.
+2. Test: is `CI(PC0_L25) ∩ CI(PC0_L13) = ∅`? If yes → two-regime gap is statistically
+   robust at n=60.
+3. Sanity: report mean per-axis CV accuracy CI too (it should grow with depth, mirroring
+   §4½.14).
+
+**Cost.** ~10 min CPU (100× bootstrap of an existing ~30s analysis). No GPU.
+
+**Pass criterion.** Promote two-regime finding from "supporting evidence" to
+"publication-grade" iff at least 8 of 10 layers have non-overlapping PC0 CIs with the
+L13 reference, AND the L25 mean PC0 CI lower-bound exceeds L13 mean PC0 CI upper-bound.
+
+**Output.** `Phase0.8/a3_results/rank1_bias_geometry_bootstrap.json` with per-layer
+{mean, lower, upper} for each metric.
+
+### R2 — Cross-dataset replication on SB-Bench
+
+**Question.** Does the two-regime geometry replicate on a different dataset, or is it
+coupled to the specific VLBiasBench probe-fitting set?
+
+**Method.**
+1. Re-extract hidden states for n≈900 stratified SB-Bench records at L ∈ {1, 5, 9, 13,
+   17, 21, 25, 29, 33, 35}. Reuse the existing extraction pipeline ([src/modules/evaluation/probe_layers.py](src/modules/evaluation/probe_layers.py)).
+2. Compute per-record `bias_aligned` label using the same `_is_bias_aligned` function
+   (BBQ convention: stereo-aligned named option = label 1 on disambig).
+3. Re-run the rank-1 experiment with SB-Bench HS instead of VLBias HS.
+4. Compare per-layer PC0 evr and mean pairwise |cos|.
+
+**Cost.** ~30 min Modal GPU once HS extraction is queued (HS likely already cached
+under `/mnt/data/sb_bench_baseline_hs/` from earlier audits — check before extracting).
+
+**Pass criterion.** Two-regime pattern is a **model property** (vs dataset-coupled
+probe artefact) iff: at every layer L, |PC0_SB(L) − PC0_VLBias(L)| ≤ 0.05 AND the
+L25-vs-L13 PC0 gap reproduces with the same sign and at least 50% the magnitude.
+If gap reverses or shrinks > 50%, the finding is dataset-coupled and we report it
+that way — still useful, but not a clean model-mechanism claim.
+
+**Output.** `Phase0.8/a3_results/rank1_bias_geometry_sbbench.json` + a comparison memo
+`Phase0.8/a3_results/rank1_cross_dataset.md`.
+
+### Interaction with Action 1
+
+R1 + R2 are **not blockers for launching Action 1** — A1 can run independently. They
+*are* blockers for the two-regime mechanism claim in [REPORT_EXTENSIVE.md](Workshop_Submission/REPORT_EXTENSIVE.md) §9
+landing as a publication-grade contribution. If A1 passes its gate, the ensemble result
+itself provides additional indirect evidence for the two-regime story (the multi-layer
+ensemble succeeds precisely because it samples both regimes). If A1 fails, R1+R2 still
+stand as a standalone mechanism finding.
+
+**Decision tree:**
+
+```
+                        ┌─────────────────┐
+                        │ R1 + R2 results │
+                        └────────┬────────┘
+                                 │
+        ┌────────────────────────┼────────────────────────┐
+        ▼                        ▼                        ▼
+  Both pass               R1 passes, R2 fails       Either fails substantively
+  → Two-regime is a       → Finding is dataset-     → Report as exploratory,
+    model property,         coupled but real;         not a publishable claim.
+    publication-grade.      report honestly.          Re-evaluate after R3 + R4.
+```
 
 ---
 
