@@ -40,3 +40,48 @@ Now satisfied:
 - ✅ No Pattern-1 or Pattern-3 signal emerged that would change strategy
 
 **Recommendation:** proceed to Action 1 (multi-layer ensemble reward) under KLFIX backbone.
+
+---
+
+## Appendix — Wash-out pattern reference
+
+Originally specified in [`Phase0.8_Strategic_Plan.md`](../Phase0.8_Strategic_Plan.md) §3 (now CLOSED) and preserved verbatim in [`archive/Phase0.8_Strategic_Plan_v1.md`](archive/Phase0.8_Strategic_Plan_v1.md) §3. Reproduced here for future reference.
+
+Let `Δμ_full` = per-layer change in mean probe reward (correct − incorrect cells), PPO model minus vanilla, normalised to vanilla σ. The three pre-registered patterns are:
+
+| Pattern | Definition | Mechanistic interpretation |
+|---|---|---|
+| **Pattern 1 — Clean debias** | `Δμ ≤ −0.30σ` at L13 **AND** `≤ −0.15σ` at every L ≥ 17 | Reward signal *propagates*: L13 training pushes the bias direction down at L13 **and** the suppression persists deeper. Representation genuinely "cleaned." |
+| **Pattern 2 — Wash-out** | `Δμ ≤ −0.30σ` at L13 **BUT** `|Δμ| < 0.10σ` at every L ≥ 21 | Reward signal stays *local*: L13 itself shifts, but downstream layers reconstruct the bias representation. Policy outputs better answers via surface routing, not representational change. |
+| **Pattern 3 — Proxy-hacking** | `Δμ ≤ −0.30σ` at L13 **BUT** `Δμ > 0` at any L ≥ 25 | Reward signal is *gamed*: model learns to push bias representation *out* of L13 and *into* deeper layers. Net bias preserved or amplified, just hidden from the probe. |
+
+### Implication per pattern (original Strategic Plan §2 decision tree)
+
+| Pattern | Action |
+|---|---|
+| **Pattern 1** | Skip multi-layer LoRA (T1#5). Reduce LoRA rank — single-layer reward is sufficient and the LoRA may be over-parameterised. |
+| **Pattern 2** | Run multi-layer LoRA (T1#5) attached to L13/17/21/25. Keep reward at L13 (it works), but give the *store* more depth to land in. |
+| **Pattern 3** | Run **both** multi-layer LoRA (T1#5) **AND** multi-layer reward (T1#6). Treat the single-layer L13 result as proxy-hacked / unreliable. |
+
+### What the diagnostic actually returned
+
+**None of the four PPO variants crossed even the L13 entry threshold** (`Δμ ≤ −0.30σ at L13`). Max |z| across all 4 variants × all 11 layers stayed below 0.10σ:
+
+| variant | max \|z\| | argmax L |
+|---|---|---|
+| phase08_2k (prod) | 0.032 | 11 |
+| corrOnly | 0.075 | 25 |
+| biasOnly | 0.021 | 25 |
+| **KLFIX-s1** | **0.019** | **17** |
+
+This is a **degenerate case the v1 patterns didn't anticipate**: not Pattern 1, 2, or 3 in the strict definitional sense — instead the L13 representation **never moved at all** even though canonical accuracy improved (+1.08 pp KLFIX, +1.85 / +3.10 pp prod).
+
+The classifier ([`scripts/phase08_washout_classify.py`](../scripts/phase08_washout_classify.py)) returns `"FLAT (<0.10σ everywhere) — no bias-axis perturbation"` for this case. This verdict file labels it as "Pattern 2" by a relaxed reading (deep layers are flat by definition when nothing moved anywhere), but the live Strategic Plan §0bis re-interprets it more precisely as:
+
+> **The L13 reward is a *selector*, not an *eraser*.** PPO is reweighting *which trajectories get reinforced* rather than rewriting *what the representation encodes*.
+
+### Why this redirected priority to Action 1 (not T1#5)
+
+The v1 §2 decision tree assumed the failure mode would be "change at L13 that washes out at depth" (Pattern 2 in the strict sense), which would have called for T1#5 (multi-layer LoRA) — more *store* capacity at deeper layers. The actual failure mode is "no representational change anywhere," which makes the LoRA placement irrelevant: there is no L13 change to spread. The correct lever is **more reward signal coverage** — fire the selector at multiple layers simultaneously so that more of the trajectory's bias content shows up in the reward landscape. That is Action 1 (multi-layer ensemble reward; see Strategic Plan §3bis).
+
+[`SCALING_PRIORITY_ANALYSIS.md`](SCALING_PRIORITY_ANALYSIS.md) documents why scaling data alone won't help here either (the synergy is saturated at 2k samples and the trajectory has decelerated to +0.17 pp in the last quartile).
