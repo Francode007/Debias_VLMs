@@ -47,15 +47,17 @@ if [[ -z "${VIRTUAL_ENV:-}" ]]; then
 fi
 
 SEEDS="${SEEDS:-1}"
-WARMUP="${WARMUP:-30}"
-WARMUP_LR_MULT="${WARMUP_LR_MULT:-2.0}"
 BUNDLE_DIR="${BUNDLE_DIR:-/mnt/data/generated_heads_probe_L17-33_zmean_base_biasA}"
 ENSEMBLE_POOL="${ENSEMBLE_POOL:-zmean}"
 ENSEMBLE_LAYERS="${ENSEMBLE_LAYERS:-17,21,25,29,33}"
 
-# Same KLFIX baseline flags as phase08_klfix_s1_smoke.sh (the s1 hardened
-# recipe that produced canonical +1.08pp baseline) — only the reward signal
-# changes via the 3 ensemble flags at the bottom.
+# Same canonical KLFIX recipe (3 fixes: value-head zero-init code, --value-clip-range
+# 0.2, --kl-adapt-rate 0.3) as the +1.08pp single-layer KLFIX baseline. The legacy
+# --value-warmup-* belt-and-suspenders flags from phase08_klfix_s1_smoke.sh are
+# tangential to KLFIX proper (they came from the earlier vwarmup recipe and are
+# made redundant by the code-level value-head zero-init). The R3 comparison
+# (ensemble KLFIX vs single-layer KLFIX +1.08pp) remains apples-to-apples since
+# both use the identical 3-fix KLFIX core.
 COMMON_FLAGS=(
     --epochs 1
     --dataset sb_bench --model-family qwen
@@ -68,13 +70,11 @@ COMMON_FLAGS=(
     --bias-aligned-coef 1.0 --correctness-coef 1.0 --ambig-preservation-coef 0.5
     --use-frozen-phi
     --midtrain-eval-every-steps 50 --midtrain-eval-samples 64
-    # Single-layer head-dir is still required (loader's existence check);
-    # it's ignored at reward-compute time when ensemble mode is active, but
-    # the legacy load_pca_components path in train_rl.py needs a valid dir.
+    # Single-layer head-dir is still required (legacy load_pca_components path
+    # in train_rl.py needs a valid dir); it's IGNORED at reward-compute time
+    # when ensemble mode is active.
     --reward-head-layer 17
     --reward-heads-dir-override "/mnt/data/generated_heads_probe_L13_base_biasA/sb_bench-PROBE-component"
-    --value-warmup-steps "${WARMUP}"
-    --value-warmup-lr-multiplier "${WARMUP_LR_MULT}"
     --value-clip-range 0.2                        # KLFIX fix #2
     # ─── Phase 0.9 R3 ensemble flags ──────────────────────────────────
     --ensemble-bundle-dir "${BUNDLE_DIR}"
@@ -83,7 +83,7 @@ COMMON_FLAGS=(
 )
 
 echo "▶ Phase 0.9 R3 ensemble smoke"
-echo "  SEEDS='${SEEDS}'  WARMUP=${WARMUP}  WARMUP_LR_MULT=${WARMUP_LR_MULT}"
+echo "  SEEDS='${SEEDS}'"
 echo "  Ensemble bundle: ${BUNDLE_DIR}"
 echo "  Layers: ${ENSEMBLE_LAYERS}   pool: ${ENSEMBLE_POOL}"
 echo ""
