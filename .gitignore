@@ -43,3 +43,9 @@ Phase0.7/vlbiasbench/phase07_vlbiasbench/*_gen.jsonl
 Phase0.8/**/*.npz
 Phase0.8/**/*.npy
 phase07_pca/*.jsonl
+
+# Phase 0.9 — exclude bulky outputs; bundle (.pth + metadata) is committed
+Phase0.9/ensemble_bundle_raw/
+Phase0.9/**/*.npz
+Phase0.9/smoke_metrics/
+Phase0.9/sweep_metrics/

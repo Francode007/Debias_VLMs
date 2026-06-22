@@ -1,0 +1,33 @@
+/Users/f0s03xp/Debias_VLMs/debias_env/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+Loading cache: /Users/f0s03xp/Debias_VLMs/Phase0.8/a3_results/local_cache/base_probe_hs.npz
+  N=900  L_total=37  D=2048
+  axis Age                      n=60  pos_rate=0.233
+  axis Disability_status        n=60  pos_rate=0.150
+  axis Gender_identity          n=60  pos_rate=0.233
+  axis Nationality              n=60  pos_rate=0.250
+  axis Physical_appearance      n=60  pos_rate=0.283
+  axis Race_ethnicity           n=60  pos_rate=0.200
+  axis Race_x_SES               n=60  pos_rate=0.200
+  axis Race_x_gender            n=60  pos_rate=0.200
+  axis Religion                 n=60  pos_rate=0.233
+  axis SES                      n=60  pos_rate=0.317
+
+=== Bootstrap (B=200) — 95% CIs per layer (percentile method) ===
+  L   PC0 mean   PC0  2.5%   PC0 97.5%   |cos| mean  |cos|  2.5%  |cos| 97.5%
+  1      0.208       0.178       0.248        0.299        0.244        0.375  [112s, 200/200 usable]
+  5      0.211       0.176       0.246        0.133        0.103        0.162  [191s, 200/200 usable]
+  9      0.186       0.163       0.211        0.103        0.081        0.124  [160s, 200/200 usable]
+ 13      0.185       0.162       0.214        0.106        0.085        0.133  [162s, 200/200 usable]
+ 17      0.179       0.159       0.207        0.110        0.090        0.131  [176s, 200/200 usable]
+ 21      0.173       0.151       0.201        0.129        0.106        0.156  [130s, 200/200 usable]
+ 25      0.243       0.202       0.297        0.540        0.491        0.599  [93s, 200/200 usable]
+ 29      0.223       0.191       0.255        0.499        0.456        0.546  [111s, 200/200 usable]
+ 33      0.216       0.188       0.247        0.446        0.404        0.487  [145s, 200/200 usable]
+ 35      0.200       0.173       0.234        0.418        0.377        0.453  [162s, 200/200 usable]
+
+L13 vs L25 PC0 95% CIs: L13=[0.162, 0.214] L25=[0.202, 0.297]  →  separable: False
+L13 vs L25 |cos| 95% CIs: L13=[0.085, 0.133] L25=[0.491, 0.599]  →  separable: True
+Two-regime publication-grade: False
+
+✅ wrote /Users/f0s03xp/Debias_VLMs/Phase0.8/a3_results/rank1_bias_geometry_bootstrap.json

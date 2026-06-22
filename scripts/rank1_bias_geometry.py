@@ -110,7 +110,9 @@ def main() -> None:
     print(f"  bias_aligned usable: {int(keep.sum())} / {N}")
     print(f"  unique axes: {sorted(set(axes[keep]))}")
     unique_axes = sorted(set(axes[keep]))
-    assert len(unique_axes) == 10, f"expected 10 axes, got {len(unique_axes)}"
+    assert len(unique_axes) >= 2, f"expected >=2 axes, got {len(unique_axes)}"
+    n_axes = len(unique_axes)
+    print(f"  n_axes = {n_axes}")
 
     out = {"layers": LAYERS, "axes": unique_axes, "n_folds": N_FOLDS, "C_reg": C_REG,
            "n_total_disambig": int(keep.sum()),
@@ -123,7 +125,7 @@ def main() -> None:
 
     for L in LAYERS:
         # Per-axis probes
-        W = np.zeros((10, D), dtype=np.float64)
+        W = np.zeros((n_axes, D), dtype=np.float64)
         per_axis_acc = []
         per_axis_n = []
         for i, ax in enumerate(unique_axes):
@@ -146,7 +148,7 @@ def main() -> None:
         summ = pca_summary(W)
 
         # Axis-shared alignment
-        cos_shared = np.array([float(np.dot(W[i], w_shared)) for i in range(10)])
+        cos_shared = np.array([float(np.dot(W[i], w_shared)) for i in range(n_axes)])
         mean_abs_cos_shared = float(np.mean(np.abs(cos_shared)))
 
         out["by_layer"][L] = {
