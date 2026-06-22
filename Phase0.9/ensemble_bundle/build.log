@@ -1,0 +1,49 @@
+Phase 0.9 R3 step 1 — Build of /generated_heads_probe_L17-33_zmean_base_biasA bundle
+====================================================================================
+
+  L17: loaded base_L17_probe_weights_biasA.npz  ||coef||=7.1701  normed_norm=1.000000
+  L21: loaded base_L21_probe_weights_biasA.npz  ||coef||=5.4741  normed_norm=1.000000
+  L25: loaded base_L25_probe_weights_biasA.npz  ||coef||=2.5033  normed_norm=1.000000
+  L29: loaded base_L29_probe_weights_biasA.npz  ||coef||=2.3563  normed_norm=1.000000
+  L33: loaded base_L33_probe_weights_biasA.npz  ||coef||=2.0855  normed_norm=1.000000
+
+Loading calibration HS cache: Phase0.8/a3_results/local_cache/sbbench9_probe_hs.npz
+  N=751  L_all=37  D=2048
+
+=== Per-layer reward scale (over all 751 cached records) ===
+    L     mean(r)      std(r)         min         max        p1       p99
+   17     -0.8152      0.8885     -2.4669      0.7394    -2.224     0.558
+   21     -0.1647      1.4100     -3.6915      2.2675    -2.545     1.968
+   25      1.2108      3.2345     -6.7804      7.5615    -4.875     7.099
+   29      1.2301      3.5114     -7.0120      7.9769    -5.218     7.218
+   33     -0.4951      4.3625    -10.2090      8.3581    -8.283     7.354
+
+Writing bundle to: Phase0.9/ensemble_bundle
+  wrote L17.pth  shape=(1, 2048)  dtype=torch.float32
+  wrote L21.pth  shape=(1, 2048)  dtype=torch.float32
+  wrote L25.pth  shape=(1, 2048)  dtype=torch.float32
+  wrote L29.pth  shape=(1, 2048)  dtype=torch.float32
+  wrote L33.pth  shape=(1, 2048)  dtype=torch.float32
+  wrote ensemble_metadata.json
+
+✅ Ensemble bundle complete at Phase0.9/ensemble_bundle
+   Layers: [17, 21, 25, 29, 33]
+   Pool:   zmean
+   Calibration: sb_bench_9axis (n=751)
+
+Notes on the per-layer scale spread
+-----------------------------------
+- L17 raw probe norm = 7.17, L33 = 2.09 → ~3.5× spread, confirming the need
+  for unit-normalization before computing reward.
+- After unit-norm, per-record reward stats vary wildly:
+  * L17:  μ = −0.82, σ = 0.89  (compact)
+  * L21:  μ = −0.16, σ = 1.41
+  * L25:  μ = +1.21, σ = 3.23  (peak convergence layer, large σ)
+  * L29:  μ = +1.23, σ = 3.51
+  * L33:  μ = −0.50, σ = 4.36  (deepest, largest σ — ~5× L17)
+- This 5× σ spread confirms the need for per-layer z-norm before averaging
+  in the trainer; without it, the deep layers (L29, L33) would dominate
+  the ensemble reward and the L17/L21 per-axis signal would be drowned out.
+- The zmean pool in §10.1 (REPORT_EXTENSIVE.md): z_L = (proj_L − μ_L) / σ_L,
+  then mean over the 5 layers, then negate (consistent with bias_aligned
+  reward sign convention).

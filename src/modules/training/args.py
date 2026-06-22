@@ -284,6 +284,49 @@ def parse_training_args() -> argparse.Namespace:
         default=1.0,
         help="Coefficient w_corr on the binary correctness term (Phase 0.8).",
     )
+    # ── Phase 0.9 R3 (multi-layer ensemble reward) ────────────────────────
+    parser.add_argument(
+        "--ensemble_bundle_dir",
+        type=str,
+        default=None,
+        help=(
+            "Phase 0.9 R3: directory containing a multi-layer probe bundle "
+            "(L{N}.pth files + ensemble_metadata.json) built by "
+            "scripts/phase09_build_ensemble_bundle.py. When set, the trainer "
+            "loads N per-layer probe heads via load_ensemble_probe_bundle, "
+            "captures hidden states at each layer in the bundle window, "
+            "z-normalises per-layer using offline-calibrated mu/sigma "
+            "baked into the metadata, then mean-pools across layers to a "
+            "single scalar reward (matches Phase0.8/ensemble/README.md "
+            "zscore_mean recipe). Bias-aligned mode is required; the "
+            "single-layer --reward_head_layer is ignored when this is set."
+        ),
+    )
+    parser.add_argument(
+        "--ensemble_layers",
+        type=str,
+        default=None,
+        help=(
+            "Phase 0.9 R3: comma-separated layer indices "
+            "(e.g. '17,21,25,29,33'). If set, overrides the bundle's "
+            "layers list to a subset. Each requested layer must be present "
+            "in the bundle. Leave unset to use all layers in the bundle."
+        ),
+    )
+    parser.add_argument(
+        "--ensemble_pool",
+        type=str,
+        default=None,
+        choices=[None, "zmean", "mean", "max"],
+        help=(
+            "Phase 0.9 R3: pool strategy across the ensemble window. "
+            "'zmean' = per-layer z-score then mean (recommended, "
+            "Phase0.8/ensemble/README.md Test A winner). "
+            "'mean' = mean of raw projections (deep layers dominate). "
+            "'max' = max z-score. Leave unset to use the bundle metadata's "
+            "default (typically 'zmean')."
+        ),
+    )
     parser.add_argument(
         "--use_frozen_phi",
         action="store_true",

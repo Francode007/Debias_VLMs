@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "layers": [
+    17,
+    21,
+    25,
+    29,
+    33
+  ],
+  "pool": "zmean",
+  "per_layer_mu": [
+    -0.8152070418722079,
+    -0.16466708048943182,
+    1.2107706745231854,
+    1.2300815350246843,
+    -0.4950634656523704
+  ],
+  "per_layer_sigma": [
+    0.8884827132106115,
+    1.4099734713809313,
+    3.2344793727077787,
+    3.511437692056467,
+    4.362467039401533
+  ],
+  "hidden_dim": 2048,
+  "variant": "base",
+  "task": "bias_aligned",
+  "token_position": "post_letter",
+  "reward_base": "Qwen/Qwen2.5-VL-3B-Instruct",
+  "normalise": true,
+  "intercept_dropped": true,
+  "calibration_cache": "sbbench9_probe_hs.npz",
+  "calibration_n": 751,
+  "calibration_dataset": "sb_bench_9axis",
+  "probe_sources": {
+    "L17": "base_L17_probe_weights_biasA.npz",
+    "L21": "base_L21_probe_weights_biasA.npz",
+    "L25": "base_L25_probe_weights_biasA.npz",
+    "L29": "base_L29_probe_weights_biasA.npz",
+    "L33": "base_L33_probe_weights_biasA.npz"
+  },
+  "provenance_notes": "5-layer ensemble probe bundle for Phase 0.9 R3 (Action 1 multi-layer ensemble reward). Probes were originally fit per-layer on n=600 VLBias disambig records by phase08_layer_probe (probe_layers.py P3 logistic regression). Per-layer \u03bc/\u03c3 computed offline on the SB-Bench-9axis HS cache to match the PPO training distribution; the trainer's reward computation will apply z-normalisation as z_L = (proj_L - \u03bc_L) / \u03c3_L, then pool by mean over the 5 layers, then negate (consistent with bias_aligned reward sign convention)."
+}

@@ -198,6 +198,37 @@ def build_ppo_controller(
         # internally, but flip the flag here too so downstream code and
         # metrics see a consistent value.
         common_kwargs["use_frozen_phi"] = True
+
+        # ── Phase 0.9 R3: optional multi-layer ensemble bundle ──────────
+        ensemble_kwargs: dict = {}
+        bundle_dir = getattr(args, "ensemble_bundle_dir", None)
+        if bundle_dir:
+            from modules.training.drm_loader import load_ensemble_probe_bundle  # local import to avoid circular
+            overrides: dict = {}
+            ens_layers_arg = getattr(args, "ensemble_layers", None)
+            if ens_layers_arg:
+                overrides["layers"] = [int(s.strip()) for s in str(ens_layers_arg).split(",") if s.strip()]
+            ens_pool_arg = getattr(args, "ensemble_pool", None)
+            if ens_pool_arg:
+                overrides["pool"] = str(ens_pool_arg)
+            layer_to_weight, ensemble_metadata = load_ensemble_probe_bundle(
+                bundle_dir, accelerator.device, overrides=overrides,
+            )
+            ensemble_kwargs = dict(
+                ensemble_layers=list(ensemble_metadata["effective_layers"]),
+                ensemble_weights=layer_to_weight,
+                ensemble_per_layer_mu=list(ensemble_metadata["effective_per_layer_mu"]),
+                ensemble_per_layer_sigma=list(ensemble_metadata["effective_per_layer_sigma"]),
+                ensemble_pool=str(ensemble_metadata["effective_pool"]),
+            )
+            logger.info(
+                "Phase 0.9 R3 ensemble mode requested via --ensemble_bundle_dir "
+                f"({bundle_dir})  effective_layers={ensemble_kwargs['ensemble_layers']}  "
+                f"pool={ensemble_kwargs['ensemble_pool']}  "
+                f"calibration={ensemble_metadata.get('calibration_dataset', '?')} "
+                f"(n={ensemble_metadata.get('calibration_n', '?')})"
+            )
+
         return Phase08PPOController(
             **common_kwargs,
             reward_head_layer=int(getattr(args, "reward_head_layer", 13)),
@@ -206,6 +237,7 @@ def build_ppo_controller(
                 getattr(args, "ambig_preservation_coef", 0.5)
             ),
             correctness_coef=float(getattr(args, "correctness_coef", 1.0)),
+            **ensemble_kwargs,
         )
 
     return PPOVLMController(**common_kwargs)

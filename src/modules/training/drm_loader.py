@@ -2,7 +2,8 @@
 DRM (Debiased Reward Model) Head Loading Utilities.
 
 Handles loading Phase 1 PCA components (.pth files) as combined reward
-head tensors, and the utility for reloading a saved debiased adapter.
+head tensors, the Phase 0.9 multi-layer ensemble probe bundle, and the
+utility for reloading a saved debiased adapter.
 """
 import glob
 import json
@@ -15,6 +16,146 @@ from peft import PeftModel
 from transformers import AutoModelForImageTextToText
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Phase 0.9 R3 — multi-layer ensemble probe bundle ───────────────────────
+ENSEMBLE_METADATA_FILENAME = "ensemble_metadata.json"
+ENSEMBLE_REQUIRED_METADATA_KEYS = (
+    "schema_version", "layers", "pool",
+    "per_layer_mu", "per_layer_sigma", "hidden_dim",
+)
+ENSEMBLE_SUPPORTED_POOLS = ("zmean", "mean", "max")
+
+
+def load_ensemble_probe_bundle(
+    bundle_dir: str,
+    device: torch.device,
+    overrides: dict = None,
+) -> tuple:
+    """
+    Load a Phase 0.9 multi-layer ensemble probe bundle.
+
+    Bundle layout (built by scripts/phase09_build_ensemble_bundle.py):
+        bundle_dir/
+            L{N1}.pth, L{N2}.pth, ...   # each = {"weight": Tensor of shape (1, D)}
+            ensemble_metadata.json      # {schema_version, layers, pool,
+                                        #   per_layer_mu, per_layer_sigma,
+                                        #   hidden_dim, ...}
+
+    Args:
+        bundle_dir:  Path to the bundle directory.
+        device:      Target torch device for the loaded weight tensors.
+        overrides:   Optional dict of metadata overrides. Supported keys:
+                       - 'layers': list[int] subset of bundle's layers
+                       - 'pool':   str ∈ {'zmean', 'mean', 'max'}
+
+    Returns:
+        layer_to_weight: dict[int, Tensor]
+            Maps layer index → unit-normed weight tensor of shape (1, D)
+            in bfloat16 on the target device.
+        metadata: dict
+            Parsed ensemble_metadata.json with effective `layers`, `pool`,
+            and the *aligned* `per_layer_mu` / `per_layer_sigma` (after
+            applying any `overrides['layers']` filter).
+
+    Raises:
+        FileNotFoundError: bundle_dir or metadata file missing.
+        ValueError:        invalid metadata, mismatched layer set,
+                           or unsupported pool.
+    """
+    if not os.path.isdir(bundle_dir):
+        raise FileNotFoundError(f"ensemble bundle dir not found: {bundle_dir}")
+
+    metadata_path = os.path.join(bundle_dir, ENSEMBLE_METADATA_FILENAME)
+    if not os.path.exists(metadata_path):
+        raise FileNotFoundError(
+            f"missing {ENSEMBLE_METADATA_FILENAME} in {bundle_dir}"
+        )
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+
+    missing = [k for k in ENSEMBLE_REQUIRED_METADATA_KEYS if k not in metadata]
+    if missing:
+        raise ValueError(
+            f"ensemble metadata in {metadata_path} missing keys: {missing}"
+        )
+    if metadata["schema_version"] != "1.0":
+        raise ValueError(
+            f"unsupported ensemble bundle schema_version={metadata['schema_version']}"
+        )
+
+    bundle_layers: list = list(metadata["layers"])
+    bundle_mu: list = list(metadata["per_layer_mu"])
+    bundle_sigma: list = list(metadata["per_layer_sigma"])
+    bundle_pool: str = str(metadata["pool"])
+    if len(bundle_layers) != len(bundle_mu) or len(bundle_layers) != len(bundle_sigma):
+        raise ValueError(
+            f"ensemble metadata length mismatch in {metadata_path}: "
+            f"layers={len(bundle_layers)} mu={len(bundle_mu)} sigma={len(bundle_sigma)}"
+        )
+
+    # Apply optional overrides.
+    overrides = overrides or {}
+    if "layers" in overrides and overrides["layers"] is not None:
+        requested = list(overrides["layers"])
+        missing_in_bundle = [L for L in requested if L not in bundle_layers]
+        if missing_in_bundle:
+            raise ValueError(
+                f"requested layers {missing_in_bundle} not present in bundle "
+                f"(bundle layers = {bundle_layers})"
+            )
+        # Re-align mu/sigma to the requested layer order.
+        layer_to_mu = dict(zip(bundle_layers, bundle_mu))
+        layer_to_sigma = dict(zip(bundle_layers, bundle_sigma))
+        eff_layers = requested
+        eff_mu = [layer_to_mu[L] for L in eff_layers]
+        eff_sigma = [layer_to_sigma[L] for L in eff_layers]
+    else:
+        eff_layers = bundle_layers
+        eff_mu = bundle_mu
+        eff_sigma = bundle_sigma
+
+    eff_pool = overrides.get("pool") or bundle_pool
+    if eff_pool not in ENSEMBLE_SUPPORTED_POOLS:
+        raise ValueError(
+            f"unsupported ensemble pool={eff_pool!r}; "
+            f"supported = {ENSEMBLE_SUPPORTED_POOLS}"
+        )
+
+    hidden_dim = int(metadata["hidden_dim"])
+    layer_to_weight: dict = {}
+    for L in eff_layers:
+        pth = os.path.join(bundle_dir, f"L{L}.pth")
+        if not os.path.exists(pth):
+            raise FileNotFoundError(f"ensemble bundle missing weight file: {pth}")
+        state = torch.load(pth, map_location="cpu")
+        w = state.get("weight", state) if isinstance(state, dict) else state
+        if w.shape != (1, hidden_dim):
+            raise ValueError(
+                f"L{L}.pth weight has shape {tuple(w.shape)}, "
+                f"expected (1, {hidden_dim})"
+            )
+        # Re-normalise defensively (bundle stores unit-normed; bf16 round-trip
+        # can introduce ~1e-3 error).
+        nrm = w.norm()
+        if nrm <= 0:
+            raise ValueError(f"L{L}.pth weight has zero norm")
+        w = (w / nrm).to(device, dtype=torch.bfloat16)
+        layer_to_weight[int(L)] = w
+
+    # Bake the effective values back so downstream consumers see one canonical view.
+    metadata["effective_layers"] = list(eff_layers)
+    metadata["effective_pool"] = eff_pool
+    metadata["effective_per_layer_mu"] = list(eff_mu)
+    metadata["effective_per_layer_sigma"] = list(eff_sigma)
+
+    logger.info(
+        f"Loaded ensemble probe bundle from {bundle_dir} "
+        f"layers={eff_layers}  pool={eff_pool}  "
+        f"calibration={metadata.get('calibration_dataset', '?')} "
+        f"(n={metadata.get('calibration_n', '?')})"
+    )
+    return layer_to_weight, metadata
 
 
 def load_pca_components(

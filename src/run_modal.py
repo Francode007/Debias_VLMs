@@ -298,6 +298,10 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
                  bias_aligned_coef: float = 1.0,
                  ambig_preservation_coef: float = 0.5,
                  correctness_coef: float = 1.0,
+                 # Phase 0.9 R3 (multi-layer ensemble reward) flags.
+                 ensemble_bundle_dir: str = "",
+                 ensemble_layers: str = "",
+                 ensemble_pool: str = "",
                  seed: int = 42):
     """RL fine-tuning with PPO using DRM reward heads."""
     _setup_env()
@@ -405,6 +409,14 @@ def run_training(epochs: int = 1, output_dir: str = "/mnt/data/output_ppo_debias
         "--correctness_coef", str(correctness_coef),
         "--seed", str(seed),
     ])
+    # Phase 0.9 R3: forward ensemble flags only when explicitly set so they
+    # don't clutter the default single-layer launch.
+    if ensemble_bundle_dir:
+        cmd.extend(["--ensemble_bundle_dir", ensemble_bundle_dir])
+    if ensemble_layers:
+        cmd.extend(["--ensemble_layers", ensemble_layers])
+    if ensemble_pool:
+        cmd.extend(["--ensemble_pool", ensemble_pool])
     subprocess.run(cmd, check=True)
     volume.commit()
     print("✅ PPO training complete.")

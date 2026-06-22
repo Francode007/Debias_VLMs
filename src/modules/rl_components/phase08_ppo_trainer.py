@@ -115,6 +115,12 @@ class Phase08PPOController:
         bias_aligned_coef: float = 1.0,
         ambig_preservation_coef: float = 0.5,
         correctness_coef: float = 1.0,
+        # ── PHASE 0.9 R3 additions (multi-layer ensemble reward) ──────────
+        ensemble_layers: list = None,
+        ensemble_weights: dict = None,
+        ensemble_per_layer_mu: list = None,
+        ensemble_per_layer_sigma: list = None,
+        ensemble_pool: str = None,
         # ───────────────────────────────────────────────────────────────────
     ):
         """
@@ -194,6 +200,78 @@ class Phase08PPOController:
         self.ambig_preservation_coef = float(ambig_preservation_coef)
         self.correctness_coef = float(correctness_coef)
 
+        # ── PHASE 0.9 R3 — multi-layer ensemble reward state ──────────────
+        # `is_ensemble_mode` flips the bias_aligned reward branch from
+        # single-layer (proj at L_R, negate) to multi-layer
+        # (proj at every L in ensemble window, per-layer z-norm with
+        # offline μ/σ from `ensemble_per_layer_mu/sigma`, then mean-pool,
+        # then negate). The ensemble bundle is loaded upstream by
+        # `drm_loader.load_ensemble_probe_bundle` and the parsed metadata
+        # is sliced into the four kwargs below. None of the additional
+        # state is consulted when `is_ensemble_mode is False`, so SVM /
+        # binary / single-layer bias_aligned paths are byte-identical to
+        # the pre-Phase-0.9 trainer.
+        self.is_ensemble_mode = bool(ensemble_layers)
+        if self.is_ensemble_mode:
+            if self.reward_mode != "bias_aligned":
+                raise ValueError(
+                    f"ensemble mode requires reward_mode='bias_aligned', "
+                    f"got reward_mode={self.reward_mode!r}"
+                )
+            if not ensemble_weights:
+                raise ValueError("ensemble mode requires non-empty ensemble_weights")
+            missing_w = [L for L in ensemble_layers if L not in ensemble_weights]
+            if missing_w:
+                raise ValueError(
+                    f"ensemble_weights missing layers {missing_w}"
+                )
+            if (
+                ensemble_per_layer_mu is None or ensemble_per_layer_sigma is None
+                or len(ensemble_per_layer_mu) != len(ensemble_layers)
+                or len(ensemble_per_layer_sigma) != len(ensemble_layers)
+            ):
+                raise ValueError(
+                    "ensemble_per_layer_mu / ensemble_per_layer_sigma must be "
+                    "lists aligned 1:1 with ensemble_layers"
+                )
+            if ensemble_pool not in ("zmean", "mean", "max"):
+                raise ValueError(
+                    f"unsupported ensemble_pool={ensemble_pool!r}"
+                )
+            self.ensemble_layers: list = [int(L) for L in ensemble_layers]
+            # Per-layer weight tensors, each (1, D), already on device + bf16
+            # by the loader.
+            self.ensemble_weights: dict = {
+                int(L): ensemble_weights[L] for L in self.ensemble_layers
+            }
+            # Per-layer μ/σ stored as scalar tensors on device for fast,
+            # autograd-free z-norm in the reward block.
+            self.ensemble_mu: dict = {
+                int(L): torch.tensor(
+                    float(ensemble_per_layer_mu[i]),
+                    dtype=torch.float32, device=accelerator.device,
+                )
+                for i, L in enumerate(self.ensemble_layers)
+            }
+            self.ensemble_sigma: dict = {
+                int(L): torch.tensor(
+                    float(max(ensemble_per_layer_sigma[i], 1e-6)),
+                    dtype=torch.float32, device=accelerator.device,
+                )
+                for i, L in enumerate(self.ensemble_layers)
+            }
+            self.ensemble_pool: str = ensemble_pool
+            logger.info(
+                f"Phase 0.9 R3 ensemble mode ON  layers={self.ensemble_layers}  "
+                f"pool={self.ensemble_pool}"
+            )
+            for L in self.ensemble_layers:
+                logger.info(
+                    f"  L{L}: μ={float(self.ensemble_mu[L]):+.4f}  "
+                    f"σ={float(self.ensemble_sigma[L]):.4f}"
+                )
+        # ──────────────────────────────────────────────────────────────────
+
         # Mis-use guard: the bias_aligned probe was fit on un-adapted base
         # hidden states, so projecting against the trainable φ would let PPO
         # "hack" the reward by drifting representations (§4½.9 + §2.6.1
@@ -260,13 +338,19 @@ class Phase08PPOController:
         return self._letter_token_ids
 
     def extract_logits_values_and_hidden(self, model, value_head, input_ids, attention_mask, pixel_values, kwargs):
-        """Forward pass returning logits, per-token values, and the reward-projection hidden states.
+        """Forward pass returning logits, per-token values, the reward-projection
+        hidden states, and (in ensemble mode) a dict of per-layer hidden states.
 
         Phase 0.8: the third return is `hidden_states[self.reward_head_layer]`
         (not always the penultimate layer). For Qwen2.5-VL the hidden_states
         tuple is length N+1 (embedding + N transformer outputs); index 13
         therefore corresponds to the output of transformer block 13, which is
         the same convention the probe-fit pipeline uses.
+
+        Phase 0.9 R3: when `self.is_ensemble_mode` is True, a 4th return
+        value is populated with a dict `{layer_idx: hidden_states[L]}` for
+        every L in `self.ensemble_layers`. In single-layer mode the 4th
+        return is None and downstream code branches on `self.is_ensemble_mode`.
         """
         outputs = model(
             input_ids=input_ids,
@@ -281,7 +365,12 @@ class Phase08PPOController:
         # Reward-projection layer. `self.reward_head_layer` is an int; negative
         # values index from the end (e.g. -2 = penultimate, the legacy default).
         reward_hidden = outputs.hidden_states[self.reward_head_layer]
-        return logits, values, reward_hidden
+        ensemble_hidden = None
+        if self.is_ensemble_mode:
+            ensemble_hidden = {
+                L: outputs.hidden_states[L] for L in self.ensemble_layers
+            }
+        return logits, values, reward_hidden, ensemble_hidden
 
     def compute_logprobs(self, logits, labels):
         """Standard logprob extraction."""
@@ -545,7 +634,7 @@ class Phase08PPOController:
         # rollout time, not π_ref.
         with torch.no_grad():
             self.policy.eval()
-            old_logits, _, _ = self.extract_logits_values_and_hidden(
+            old_logits, _, _, _ = self.extract_logits_values_and_hidden(
                 self.policy, self.value_head, curr_outputs, curr_attention_mask,
                 pixel_values, curr_scoring_kwargs,
             )
@@ -558,7 +647,7 @@ class Phase08PPOController:
         self.policy.train()
         self.value_head.train()
         
-        curr_logits, curr_values, curr_reward_h = self.extract_logits_values_and_hidden(
+        curr_logits, curr_values, curr_reward_h, curr_ensemble_h = self.extract_logits_values_and_hidden(
             self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, curr_scoring_kwargs
         )
         curr_logprobs, _ = self.compute_logprobs(curr_logits, curr_outputs)
@@ -582,7 +671,7 @@ class Phase08PPOController:
         with torch.no_grad():
             self.policy.eval()
             with self.policy.disable_adapter():
-                ref_logits, _, ref_reward_h = self.extract_logits_values_and_hidden(
+                ref_logits, _, ref_reward_h, ref_ensemble_h = self.extract_logits_values_and_hidden(
                     self.policy, self.value_head, curr_outputs, curr_attention_mask, pixel_values, curr_scoring_kwargs
                 )
                 ref_logprobs, _ = self.compute_logprobs(ref_logits, curr_outputs)
@@ -594,6 +683,18 @@ class Phase08PPOController:
         # so we use penultimate[:, :-1, :], not penultimate[:, 1:, :].
         h_active = curr_reward_h[:, :-1, :].to(self.reward_heads_weight.dtype)  # (B, T, D)
         h_ref = ref_reward_h[:, :-1, :].to(self.reward_heads_weight.dtype)      # (B, T, D)
+
+        # Phase 0.9 R3: per-ensemble-layer shifted hidden states. Same off-by-one
+        # alignment as h_ref above so `ans_pos` indexes the row whose hidden
+        # state justified predicting the answer letter token. Only the REFERENCE
+        # (LoRA-off) representation is used (ensemble inherits use_frozen_phi=True
+        # from the single-layer bias_aligned path).
+        h_ref_ensemble = None
+        if self.is_ensemble_mode and ref_ensemble_h is not None:
+            h_ref_ensemble = {
+                L: ref_ensemble_h[L][:, :-1, :].to(torch.float32)
+                for L in self.ensemble_layers
+            }
 
         if self.reward_mode == "binary":
             # ─── BINARY REWARD MODE ──────────────────────────────────────────
@@ -779,25 +880,95 @@ class Phase08PPOController:
             #     (h_ref) because the bias_aligned head was fit on un-adapted
             #     base activations. Negate to make "high score = biased" map
             #     to "low reward = bad".
-            bias_w = self.reward_heads_weight  # (K, D); for bias_aligned, K=1
-            if bias_w.shape[0] > 1:
-                # If multiple heads passed, weight by FastRL alpha (legacy compat).
-                alpha = self.fast_rl.alpha.to(bias_w.dtype)  # (K,)
-                bias_dir = (alpha[:, None] * bias_w).sum(dim=0, keepdim=True)  # (1, D)
-            else:
-                bias_dir = bias_w  # (1, D)
+            #
+            # Phase 0.9 R3: in ensemble mode the projection happens at every
+            # layer in self.ensemble_layers, each result is z-normalised with
+            # offline-calibrated (μ_L, σ_L), then pooled (zmean / mean / max),
+            # then negated. In single-layer mode the legacy code path runs
+            # unchanged (FastRL alpha mixing still supported for K>1 heads).
+            bias_per_sample = torch.zeros(
+                batch_size, device=curr_outputs.device, dtype=torch.float32
+            )
+            per_layer_z_means: dict = {}  # for metric logging in ensemble mode
 
-            bias_per_sample = torch.zeros(batch_size, device=curr_outputs.device, dtype=h_ref.dtype)
-            for b_idx in range(batch_size):
-                k = pred_offset_per_sample[b_idx]
-                if k < 0:
-                    continue  # no letter parsed → no bias signal for this sample
-                ans_pos = gen_starts_shifted[b_idx].item() + k
-                if 0 <= ans_pos < h_ref.shape[1]:
-                    # h_ref is shifted-aligned: row index = full-seq position
-                    proj = torch.dot(bias_dir[0], h_ref[b_idx, ans_pos])
-                    bias_per_sample[b_idx] = -proj  # negate: high projection = biased
-            bias_per_sample = bias_per_sample.float()
+            if self.is_ensemble_mode:
+                # Per-layer projections at the answer-letter position.
+                # h_ref_ensemble[L] has shape (B, T, D) and is fp32 already.
+                T_shifted = h_ref_ensemble[self.ensemble_layers[0]].shape[1]
+                per_layer_z = torch.zeros(
+                    batch_size, len(self.ensemble_layers),
+                    device=curr_outputs.device, dtype=torch.float32,
+                )
+                per_layer_valid = torch.zeros(
+                    batch_size, dtype=torch.bool, device=curr_outputs.device,
+                )
+                for l_idx, L in enumerate(self.ensemble_layers):
+                    probe_L = self.ensemble_weights[L].to(torch.float32).squeeze(0)  # (D,)
+                    mu_L = self.ensemble_mu[L]      # () fp32
+                    sig_L = self.ensemble_sigma[L]  # () fp32
+                    for b_idx in range(batch_size):
+                        k = pred_offset_per_sample[b_idx]
+                        if k < 0:
+                            continue
+                        ans_pos = gen_starts_shifted[b_idx].item() + k
+                        if not (0 <= ans_pos < T_shifted):
+                            continue
+                        proj = torch.dot(
+                            probe_L,
+                            h_ref_ensemble[L][b_idx, ans_pos].to(torch.float32),
+                        )
+                        per_layer_z[b_idx, l_idx] = (proj - mu_L) / sig_L
+                        per_layer_valid[b_idx] = True
+                # Pool across layers.
+                if self.ensemble_pool == "zmean":
+                    pooled = per_layer_z.mean(dim=1)          # (B,) — equal weights
+                elif self.ensemble_pool == "mean":
+                    pooled = per_layer_z.mean(dim=1)          # same; "mean" of z = z-mean
+                elif self.ensemble_pool == "max":
+                    pooled, _ = per_layer_z.max(dim=1)
+                else:
+                    raise RuntimeError(
+                        f"unreachable: ensemble_pool={self.ensemble_pool!r}"
+                    )
+                # Zero out samples with no parseable letter (consistent with
+                # single-layer branch where bias_per_sample[b]=0 for those).
+                pooled = torch.where(per_layer_valid, pooled, torch.zeros_like(pooled))
+                bias_per_sample = (-pooled).float()
+                # Per-layer mean of z (over the parsed batch) for metrics.
+                if per_layer_valid.any():
+                    parsed_mask = per_layer_valid
+                    for l_idx, L in enumerate(self.ensemble_layers):
+                        per_layer_z_means[L] = float(
+                            per_layer_z[parsed_mask, l_idx].mean().item()
+                        )
+                else:
+                    for L in self.ensemble_layers:
+                        per_layer_z_means[L] = float("nan")
+            else:
+                # ── Legacy single-layer path (unchanged) ─────────────────
+                bias_w = self.reward_heads_weight  # (K, D); for bias_aligned, K=1
+                if bias_w.shape[0] > 1:
+                    # If multiple heads passed, weight by FastRL alpha (legacy compat).
+                    alpha = self.fast_rl.alpha.to(bias_w.dtype)  # (K,)
+                    bias_dir = (alpha[:, None] * bias_w).sum(dim=0, keepdim=True)  # (1, D)
+                else:
+                    bias_dir = bias_w  # (1, D)
+
+                bias_per_sample = torch.zeros(
+                    batch_size, device=curr_outputs.device, dtype=h_ref.dtype
+                )
+                for b_idx in range(batch_size):
+                    k = pred_offset_per_sample[b_idx]
+                    if k < 0:
+                        continue  # no letter parsed → no bias signal for this sample
+                    ans_pos = gen_starts_shifted[b_idx].item() + k
+                    if 0 <= ans_pos < h_ref.shape[1]:
+                        # h_ref is shifted-aligned: row index = full-seq position
+                        proj = torch.dot(bias_dir[0], h_ref[b_idx, ans_pos])
+                        bias_per_sample[b_idx] = -proj  # negate: high projection = biased
+                bias_per_sample = bias_per_sample.float()
+            # Stash per-layer z means so step()'s metric block can emit them.
+            self._last_ensemble_per_layer_z = per_layer_z_means
 
             # ── 4. Compose per-sample sparse reward at ans_pos.
             total_per_sample = (
@@ -1136,4 +1307,15 @@ class Phase08PPOController:
             if plom is not None and plom == plom:
                 metrics["pred_letter_offset_mean"] = plom
             metrics["reward_head_layer"] = self.reward_head_layer
+            # Phase 0.9 R3: ensemble-mode diagnostics.
+            if self.is_ensemble_mode:
+                metrics["ensemble_mode"] = 1
+                metrics["ensemble_pool"] = self.ensemble_pool
+                metrics["ensemble_layers"] = ",".join(str(L) for L in self.ensemble_layers)
+                per_z = getattr(self, "_last_ensemble_per_layer_z", None) or {}
+                for L in self.ensemble_layers:
+                    z = per_z.get(L, float("nan"))
+                    # NaN means no parsed sample this micro-batch (rare) — emit
+                    # the key anyway so the metrics-jsonl schema stays stable.
+                    metrics[f"ensemble_z_L{L}_mean"] = float(z)
         return metrics
