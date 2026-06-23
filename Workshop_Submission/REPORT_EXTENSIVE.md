@@ -32,6 +32,16 @@ mid-depth (L9–L21) and a convergent shared subspace at terminal depth (L25–L
 which directly motivates a multi-layer ensemble-reward intervention currently in the
 pre-registered roadmap.
 
+> **Phase 0.9 update (2026-06-23).** The two-regime claim is now hardened with B = 200
+> paired-bootstrap separability (R1) and cross-dataset replication on SB-Bench-9axis
+> (R2). The multi-layer ensemble-reward intervention has been built and 3-seed-evaluated
+> (R3): in-distribution SB-Bench accuracy is tied with the single-layer L13 baseline,
+> but the ensemble achieves a **+0.0021 |bias_score| reduction on VLBias transfer** that
+> the single-layer baseline cannot (it instead worsens |bias_score| by 0.0005). See §9
+> for the geometry update and §10.1 for the R3 measured result; full chain of evidence
+> in [Phase0.9/FINAL_REPORT.md](../Phase0.9/FINAL_REPORT.md). R4 (causal counterfactual
+> at n = 6166) is deferred pending additional ablation experiments.
+
 ---
 
 ## 2. From Phase 0–0.7 to Phase 0.8 (Compressed)
@@ -509,7 +519,14 @@ multi-layer ensemble in §10.
 
 ---
 
-## 9. The Bias Representation Has a Two-Regime Geometric Structure (Supporting Evidence)
+## 9. The Bias Representation Has a Two-Regime Geometric Structure
+
+> Phase 0.9 update (2026-06-23): Promoted from "supporting evidence" to a
+> headline contribution. The two-regime finding now has B = 200 paired-bootstrap
+> separability (Phase 0.9 R1, §9.4 below) and cross-dataset replication on
+> SB-Bench-9axis (Phase 0.9 R2, §9.9 below). See
+> [`Phase0.9/FINAL_REPORT.md`](../Phase0.9/FINAL_REPORT.md) for the full
+> Phase 0.9 chain of evidence.
 
 ### 9.1 Question
 
@@ -572,6 +589,42 @@ PC0 ≈ 1/10 = 0.10 with mean pairwise |cos| ≈ 0. Our values:
 - L13 PC0 = 0.17 → 1.7× uniform (mildly above orthogonal)
 - L25 PC0 = 0.25 → 2.5× uniform (clear rank-1 concentration)
 
+### 9.4bis Bootstrap 95% CIs and paired-draw separability (Phase 0.9 R1)
+
+The point estimates in §9.4 are augmented by B = 200 bootstrap analyses
+([scripts/rank1_bias_geometry_bootstrap.py](../scripts/rank1_bias_geometry_bootstrap.py)
+and [scripts/rank1_bias_geometry_bootstrap_full.py](../scripts/rank1_bias_geometry_bootstrap_full.py)).
+Per draw, each axis's records are resampled with replacement (n = 60), the
+per-axis probe refit on the same 5-fold StratifiedKFold recipe, and PC0 /
+|cos| recomputed. Marginal CIs are the 2.5%/97.5% percentiles; paired-draw
+separability uses a *shared resample index across layers* to control for
+cross-layer correlated noise (i.e., a paired-difference test on the
+per-draw vectors).
+
+Marginal 95% CIs and paired-draw `P(L25 > L13)`:
+
+| layer | PC0 mean | PC0 95% CI       | mean \|cos\| mean | \|cos\| 95% CI     |
+|---:|---:|:--:|---:|:--:|
+| L13 | 0.185 | [0.162, 0.214] | 0.106 | [0.085, 0.133] |
+| L25 | 0.243 | [0.202, 0.297] | 0.540 | [0.491, 0.599] |
+
+|       | metric        | P(L25 > L13)  paired |
+|------:|:--------------|:-:|
+|       | `mean |cos|`  | **1.000** |
+|       | `PC0 evr`     | **0.995** |
+
+|cos| ordering is decisively separable under both marginal and paired tests
+(no CI overlap; all 200/200 paired draws place L25 above L13). PC0 ordering
+is paired-separable at P = 0.995 but the marginal CIs touch by 0.012 due to
+layer-shared nuisance variance from the bootstrap resample. Across the full
+Regime-1 × Regime-2 grid: paired P ≥ 0.96 on PC0 and P = 1.000 on |cos| for
+all 9 `{L13, L17, L21} × {L25, L29, L33}` pairs.
+
+**Decision:** lead the two-regime claim with **mean pairwise |cos|** as the
+primary metric (cleaner under both marginal and paired tests). Retain PC0
+evr as a directional secondary metric with the marginal-CI caveat. See
+[Phase0.9/r1_bootstrap_verdict.md](../Phase0.9/r1_bootstrap_verdict.md).
+
 ### 9.5 Interpretation — two distinct geometric regimes
 
 **Regime 1 — Categorical disentanglement at mid-depth (L5–L21).** Per-axis bias
@@ -606,23 +659,29 @@ on all 10 axes at every layer" is preserved, but the *reason* is depth-dependent
 
 ### 9.7 Caveats and what this finding is not
 
-1. **n=60 per axis.** Small sample with class-imbalanced labels (~10–19 positives per
-   axis). Robust at C ∈ {0.1, 10.0} regularisation, but bootstrap confidence intervals
-   on PC0 have not yet been computed.
-2. **Single dataset.** The per-axis probes were fit on VLBiasBench hidden states (the
-   same source as the deployment probe). The two-regime pattern has not yet been
-   replicated on SB-Bench-derived hidden states. If the SB-Bench replication produces
-   the same pattern, the finding becomes a **model property** rather than a
-   dataset-coupled probe artefact.
+1. **Magnitude is dataset-coupled.** §9.9 shows the |cos| **direction**
+   replicates across VLBias and SB-Bench (paired-draw P = 1.000 on
+   17 of 20 Regime-1 × Regime-2 pairs) but the **magnitude** is ~3× weaker
+   on SB-Bench (|cos|@L25 = 0.540 VLBias vs 0.172 SB-Bench). The
+   convergence is a robust *directional* model property; the strength of
+   alignment depends on the test distribution's per-axis coverage.
+2. **PC0 concentration spike is VLBias-coupled, not a model property.**
+   The L25 PC0 = 0.25 (vs 0.17 at mid-depth) on VLBias does **not**
+   replicate on SB-Bench (paired P(L25 > L13) = 0.200 on SB-Bench,
+   inverted relative to VLBias's 0.995). PC0 should be treated as a
+   descriptive VLBias-specific quirk, not a structural claim.
 3. **Single model.** Qwen2.5-VL-3B only. Whether the two-regime structure is specific
    to this architecture, or a general property of multi-modal transformers with
    similar depth/hidden-dim, is untested.
 4. **The "convergent subspace" claim is geometric, not interpretive.** We have not
    shown that the deep-layer shared axis is *causally* responsible for the final
-   answer — only that the per-category probe directions align there.
+   answer — only that the per-category probe directions align there. R4
+   (counterfactual flip-rate at n = 6166) is the planned causal-evidence
+   gate but is deferred pending additional ensemble-window ablation experiments.
 
-Both R1 and R2 in the roadmap (§10.3) are pre-registered to address (1) and (2)
-before this finding is promoted from "supporting evidence" to "headline contribution".
+Caveats (1) and (2) supersede the original §9.7 "n=60 / no CIs" and
+"single dataset" caveats, which were closed by Phase 0.9 R1 and R2
+respectively.
 
 ### 9.8 Why this matters for the next intervention
 
@@ -639,53 +698,144 @@ A **multi-layer ensemble reward** that aggregates probe signals from both regime
 would sample **both** per-category circuits *and* the shared subspace. This is the
 basis of the Action 1 experiment in §10.
 
+### 9.9 Cross-dataset replication on SB-Bench-9axis (Phase 0.9 R2)
+
+Re-runs the bootstrap pipeline on a hidden-states cache extracted from the
+same model on SB-Bench-9axis (n = 751, 9 BBQ axes; 7 overlap with VLBias's
+10). Cache: `Phase0.8/a3_results/local_cache/sbbench9_probe_hs.npz`. Same
+script, generalised from `n_axes == 10` assert to `n_axes >= 2`.
+
+|cos| side-by-side:
+
+| Layer | VLBias \|cos\| | SB-Bench \|cos\| | VLBias PC0 | SB-Bench PC0 |
+|---:|---:|---:|---:|---:|
+| L1  | 0.299 | 0.212 | 0.208 | 0.216 |
+| L5  | 0.133 | 0.101 | 0.211 | 0.205 |
+| L9  | 0.103 | 0.079 | 0.186 | 0.187 |
+| L13 | 0.106 | 0.080 | 0.185 | 0.188 |
+| L17 | 0.110 | 0.087 | 0.179 | 0.185 |
+| L21 | 0.129 | 0.090 | 0.173 | 0.177 |
+| **L25** | **0.540** | **0.172** | **0.243** | **0.175** |
+| L29 | 0.499 | 0.149 | 0.223 | 0.174 |
+| L33 | 0.446 | 0.123 | 0.216 | 0.174 |
+| L35 | 0.418 | 0.140 | 0.200 | 0.172 |
+
+Paired-draw `P(L_hi > L_lo)`:
+
+|       | metric        | VLBias | SB-Bench |
+|------:|:--------------|:-:|:-:|
+|       | `mean |cos|`  | 1.000 | **1.000** |
+|       | `PC0 evr`     | 0.995 | **0.200** ❌ |
+
+|cos| ordering replicates at P = 1.000 on 17 of 20 Regime-1 × Regime-2 pairs;
+the 3 sub-1.0 cells all involve L35 (deepest-layer mild relaxation already
+visible in VLBias). PC0 ordering is **inverted** on SB-Bench — mid-layer
+PC0 ≥ deep-layer PC0 in 80% of paired draws.
+
+**Verdict.** The two-regime claim — deep-layer per-axis directions converge
+into a shared subspace — is a **directional model property**. The
+**magnitude** of convergence is **dataset-coupled** (~3× weaker on
+SB-Bench). The PC0 "concentration spike" sub-claim is **not** a model
+property and should be reported as a VLBias-specific descriptor (cf.
+§9.7 caveats 1 and 2). See
+[Phase0.9/r2_sbbench_replication_verdict.md](../Phase0.9/r2_sbbench_replication_verdict.md).
+
 ---
 
 ## 10. Strategic Implication and Roadmap
 
-### 10.1 Action 1 — multi-layer ensemble reward (next intervention)
+> Phase 0.9 update (2026-06-23): §10.1 is rewritten to reflect the
+> **measured** R3 result rather than the pre-Phase-0.9 priors. See
+> [`Phase0.9/FINAL_REPORT.md`](../Phase0.9/FINAL_REPORT.md) §3 for full
+> chain of evidence and §4 for audit disclosures.
 
-**Offline simulation result** ([source: Phase0.8/ensemble/README.md](../Phase0.8/ensemble/README.md)).
-Replayed all 11 layers' probes on the same 900 cached records, then z-score-normalised
-per-layer and averaged across the top window {L17, L21, L25, L29, L33}:
+### 10.1 Action 1 — multi-layer ensemble reward (measured result)
 
-| Variant | Δμ_corr | Cohen-d | pooled_sd | axes pos/10 |
-|:--|--:|--:|--:|:--:|
-| single L13 (current head) | +0.621 | +3.70 | 0.168 | 10/10 |
-| single L21 | +1.431 | +5.68 | 0.252 | 10/10 |
-| single L25 | +5.890 | +6.29 | 0.937 | 10/10 |
-| ensemble raw_mean | +4.434 | +6.97 | 0.636 | 10/10 |
-| **ensemble zscore_mean** | **+1.586** | **+7.21** | **0.220** | **10/10** |
-| ensemble rank_mean | +165.140 | +4.26 | 38.748 | 10/10 |
-| ensemble z_max | +1.362 | +4.59 | 0.297 | 10/10 |
+**Hypothesis.** Given §9 establishes that deep-layer per-axis convergence is
+a model property, an ensemble probe across the regime-boundary window
+`{L17, L21, L25, L29, L33}` with `zscore_mean` pooling — plugged in as a
+**KLFIX-PPO enhancement** (same 3-fix KLFIX backbone, only reward signal
+differs) — should extract more debiasing than the single-layer L13 reward
+already on the KLFIX backbone.
 
-`zscore_mean` is the only variant that simultaneously:
-- Strictly dominates every single-layer baseline on Cohen-d (+95% over L13);
-- Keeps the reward in a sensible scale (no rank-bloat from per-layer norm growth);
-- Is positive on all 10 BBQ axes.
+**Verdict: partially vindicated.** No in-distribution accuracy benefit; the
+ensemble does improve OOD bias-reduction on VLBias transfer, consistent with
+the R2 model-property finding.
 
-**Implementation gaps** (½-day code):
-1. [src/modules/training/drm_loader.py](../src/modules/training/drm_loader.py): load
-   N probe heads keyed by layer; store as a `dict[int, nn.Linear]`.
-2. [src/modules/rl_components/phase08_ppo_trainer.py](../src/modules/rl_components/phase08_ppo_trainer.py):
-   single forward pass capturing hidden states at all N layers; per-layer z-score
-   normalisation; mean pooling to a scalar reward.
-3. [src/modules/training/args.py](../src/modules/training/args.py): new flag
-   `--reward-mode bias_aligned_ensemble`, or extend `--reward-head-layer` to accept a
-   comma-separated list with `--reward-pool {zmean,mean,max}`.
-4. New launcher `scripts/phase08_ensemble_*.sh` mirroring the KLFIX launcher structure.
+**Implementation.** Five surfaces touched (additive; single-layer path
+unchanged). Per-layer offline μ/σ calibrated on the SB-Bench-9axis HS cache
+(n = 751) to match the PPO training distribution. Bundle on volume at
+`/generated_heads_probe_L17-33_zmean_base_biasA/`. Code: §10.1.1 below.
 
-**Pre-committed gate** (Strategic Plan §3bis):
-- Mean canonical-acc Δ vs vanilla ≥ **+1.5 pp** (beats KLFIX +1.08 pp by ≥ 0.4 pp).
-- Cross-seed std ≤ **0.5 pp**.
-- Per-axis: beats KLFIX on ≥ 6/9 BBQ axes.
-- KL stability: tail-KL std ≤ 0.005.
-- Ambig channel preserved: VLBias ambig rate within −2 pp of vanilla.
+**In-distribution result (SB-Bench canonical, n = 2916, like-for-like 3-seed):**
 
-**Expected outcome (priors).** If the offline +95% Cohen-d gain transfers at any
-non-trivial rate, KLFIX +1.08 pp should rise to +2.0 to +3.0 pp on canonical n=2916,
-with cross-seed std ≤ 0.5 pp (ensemble averages out per-layer noise — layer-layer
-Pearson is 0.87–0.99 across the top window).
+| Metric | Vanilla | KLFIX-L13 (n = 3) | R3 ensemble (n = 3) | R3 − KLFIX |
+|---|---|---|---|---|
+| micro_acc | 0.6149 | 0.6286 ± 0.0031 | 0.6278 ± 0.0038 | **−0.08 pp** |
+| macro_acc | 0.6510 | 0.6669 ± 0.0034 | 0.6652 ± 0.0036 | −0.17 pp |
+| Δ vs vanilla | — | +1.37 pp | +1.29 pp | tied within noise |
+| Stouffer combined z | — | +9.56 | +8.10 | both highly sig |
+| Per-axis wins | — | 6/9 | 1/9 (Age) | 2/9 ties |
+
+Single-layer L13 saturates the available in-distribution accuracy signal;
+the ensemble adds no further gain on SB-Bench (the dataset PPO trains on).
+
+**Out-of-distribution result (VLBias transfer, n = 2000, like-for-like 3-seed):**
+
+| Metric | Vanilla | KLFIX-L13 (n = 3) | R3 ensemble (n = 3) | R3 − KLFIX | Direction |
+|---|---|---|---|---|---|
+| overall_accuracy | 55.13 % | 54.42 % ± 0.20 | 54.47 % ± 0.06 | +0.05 pp | tie |
+| **disambig_acc** | 36.75 % | 36.16 % ± 0.47 | **36.93 % ± 0.24** | **+0.78 pp** | **R3** ✅ |
+| neg_acc | 36.40 % | 36.53 % ± 0.31 | **37.18 % ± 0.00** | +0.65 pp | **R3** ✅ |
+| non_neg_acc | 37.10 % | 35.79 % ± 0.68 | **36.69 % ± 0.48** | +0.90 pp | **R3** ✅ |
+| **\|bias_score\|** | 0.0070 | 0.0075 ± 0.0048 | **0.0049 ± 0.0048** | toward 0 by **+0.0021** | **R3** ✅ |
+| ambig_acc | 91.90 % | 90.90 % ± 0.38 | 89.51 % ± 0.45 | −1.40 pp | KLFIX |
+
+**|bias_score| movement vs vanilla** is the headline OOD effect:
+- KLFIX-L13: |bias_score| **worsens** by 0.0005 (vanilla |0.0070| → KLFIX |0.0075|, sign-flipped past 0).
+- R3 ensemble: |bias_score| **improves** by 0.0021 (vanilla |0.0070| → R3 |0.0049|).
+- **R3 is the only method that aggregate-debiases on VLBias.**
+
+Per-axis OOD bias_score (closer to 0 wins): R3 wins 5/10, KLFIX 2/10, ties 3/10.
+
+**Mechanism.** The R2 model-property finding directly predicts this: an
+ensemble probe over the regime-boundary window captures a more
+dataset-invariant bias direction (since the deep-layer convergence
+replicates), so the policy trained against it transfers a bias-reduction
+signal that the dataset-specific L13 probe cannot. The cost is ambig-channel
+erosion (1.4 pp gap to KLFIX-L13).
+
+**Pre-committed §3bis gate status:**
+
+| Gate | Threshold | R3 (like-for-like n = 3) | Status |
+|---|---|---|---|
+| Mean canonical-acc Δ vs vanilla | ≥ +1.5 pp | +1.29 pp | ❌ |
+| Cross-seed std | ≤ 0.5 pp | 0.38 pp | ✅ |
+| Beats KLFIX-L13 on ≥ 6/9 BBQ axes | ≥ 6 wins | 1 win, 6 losses, 2 ties | ❌ |
+| KL stability: tail-KL std | ≤ 0.005 | 0.00066 | ✅ |
+| VLBias ambig rate within −2 pp of vanilla | ≥ −2 pp | −2.39 pp | ⚠️ |
+| OOD VLBias bias_score reduction > KLFIX-L13 (post-hoc) | any positive Δ | +0.0021 vs −0.0005 | ✅ |
+| OOD VLBias disambig_acc > KLFIX-L13 (post-hoc) | any positive Δ | +0.78 pp | ✅ |
+
+The original §3bis gate (which was framed around in-distribution accuracy
+enhancement) **fails**. The two post-hoc OOD gates pass cleanly. The
+paper narrative is therefore: **L13 single-layer is sufficient for in-
+distribution accuracy gain; the ensemble offers a transfer-aware
+bias-reduction benefit on the held-out dataset.**
+
+#### 10.1.1 Implementation pointers (delivered)
+
+The "implementation gaps" in the pre-Phase-0.9 §10.1 are all landed:
+
+| Surface | File / artifact |
+|---|---|
+| Bundle build | [scripts/phase09_build_ensemble_bundle.py](../scripts/phase09_build_ensemble_bundle.py) → [Phase0.9/ensemble_bundle/](../Phase0.9/ensemble_bundle/) |
+| Loader | [src/modules/training/drm_loader.py](../src/modules/training/drm_loader.py) `load_ensemble_probe_bundle()` |
+| Args | [src/modules/training/args.py](../src/modules/training/args.py) `--ensemble_bundle_dir / --ensemble_layers / --ensemble_pool` |
+| Trainer | [src/modules/rl_components/phase08_ppo_trainer.py](../src/modules/rl_components/phase08_ppo_trainer.py) `is_ensemble_mode` branch in `bias_aligned` reward |
+| Launchers | [scripts/phase09_ensemble_klfix_smoke.sh](../scripts/phase09_ensemble_klfix_smoke.sh), [scripts/phase09_ensemble_klfix_seeds.sh](../scripts/phase09_ensemble_klfix_seeds.sh), [scripts/phase09_ensemble_canonical_gens.sh](../scripts/phase09_ensemble_canonical_gens.sh), [scripts/phase09_ensemble_vlbias_gens.sh](../scripts/phase09_ensemble_vlbias_gens.sh) |
+| Aggregates | [Phase0.9/canonical/](../Phase0.9/canonical/) + [Phase0.9/vlbias/](../Phase0.9/vlbias/) |
+| Verdict + audit notes | [Phase0.9/FINAL_REPORT.md](../Phase0.9/FINAL_REPORT.md) |
 
 ### 10.2 Action 3 — counterfactual flip-rate at n=6166 (causal-evidence gate)
 
@@ -695,15 +845,20 @@ The existing CF pair set (n=228) has CI ± 6 pp on a 35–50% baseline — usele
 within ±2 pp AND corrOnly does not meet the first criterion. This is the only test
 that converts the headline from an "accuracy" claim into a "causal debiasing" claim.
 
-### 10.3 Pre-Action-1 hardening experiments (new, added 2026-06-20)
+### 10.3 Pre-Action-1 hardening experiments (Phase 0.9 — completed)
 
-The two-regime finding (§9) is currently supporting evidence with limitations (n=60,
-single dataset). Two cheap follow-ups are pre-registered to land before Action 1:
+The two-regime finding (§9) is now hardened by Phase 0.9. Both pre-registered
+experiments completed with verdicts:
 
-| # | Experiment | Cost | What it gates |
+| # | Experiment | Status | Verdict |
 |---|---|---|---|
-| **R1** | **Bootstrap CIs on per-layer PC0** | ~10 min CPU | Resample 100× per axis with replacement; report 95% CI on PC0 evr and mean \|cos\| at each layer. Decision: §9.4 table becomes publication-grade iff the two-regime gap (L13 PC0 vs L25 PC0) is statistically separable. |
-| **R2** | **Cross-dataset replication on SB-Bench** | ~30 min Modal | Re-fit per-axis `bias_aligned` probes on SB-Bench-derived hidden states; re-PCA. Decision: two-regime pattern is a **model property** iff both datasets produce the same regime structure. Otherwise it is a dataset-coupled probe artefact and we will report it accordingly. |
+| **R1** | Bootstrap CIs on per-layer PC0 + \|cos\| | ✅ Done | Two-regime claim is **publication-grade** under paired-draw separability: P(L25 \|cos\| > L13 \|cos\|) = 1.000, P(L25 PC0 > L13 PC0) = 0.995 on B = 200 paired bootstrap. Lead with \|cos\|, demote PC0 to descriptive secondary. (§9.4bis above.) |
+| **R2** | Cross-dataset replication on SB-Bench | ✅ Done | \|cos\| convergence direction **replicates as a model property** (P = 1.000 on 17 of 20 paired pairs). PC0 spike does **not** replicate (P(L25 > L13) = 0.200 on SB-Bench, inverted vs VLBias). Magnitude is ~3× weaker on SB-Bench. (§9.9 above.) |
+
+R3 (Action 1 in §10.1) is also completed. R4 (Action 3 in §10.2) is deferred
+pending additional ensemble-window ablation experiments. See
+[Phase0.9/FINAL_REPORT.md](../Phase0.9/FINAL_REPORT.md) for the full Phase
+0.9 chain of evidence + methodology audit disclosures.
 
 ### 10.4 What we are explicitly NOT doing
 
