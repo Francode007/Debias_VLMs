@@ -1,5 +1,29 @@
 # Debias_VLMs: C-DeFR-L Pipeline
 
+> ⚠️ **This README is STALE (Phase 0.5 era, ~2026-04). Do not use it to understand
+> the current state of the project.**
+>
+> **For current state, active phase, and topic-to-doc map, read
+> [`PROJECT_STATE.md`](PROJECT_STATE.md) instead.** It is the live navigator
+> updated at every phase close.
+>
+> **Current phase**: 0.9.5 (ablation cycle). **Active branch**:
+> `phase0.9_multilayer_ensemble_reward`. **Latest verdict report**:
+> [`Phase0.9/FINAL_REPORT.md`](Phase0.9/FINAL_REPORT.md). **Forward plan**:
+> [`Phase0.9_Strategic_Plan.md`](Phase0.9_Strategic_Plan.md). **Critical review**:
+> [`Phase0.9_Critical_Review.md`](Phase0.9_Critical_Review.md).
+>
+> The C-DeFR-L pipeline described below was the original (Phase 0.5) scaffold.
+> Active work has since pivoted to **probe-as-reward + KLFIX-stabilised PPO on
+> Qwen2.5-VL-3B-Instruct** with per-layer linear probes against the
+> `bias_aligned` task on VLBiasBench. The reward composition, training recipe,
+> and gating methodology described in `PROJECT_STATE.md` and
+> `Workshop_Submission/REPORT_EXTENSIVE.md` supersede everything below.
+
+---
+
+## (Historical) C-DeFR-L Pipeline
+
 This repository implements the **C-DeFR-L (Causal Decomposed and Fair Reward Learning)** framework for debiasing Vision-Language Models:
 
 - **Phase 1**: Extract orthogonal reward heads from preference data using PCA-based DRM decomposition.
