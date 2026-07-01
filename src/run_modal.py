@@ -79,7 +79,7 @@ def run_preprocess(dataset: str = "sb_bench", model_family: str = "qwen",
 # ─── Phase 1b: Embedding Extraction / Inference (A100-80GB) ──────────────────
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",         # Full 80GB for batch_size=16 with large images
+    gpu="A100-40GB",         # Full 80GB for batch_size=16 with large images
     cpu=8.0,
     memory=131072,
     volumes={"/mnt/data": volume},
@@ -254,7 +254,7 @@ def run_drm_eval(completion_format: str = "free_text",
 # ─── Phase 4: PPO Training (A100-80GB) ───────────────────────────────────────
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",
+    gpu="A100-40GB",
     cpu=8.0,
     memory=131072,
     volumes={"/mnt/data": volume},
@@ -478,7 +478,7 @@ def run_setup():
 # ─── Phase: Generation ────────────────────────────────────────────────────────
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",
+    gpu="A100-40GB",
     cpu=8.0,
     memory=65536,
     volumes={"/mnt/data": volume},
@@ -532,7 +532,7 @@ def run_generation(dataset: str, checkpoint_dir: str, data_path: str, output_jso
 # ─── Phase 0a: SVM Head Activation-Steering Sanity Gate (A100-80GB) ─────────
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",
+    gpu="A100-40GB",
     cpu=8.0,
     memory=65536,
     volumes={"/mnt/data": volume},
@@ -578,7 +578,7 @@ def run_phase0_steering(
 # ─── Phase 0b: Reward / Metric Correlation (A100-80GB) ──────────────────────
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",
+    gpu="A100-40GB",
     cpu=8.0,
     memory=65536,
     volumes={"/mnt/data": volume},
@@ -677,7 +677,7 @@ def run_evaluation(dataset: str, gt_file: str, gen_file: str):
 # ─── Phase 0 Eval Sweep: generate + eval every checkpoint, single combined JSON ──
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",
+    gpu="A100-40GB",
     cpu=8.0,
     memory=65536,
     volumes={"/mnt/data": volume},
@@ -892,7 +892,7 @@ def run_phase0_eval_sweep(
 # ─── Phase 0.7 P3: POPE regression eval (A100-80GB) ─────────────────────────
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",
+    gpu="A100-40GB",
     cpu=8.0,
     memory=65536,
     volumes={"/mnt/data": volume},
@@ -950,7 +950,7 @@ def run_pope_eval(
 # ─── Phase 0.7 G4a: VLBiasBench transfer eval (A100-80GB) ───────────────────
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",
+    gpu="A100-40GB",
     cpu=8.0,
     memory=65536,
     volumes={"/mnt/data": volume},
@@ -1016,7 +1016,7 @@ def run_vlbiasbench_eval(
 # ─── Phase 0.9.5 E1: Inference-time bias-subspace erasure baseline (A100-80GB) ─
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",
+    gpu="A100-40GB",
     cpu=8.0,
     memory=65536,
     volumes={"/mnt/data": volume},
@@ -1154,7 +1154,7 @@ def run_inference_erasure(
 # ─── Phase 0.7 T1.1: Offline reward scoring on VLBiasBench (A100-80GB) ──────
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",
+    gpu="A100-40GB",
     cpu=8.0,
     memory=65536,
     volumes={"/mnt/data": volume},
@@ -1253,7 +1253,7 @@ def run_vlbias_offline_score(
 # ─── Phase 0.8 A1: Per-layer linear probes on hidden states (A100-80GB) ─────
 @app.function(
     image=vlm_image,
-    gpu="A100-80GB",
+    gpu="A100-40GB",
     cpu=8.0,
     memory=65536,
     volumes={"/mnt/data": volume},
