@@ -1013,6 +1013,144 @@ def run_vlbiasbench_eval(
     print(f"✅ VLBiasBench eval [{tag}] complete → {summary_json}")
 
 
+# ─── Phase 0.9.5 E1: Inference-time bias-subspace erasure baseline (A100-80GB) ─
+@app.function(
+    image=vlm_image,
+    gpu="A100-80GB",
+    cpu=8.0,
+    memory=65536,
+    volumes={"/mnt/data": volume},
+    timeout=14400,
+    secrets=[modal.Secret.from_name("huggingface-secret")],
+)
+def run_inference_erasure(
+    dataset: str,                   # "sb_bench" | "vlbias"
+    output_jsonl: str,              # full /mnt/data/... path for the gen JSONL
+    layer_indices: str,             # comma-separated, e.g. "13" or "13,17,21,25"
+    probe_paths: str,               # comma-separated, ABSOLUTE paths under /root/debias-vlms or /mnt/data
+    tag: str = "",
+    # SB-Bench specifics:
+    data_path: str = "/mnt/data/sb_bench_data/sb_bench_data.parquet",
+    split: str = "test",
+    split_indices_path: str = SPLIT_INDICES_PATH,
+    # VLBias specifics:
+    vlbias_parquet: str = "/mnt/data/vlbiasbench_data/vlbiasbench_close_ended.parquet",
+    image_root: str = "/mnt/data/vlbiasbench_data/unpacked/close_ended/images",
+    num_samples: int = 2000,
+    condition: str = "all",
+    qformat: str = "base,scene,scene_text",
+    seed: int = 42,
+    batch_size: int = 4,
+    # Eval (optional automatic eval pass after gen):
+    run_eval: bool = True,
+):
+    """Phase 0.9.5 E1: inference-time bias-subspace erasure.
+
+    Loads vanilla Qwen2.5-VL-3B-Instruct, registers a forward hook at each
+    `model.layers[L]` listed in --layer-indices that projects the unit-normed
+    `bias_aligned` probe direction out of the layer's output residual stream,
+    and runs constrained-decoding generation on SB-Bench (test split) OR
+    VLBiasBench. No PPO, no LoRA, no training — purely an evaluation-time
+    intervention.
+
+    Strategic-plan spec: Phase0.9_Strategic_Plan.md §3.1 (E1)
+    Critical-review motivation: Phase0.9_Critical_Review.md §6
+
+    Args
+    ----
+    dataset : "sb_bench" or "vlbias"
+    output_jsonl : full /mnt/data/... output path for the gen JSONL.
+        Eval output is auto-derived (replace `.jsonl` → `_eval_results.json`
+        for sb_bench; `_vlbias_results.json` for vlbias). The script's
+        --tag flag is used to label per-record metadata.
+    layer_indices : comma-separated layer indices (LM-decoder layer index).
+    probe_paths   : comma-separated probe npz paths (same order as
+                    layer_indices). The container picks up the repo at
+                    /root/debias-vlms, so paths like
+                    `Phase0.8/a3_results/base_L13_probe_weights_biasA.npz`
+                    are resolved relative to that root automatically.
+    run_eval      : if True, run eval_sb_bench.py / eval_vlbiasbench.py after
+                    generation and write the results JSON. Default True.
+    """
+    _setup_env()
+    os.chdir("/root/debias-vlms")  # so relative probe paths resolve
+
+    os.makedirs(os.path.dirname(output_jsonl), exist_ok=True)
+
+    layer_list = [s.strip() for s in layer_indices.split(",") if s.strip()]
+    probe_list = [s.strip() for s in probe_paths.split(",") if s.strip()]
+    if len(layer_list) != len(probe_list):
+        raise ValueError(
+            f"layer_indices and probe_paths must have the same length "
+            f"(got {len(layer_list)} vs {len(probe_list)})"
+        )
+
+    if not tag:
+        tag = "E1_L" + "-".join(layer_list) + "_erasure"
+
+    print(f"▶ E1 inference-time erasure [{tag}] on {dataset}")
+    print(f"  layers={layer_list}  probes={probe_list}")
+    print(f"  output_jsonl={output_jsonl}")
+
+    cmd = [
+        "python", "-m", "scripts.phase09_inference_erasure",
+        "--dataset", dataset,
+        "--output_jsonl", output_jsonl,
+        "--layer-indices", *layer_list,
+        "--probe-paths", *probe_list,
+        "--batch_size", str(batch_size),
+        "--tag", tag,
+    ]
+    if dataset == "sb_bench":
+        cmd += [
+            "--data_path", data_path,
+            "--split", split,
+            "--split_indices_path", split_indices_path,
+        ]
+    elif dataset == "vlbias":
+        cmd += [
+            "--data_path", vlbias_parquet,
+            "--image_root", image_root,
+            "--num_samples", str(num_samples),
+            "--condition", condition,
+            "--qformat", qformat,
+            "--seed", str(seed),
+        ]
+    else:
+        raise ValueError(f"Unsupported dataset: {dataset}")
+
+    # The script lives at scripts/phase09_inference_erasure.py; module path is
+    # `scripts.phase09_inference_erasure` if PYTHONPATH includes the repo root.
+    # _setup_env() chdir's into /root/debias-vlms/src, but we override above.
+    subprocess.run(cmd, check=True, env={**os.environ, "PYTHONPATH": "/root/debias-vlms:/root/debias-vlms/src"})
+
+    # ── Optional eval pass ─────────────────────────────────────────
+    if run_eval:
+        if dataset == "sb_bench":
+            eval_json = output_jsonl.replace(".jsonl", "_eval_results.json")
+            print(f"▶ SB-Bench eval → {eval_json}")
+            subprocess.run([
+                "python", "-m", "modules.evaluation.eval_sb_bench",
+                "--gen_file", output_jsonl,
+                "--output_json", eval_json,
+            ], check=True, env={**os.environ, "PYTHONPATH": "/root/debias-vlms:/root/debias-vlms/src"})
+        elif dataset == "vlbias":
+            # eval_vlbiasbench.py defaults output to <stem>_eval_results.json,
+            # so we route it next to the gen JSONL.
+            eval_json = output_jsonl.replace("_vlbias_gen.jsonl", "_vlbias_results.json")
+            if eval_json == output_jsonl:
+                eval_json = output_jsonl.replace(".jsonl", "_results.json")
+            print(f"▶ VLBiasBench eval → {eval_json}")
+            subprocess.run([
+                "python", "-m", "modules.evaluation.eval_vlbiasbench",
+                "--gen_file", output_jsonl,
+                "--output_json", eval_json,
+            ], check=True, env={**os.environ, "PYTHONPATH": "/root/debias-vlms:/root/debias-vlms/src"})
+
+    volume.commit()
+    print(f"✅ Inference-erasure run complete [{tag}] → {output_jsonl}")
+
+
 # ─── Phase 0.7 T1.1: Offline reward scoring on VLBiasBench (A100-80GB) ──────
 @app.function(
     image=vlm_image,

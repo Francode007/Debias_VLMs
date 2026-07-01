@@ -33,9 +33,9 @@
 
 | ID | Title | Window | Pool | LoRA placement | Status | s1 SB-Bench Δ | s1 VLBias \|bs\| Δ | s1 verdict | 4-seed ID Δ | 4-seed OOD ambig_acc | 4-seed verdict | Spend ($) | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **E1a** | Inference-time L13 erasure | n/a | n/a | n/a (no training) | not-started | — | — | — | — | — | — | 0 | one-shot baseline; if matches PPO → invalidates PPO investment |
-| **E1b** | Inference-time multi-layer erasure | {L13,L17,L21,L25} | n/a | n/a | not-started | — | — | — | — | — | — | 0 | optional follow-up to E1a |
-| **E2** | Probe-direction convergence test | L13 (and optionally L17–33) | n/a | n/a | not-started | n/a | n/a | n/a | n/a | n/a | cos(w_900,w_max) ≥ 0.95 = pass | 0 | gates E7 trigger |
+| **E1a** | Inference-time L13 erasure | n/a | n/a | n/a (no training) | dev-done, launch-pending | — | — | — | — | — | — | 0 | script + Modal fn + launcher ready; ~$0.25 to fire SB+VLBias each |
+| **E1b** | Inference-time multi-layer erasure | {L13,L17,L21,L25} | n/a | n/a | dev-done, launch-pending | — | — | — | — | — | — | 0 | same launcher; ~$0.25 to fire SB+VLBias each |
+| **E2** | Probe-direction convergence test | L13 (and optionally L17–33) | n/a | n/a | phase-a-done (ambiguous) | n/a | n/a | n/a | n/a | n/a | size_cos(L13, n=300→600)=0.927 ∈ [0.90,0.95) | 0 | Phase B (Modal extract) recommended; user pause before $1 spend |
 | **E3** | Add L13 + zmedian | {L13,L17,L21,L25,L29,L33} | zmedian | distributed (default) | not-started | — | — | — | — | — | — | 0 | direct L13-compensation test |
 | **E4** | Targeted LoRA L17–25 + winning E3 ensemble | E3-winner | E3-winner | L17–25 only | not-started | — | — | — | — | — | — | 0 | conditional on E3 4-seed green |
 | **E5** | Disentangled-regime-only | {L13,L17,L21} | zmedian | distributed | not-started | — | — | — | — | — | — | 0 | falsification of "deep regime is needed" |
@@ -49,20 +49,34 @@
 
 ## Per-experiment notes (append as runs complete)
 
-### E1a — Inference-time L13 erasure baseline (not yet started)
+### E1a — Inference-time L13 erasure baseline (dev complete; launch pending)
 
 - Spec: [Phase0.9_Strategic_Plan.md](../Phase0.9_Strategic_Plan.md) §3.1
-- Outputs to land here: `Phase0.9/erasure/E1a_sbbench_metrics.json` + `E1a_vlbias_metrics.json`
+- Script: [scripts/phase09_inference_erasure.py](../scripts/phase09_inference_erasure.py)
+- Modal fn: `run_inference_erasure` in [src/run_modal.py](../src/run_modal.py)
+- Launcher: [scripts/phase09_e1_erasure_launch.sh](../scripts/phase09_e1_erasure_launch.sh)
+- Local sanity (CPU): probe loading (4 probes, all unit-normed) + hook math (projection onto v reduced to 4e-7; orthogonal component preserved to 2e-7).
+- Outputs to land here: `Phase0.9/erasure/E1a_sbbench_gen.jsonl` + `E1a_sbbench_eval_results.json` + `E1a_vlbias_gen.jsonl` + `E1a_vlbias_results.json` (likewise E1b).
 - Decision rule: see §2.2 decision tree.
 
-### E2 — Probe-direction convergence diagnostic (not yet started)
+### E1b — Inference-time {L13,L17,L21,L25} erasure (dev complete; launch pending)
+
+- Same script + launcher as E1a; just different `--layer-indices` / `--probe-paths`.
+- Probe sources: L13 from `Phase0.8/a3_results/`; L17/L21/L25 from `Phase0.9/ensemble_bundle_raw/`.
+- Hooks fire sequentially in layer order during the forward pass.
+
+### E2 — Probe-direction convergence diagnostic (Phase A done 2026-06-24)
 
 - Spec: [Phase0.9_Strategic_Plan.md](../Phase0.9_Strategic_Plan.md) §3.2
-- Output: `Phase0.9/probe_convergence/diagnostic.json` with per-layer convergence table.
-- Decision rule:
-  - `cos(w_900, w_max) ≥ 0.95` → existing bundle is fine; do NOT trigger E7
-  - `cos(w_900, w_max) < 0.90` → trigger E7; pause all PPO ablations until new bundle is built
-  - `0.90 ≤ cos < 0.95` → soft trigger; document and decide.
+- Script: [scripts/phase09_probe_convergence.py](../scripts/phase09_probe_convergence.py)
+- Output: [Phase0.9/probe_convergence/diagnostic.json](probe_convergence/diagnostic.json)
+- Phase A method: CPU-only, existing 600-record cache (Phase0.8/a3_results/local_cache/base_probe_hs.npz). Refit `bias_aligned` LR(C=1.0) at n ∈ {150, 300, 450, 600} × 5 seeds at each L ∈ {13,17,21,25,29,33}; mean-pool seeds, compare cos to n=600 reference.
+- Sanity: `shipped_cos` for every L ∈ {13,17,21,25,29,33} is ≥ 0.9998 → refit reproduces shipped probes; methodology is correct.
+- L13 convergence curve: size_cos(n=150,300,450,600 vs n=600) = (0.841, **0.927**, 0.978, 1.000).
+- Per-layer pattern is identical — every layer L ∈ {17,21,25,29,33} lands in [0.92, 0.93] at n=300 and [0.98, 0.99] at n=450. The bias-aligned direction is a function of regularised LR on this label set, not a per-layer phenomenon.
+- Verdict: **phase_a_ambiguous**. Below 0.95 PASS but above 0.90 E7-TRIGGER. The cache's n_max is 600 (300 ambig records have `bias_aligned`=None by design), so we cannot directly measure cos(w_600, w_3000) without Phase B.
+- Extrapolation (rough): step gain 300→450 was +0.051, 450→600 was +0.022. The curve is decelerating; 600→3000 may add ~+0.02-0.04, putting cos(w_600, w_3000) plausibly in [0.96, 0.99]. Not conclusive.
+- Recommendation: Phase B (Modal HS extract at max_per_cell=100, n≈3000, ~$1) to settle definitively. User has explicitly requested pause before Phase B; awaiting authorization.
 
 ---
 
@@ -84,6 +98,7 @@
 | Date | Experiment | Step | Spend ($) | Cumulative |
 |---|---|---|---|---|
 | 2026-06-24 | — | (Phase 0.9.5 opens; baselines frozen) | 0 | 0 |
+| 2026-06-24 | E2 | Phase A CPU-only convergence diagnostic; verdict = ambiguous (size_cos(L13, n=300→600) = 0.927) | 0 | 0 |
 
 ---
 
