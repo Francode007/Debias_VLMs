@@ -37,15 +37,17 @@ if [[ ${#STAGES[@]} -eq 0 ]]; then
 fi
 
 VOL="debias-vlm-persistent-storage"
-REMOTE_CACHE="/phase09_probe_convergence/probe_hs_n3000.npz"
-REMOTE_OUTDIR="/mnt/data/phase09_probe_convergence"
-LOCAL_CACHE="Phase0.9/probe_convergence/probe_hs_n3000.npz"
+CACHE_FILENAME="probe_hs_n3000.npz"
+REMOTE_CACHE="/phase09_probe_convergence/${CACHE_FILENAME}"                # volume-relative path (for `modal volume get`)
+REMOTE_OUTDIR="/mnt/data/phase09_probe_convergence"                        # mount path (for --output-dir / --cache-npz)
+MOUNTED_CACHE="${REMOTE_OUTDIR}/${CACHE_FILENAME}"                         # mount path to the cache file
+LOCAL_CACHE="Phase0.9/probe_convergence/${CACHE_FILENAME}"
 
 for STAGE in "${STAGES[@]}"; do
     case "${STAGE}" in
         fire)
             LOG="/tmp/phase09_e2_phaseB.log"
-            echo "▶ Firing Modal HS extract (max_per_cell=100) → ${REMOTE_OUTDIR}${REMOTE_CACHE}"
+            echo "▶ Firing Modal HS extract (max_per_cell=100) → ${MOUNTED_CACHE}"
             echo "  log: ${LOG}"
             # run_layer_probe re-runs probe_layers.py end-to-end:
             #   * extracts HS at all 37 LM layers on the existing base_vlbias_gen.jsonl
@@ -55,13 +57,15 @@ for STAGE in "${STAGES[@]}"; do
             #   * also runs the per-layer CV probing as a side effect (cheap CPU);
             #     output JSON ends up at <output-dir>/base_layerwise_probe.json
             #     and is informational only.
+            # NOTE: `--save-plot` is a Typer/Modal bool flag (present=True); do
+            # NOT pass "false" as a positional. Default True saves a small PNG
+            # side-artifact next to the JSON — harmless.
             nohup modal run --detach src/run_modal.py::run_layer_probe \
                 --variant base \
                 --max-per-cell 100 \
                 --max-holdout 0 \
-                --cache-npz "/mnt/data/phase09_probe_convergence/probe_hs_n3000.npz" \
+                --cache-npz "${MOUNTED_CACHE}" \
                 --output-dir "${REMOTE_OUTDIR}" \
-                --save-plot false \
                 >"${LOG}" 2>&1 &
             sleep 2
             echo "✅ Fired (detached). Wait ~30 min, then:"
